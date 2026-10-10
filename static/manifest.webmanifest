@@ -1,0 +1,27 @@
+{
+  "name": "PilotV 成果台",
+  "short_name": "PilotV",
+  "description": "实时预览 AI 产出、在画面上标注、把返工意见回传给 agent",
+  "start_url": "/artifacts.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0e1116",
+  "theme_color": "#1f6feb",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "/artifacts-static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/artifacts-static/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["developer", "productivity", "utilities"]
+}

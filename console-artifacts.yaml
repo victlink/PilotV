@@ -1,0 +1,44 @@
+# 成果台专用 console 配置（监听 8799）
+#
+# 为什么不放 /tmp：原来的 /tmp/art-config.yaml 重启后就没了，
+# 连带「页面打不开」——配置丢了，start-console-tailscale.sh 连端口都解析不出来
+# （它 open() 直接抛 FileNotFoundError，兜底的 8799 根本走不到）。
+# 配置属于部署状态，留在仓库里才活得久。
+#
+# 注意 bind 必须同时带 loopback 和 tailscale：
+#   - 只有 loopback  → 100.90.196.104 上连不上（连不上，不是 401）
+#   - 有 tailscale   → 外网也能开
+#
+# 鉴权变量由 scripts/start-console-tailscale.sh 从 .artifacts-secrets.env 显式传入：
+#   CONSOLE_SESSION_SECRET（会话密钥）/ ARTIFACTS_TOKEN / ARTIFACTS_CONSOLE_PASSWORD
+# console 自己不读 console.env，少传一个就会全员掉线。
+bind:
+- loopback
+- tailscale
+
+port: 8799
+
+# 代理端口基址挪到 3500：宿主那台 console（8787，pid 5984）已经占了
+# 3201+ 和 3400。两台 console 各自分配代理端口，基址撞车会互相抢，
+# 日志里会刷 "app proxy failed: address already in use"。
+proxy_port_base: 3500
+
+# 这台 console 只负责成果台，不真的托管设备/应用。
+# 但 apps_registry.normalize_devices 硬性要求「至少一个设备、每台设备至少一个 app」，
+# devices 留空会直接 raise ConfigError("配置中没有 devices")，console 起不来。
+# 所以塞一个指向成果台自己的 web 条目 —— 它只出现在 console 首页的应用列表里，
+# 真正干活的是 mount() 进来的 /artifacts.html。
+devices:
+- id: artifacts
+  name: 成果台
+  description: 仅承载成果台页面与 API
+  network: direct
+  host: 127.0.0.1
+  apps:
+  - id: artifacts-page
+    kind: web
+    name: 成果台
+    url: http://127.0.0.1:8799/artifacts.html
+
+im:
+  enabled: false

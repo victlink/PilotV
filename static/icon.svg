@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1628"/>
+      <stop offset="1" stop-color="#080d18"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.62">
+      <stop offset="0" stop-color="#2e78dc" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#2e78dc" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="frame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4aa8ff"/>
+      <stop offset="1" stop-color="#1f6feb"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#121e36"/>
+      <stop offset="1" stop-color="#0b1324"/>
+    </linearGradient>
+    <linearGradient id="cmdline" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6aa8ff"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="chevron" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5fd0ff"/>
+      <stop offset="1" stop-color="#2ba8ef"/>
+    </linearGradient>
+  </defs>
+
+  <!-- full-bleed backdrop (maskable safe: content within center 80%) -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#glow)"/>
+
+  <!-- terminal window -->
+  <rect x="88" y="132" width="336" height="260" rx="46" fill="url(#frame)"/>
+  <rect x="100" y="144" width="312" height="236" rx="34" fill="url(#glass)"/>
+
+  <!-- title bar dots -->
+  <circle cx="134" cy="170" r="11" fill="#4cc3ff"/>
+  <circle cx="170" cy="170" r="11" fill="#2f7ff0"/>
+  <circle cx="206" cy="170" r="11" fill="#3a4a63"/>
+  <rect x="112" y="203" width="288" height="5" rx="2.5" fill="#1e2c47"/>
+
+  <!-- prompt chevron ">" -->
+  <path d="M140 252 L186 300 L140 348" fill="none" stroke="url(#chevron)"
+        stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- command line + caret -->
+  <rect x="214" y="289" width="122" height="23" rx="11.5" fill="url(#cmdline)"/>
+  <rect x="352" y="285" width="34" height="34" rx="7" fill="#9fe4ff"/>
+</svg>
