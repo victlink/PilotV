@@ -128,18 +128,30 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
       move(event.key === 'ArrowLeft' ? -1 : 1);
     }
   }}>
-    {document.getElementById('artifacts-header-controls') && createPortal(<div className="flex min-w-0 items-center gap-1 text-xs">
-      <label className="min-w-0 flex-1 text-xs"><span className="sr-only">当前会话成果</span>
-        <select aria-label="选择成果" className="ml-2 max-w-full rounded border border-border bg-background p-2" value={selected?.id || ''} disabled={status !== 'ready' || !artifacts.length} onChange={event => setIndex(artifacts.findIndex(item => item.id === event.target.value))}>
-          {!selected && <option value="">暂无成果</option>}
-          {artifacts.map((item, position) => <option key={`${item.id}-${position}`} value={item.id}>{position + 1}. {item.title || item.file_name || item.id}</option>)}
-        </select>
-      </label>
-      <button type="button" className="min-h-11 rounded border border-border px-3" disabled={status !== 'ready' || index <= 0} onClick={() => move(-1)}>上一个</button>
-      <span className="text-sm" aria-live="polite">{artifacts.length ? `${index + 1} / ${artifacts.length}` : '0 / 0'}</span>
-      <button type="button" className="min-h-11 rounded border border-border px-3" disabled={status !== 'ready' || index >= artifacts.length - 1} onClick={() => move(1)}>下一个</button>
-      <button type="button" className="min-h-11 rounded border border-border px-3" onClick={() => setRefresh(value => value + 1)}>刷新</button>
-    </div>, document.getElementById('artifacts-header-controls')!)}
+    {/* Artifact picker lives in the app header on desktop, where the row has room.
+        On phones the header already carries 对话/成果 + title + search, and a second
+        control cluster there overlaps them — so on mobile it renders as its own row
+        on top of the stage instead. */}
+    {(() => {
+      const controls = <div className="flex min-w-0 flex-wrap items-center gap-1 text-xs">
+        <label className="min-w-0 flex-1 text-xs"><span className="sr-only">当前会话成果</span>
+          <select aria-label="选择成果" className="max-w-full rounded border border-border bg-background p-2" value={selected?.id || ''} disabled={status !== 'ready' || !artifacts.length} onChange={event => setIndex(artifacts.findIndex(item => item.id === event.target.value))}>
+            {!selected && <option value="">暂无成果</option>}
+            {artifacts.map((item, position) => <option key={`${item.id}-${position}`} value={item.id}>{position + 1}. {item.title || item.file_name || item.id}</option>)}
+          </select>
+        </label>
+        <button type="button" className="min-h-11 rounded border border-border px-3" disabled={status !== 'ready' || index <= 0} onClick={() => move(-1)}>上一个</button>
+        <span className="text-sm" aria-live="polite">{artifacts.length ? `${index + 1} / ${artifacts.length}` : '0 / 0'}</span>
+        <button type="button" className="min-h-11 rounded border border-border px-3" disabled={status !== 'ready' || index >= artifacts.length - 1} onClick={() => move(1)}>下一个</button>
+        <button type="button" className="min-h-11 rounded border border-border px-3" onClick={() => setRefresh(value => value + 1)}>刷新</button>
+      </div>;
+
+      if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1024px)').matches) {
+        return <div className="shrink-0 border-b border-border px-2 py-2">{controls}</div>;
+      }
+      const slot = document.getElementById('artifacts-header-controls');
+      return slot ? createPortal(controls, slot) : null;
+    })()}
     <div aria-label="滑动切换成果" className="shrink-0 select-none border-b border-border px-3 py-2 text-xs text-muted-foreground" onTouchStart={event => { touchX.current = event.touches[0]?.clientX ?? null; }} onTouchEnd={event => {
       const end = event.changedTouches[0]?.clientX;
       if (touchX.current !== null && end !== undefined && Math.abs(end - touchX.current) > 40 && status === 'ready') move(end < touchX.current ? 1 : -1);

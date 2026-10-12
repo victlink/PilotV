@@ -4,7 +4,7 @@ const {chromium}=require('playwright');
 const browser=await chromium.launch({headless:true,executablePath:'/home/Marc/.cache/ms-playwright/chromium-1237/chrome-linux64/chrome',args:['--no-sandbox']});
 try {
  const page=await browser.newPage({viewport:{width:1440,height:900}});
- await page.goto('http://127.0.0.1:5186/');
+ await page.goto(BASE);
  if(await page.getByRole('button',{name:'增加设备',exact:true}).count())throw Error('external add button remains');
  await page.getByLabel('选择设备').waitFor();
  if(await page.getByLabel('选择设备').locator('option').last().getAttribute('value') !== '__add_device__')throw Error('add is not final option');

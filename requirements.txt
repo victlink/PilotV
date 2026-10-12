@@ -1,0 +1,5 @@
+# PilotV 运行依赖（成果台服务）
+#
+# 只装这一条就能起成果台；前端另需 Node 18+ 与 pilotdeck-mobile/upstream-official/ui 的 npm 依赖。
+# 版本按当前线上实测通过的版本钉住，换机器时先照抄这行再改。
+aiohttp>=3.9,<4

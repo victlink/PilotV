@@ -9,4 +9,17 @@
     input:not([type='checkbox']):not([type='radio']), textarea, select { font-size: max(16px, 1em); }
   }
   [role='dialog'] { max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)); max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow-y: auto; }
+
+  /* The workspace header is z-80 so its dropdowns float above everything; the
+     mobile drawer ships at z-50. Left as-is the header paints straight through
+     the open drawer — the device picker and 对话/成果 buttons sit on top of the
+     first project row and swallow taps meant for a conversation. Only the phone
+     drawer is lifted, desktop stacking is untouched. */
+  .mobile-sidebar-drawer { z-index: 90; }
+
+  /* One header row has to hold 对话/成果 + title + search on a 390px screen.
+     The project shortcuts (Files, Explore) don't fit: they land on top of the
+     toggle and swallow its taps. Both are still reachable from the project
+     workspace body and the sidebar drawer, so only the header copies go away. */
+  .workspace-header .workspace-actions .file-entry { display: none; }
 }

@@ -518,8 +518,13 @@ export default function AppShellV2() {
       if (!options?.preserveActiveTab) {
         setActiveTab('chat');
       }
+      // 手机上侧栏是抽屉：选完会话要收起来。不收的话成果窗口被压在抽屉后面，
+      // 用户点了会话却看不到任何变化。桌面侧栏常驻，这句不影响桌面。
+      if (isMobile) {
+        setSidebarOpen(false);
+      }
     },
-    [handleProjectSelect, handleSessionSelect, navigate, selectedProject?.name, setActiveTab, acknowledgeNavigation],
+    [handleProjectSelect, handleSessionSelect, navigate, selectedProject?.name, setActiveTab, acknowledgeNavigation, isMobile, setSidebarOpen],
   );
 
   const workspacePath = selectedSession
@@ -706,7 +711,7 @@ export default function AppShellV2() {
         desktopSidebarOpen ? sidebar : null
       ) : (
         <div
-          className={`fixed inset-0 z-50 flex transition-opacity duration-150 ease-out ${
+          className={`mobile-sidebar-drawer fixed inset-0 z-50 flex transition-opacity duration-150 ease-out ${
             sidebarOpen ? 'visible opacity-100' : 'invisible opacity-0'
           }`}
         >

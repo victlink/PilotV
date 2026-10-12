@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { mkdir } from 'node:fs/promises';
 const require = createRequire('/home/Marc/PilotDeck-src/node_modules/.pnpm/playwright@1.60.0/node_modules/playwright/package.json');
 const { chromium } = require('playwright');
+const BASE = process.env.BASE_URL || 'http://127.0.0.1:5186/';
 await mkdir('pilotdeck-mobile/review/artifacts', { recursive: true });
 
 const SAMPLES = [
@@ -17,7 +18,7 @@ const report = { errors: [], results: [] };
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.on('pageerror', e => report.errors.push(e.message));
-  await page.goto('http://127.0.0.1:5186/', { waitUntil: 'networkidle', timeout: 60000 });
+  await page.goto(BASE, { waitUntil: 'networkidle', timeout: 60000 });
   // 项目行是 button，左上角 Logo 是 span；改名后两者文本都是 PilotV，必须按角色区分。
   await page.getByRole('button', { name: 'PilotV', exact: true }).first().click().catch(() => {});
   await page.waitForTimeout(1500);

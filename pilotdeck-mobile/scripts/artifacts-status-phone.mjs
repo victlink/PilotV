@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 const require = createRequire('/home/Marc/PilotDeck-src/node_modules/.pnpm/playwright@1.60.0/node_modules/playwright/package.json');
 const { chromium } = require('playwright');
+const BASE = process.env.BASE_URL || 'http://127.0.0.1:5186/';
 const out = { errors: [], mobile: {} };
 const browser = await chromium.launch({ headless: true, executablePath: '/home/Marc/.cache/ms-playwright/chromium-1237/chrome-linux64/chrome', args: ['--no-sandbox'] });
 try {
@@ -8,7 +9,7 @@ try {
   // cannot hide the other's result.
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.on('pageerror', e => out.errors.push(e.message));
-  await page.goto('http://127.0.0.1:5186/', { waitUntil: 'networkidle', timeout: 60000 });
+  await page.goto(BASE, { waitUntil: 'networkidle', timeout: 60000 });
   // 项目行是 button，左上角 Logo 是 span；改名后两者文本都是 PilotV，必须按角色区分。
   await page.getByRole('button', { name: 'PilotV', exact: true }).first().click().catch(() => {});
   await page.waitForTimeout(1500);
