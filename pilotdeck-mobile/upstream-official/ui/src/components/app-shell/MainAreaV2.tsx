@@ -5,6 +5,8 @@ import {
   BarChart3,
   Database,
   Folder,
+  MessagesSquare,
+  Package,
   PanelLeftOpen,
   Radio,
   type LucideIcon,
@@ -376,9 +378,33 @@ function MainAreaV2Content(props: MainAreaV2Props) {
           </button>
         ) : null}
         <div className="workspace-title flex min-w-0 flex-1 items-center gap-3">
-          <nav aria-label="对话与成果切换" className="flex shrink-0 items-center gap-0.5 rounded-lg bg-neutral-100 p-0.5 text-[12px] dark:bg-neutral-800">
-            <button type="button" aria-pressed={!showArtifacts} style={{ background: !showArtifacts ? '#2563eb' : 'transparent', color: !showArtifacts ? '#fff' : 'inherit' }} className="min-h-8 rounded-md px-2 font-medium" onClick={() => setShowArtifacts(false)}>对话</button>
-            <button type="button" aria-pressed={showArtifacts} style={{ background: showArtifacts ? '#2563eb' : 'transparent', color: showArtifacts ? '#fff' : 'inherit' }} className="min-h-8 rounded-md px-2 font-medium" onClick={() => setShowArtifacts(true)}>成果</button>
+          {/* 状态不能只靠颜色区分：图标、文案、底色三样一起变。亮色暗色都显式取色，
+              不用 inherit —— 之前 inherit 会跟着父级跑，切几次就跟 Files 按钮混在一起。 */}
+          <nav aria-label="对话与成果切换" className="flex shrink-0 items-center gap-0.5 rounded-lg bg-neutral-200/70 p-0.5 text-[12px] dark:bg-neutral-800/80">
+            <button
+              type="button"
+              aria-pressed={!showArtifacts}
+              data-pane-state={!showArtifacts ? 'on' : 'off'}
+              onClick={() => setShowArtifacts(false)}
+              className={`flex min-h-8 items-center gap-1.5 rounded-md px-2 font-medium transition-colors ${showArtifacts
+                ? 'text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100'
+                : 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/5 dark:bg-neutral-700 dark:text-white dark:ring-white/10'}`}
+            >
+              <MessagesSquare aria-hidden="true" strokeWidth={showArtifacts ? 1.8 : 2.2} className={`h-3.5 w-3.5 ${showArtifacts ? '' : 'text-blue-600 dark:text-blue-300'}`} />
+              对话
+            </button>
+            <button
+              type="button"
+              aria-pressed={showArtifacts}
+              data-pane-state={showArtifacts ? 'on' : 'off'}
+              onClick={() => setShowArtifacts(true)}
+              className={`flex min-h-8 items-center gap-1.5 rounded-md px-2 font-medium transition-colors ${showArtifacts
+                ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/5 dark:bg-neutral-700 dark:text-white dark:ring-white/10'
+                : 'text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100'}`}
+            >
+              <Package aria-hidden="true" strokeWidth={showArtifacts ? 2.2 : 1.8} className={`h-3.5 w-3.5 ${showArtifacts ? 'text-blue-600 dark:text-blue-300' : ''}`} />
+              成果
+            </button>
           </nav>
           <div className="flex min-w-0 items-center gap-1.5">
             <Folder aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.8} />

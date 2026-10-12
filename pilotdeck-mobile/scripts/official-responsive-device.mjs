@@ -25,9 +25,9 @@ try {
  await page.getByRole('button',{name:'删除设备 验收设备',exact:true}).click();
  if(await page.getByLabel('选择设备').locator('option').filter({hasText:'验收设备'}).count())throw Error('delete failed');
  if(await page.locator('.brand-lockup,.brand-mark').count())throw Error('old logo remains');
- await page.getByRole('button',{name:'成果台',exact:true}).click();
- await page.getByRole('region',{name:'成果台展示',exact:true}).waitFor();
+ await page.getByRole('button',{name:'成果',exact:true}).click();
+ await page.getByRole('region',{name:'当前会话成果',exact:true}).waitFor();
  await page.getByRole('button',{name:'对话',exact:true}).click();
- if(await page.getByRole('region',{name:'成果台展示',exact:true}).count())throw Error('console did not close');
+ if(await page.getByRole('region',{name:'当前会话成果',exact:true}).count())throw Error('console did not close');
  console.log('PASS: selector replaces logo; add/save/reload/delete; chat and console switching');
 } finally {await browser.close();}

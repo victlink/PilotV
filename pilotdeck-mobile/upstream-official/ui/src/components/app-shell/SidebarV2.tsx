@@ -1096,7 +1096,7 @@ export default function SidebarV2({
         <button type="button" aria-label="展开设备选择" className="compact-brand" onClick={expandCompactSidebar}>设备</button>
       ) : (
         <div className="min-h-[62px] shrink-0 border-b border-neutral-200/80 dark:border-neutral-800">
-          <div className="flex min-h-[61px] items-center pl-3"><span aria-label="PiloV" className="shrink-0 text-sm font-bold tracking-tight">Pilo<span className="text-blue-600 dark:text-blue-400">V</span></span><div className="min-w-0 flex-1"><DeviceSwitcher compact={false} /></div></div>
+          <div className="flex min-h-[61px] items-center gap-2 pl-3"><span aria-label="PilotV" className="shrink-0 text-[17px] font-bold leading-none tracking-tight">Pilot<span className="text-blue-600 dark:text-blue-400">V</span></span><div className="min-w-0 flex-1"><DeviceSwitcher compact={false} /></div></div>
         </div>
       )}
       <nav

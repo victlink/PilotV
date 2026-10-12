@@ -8,7 +8,8 @@ try {
   const page = await context.newPage();
   page.on('pageerror', e => out.errors.push(e.message));
   await page.goto('http://127.0.0.1:5186/', { waitUntil: 'networkidle', timeout: 60000 });
-  await page.getByText('PilotV', { exact: true }).first().click().catch(() => {});
+  // 项目行是 button，左上角 Logo 是 span；改名后两者文本都是 PilotV，必须按角色区分。
+  await page.getByRole('button', { name: 'PilotV', exact: true }).first().click().catch(() => {});
   await page.waitForTimeout(1500);
   await page.getByText('新建 PilotDeck 移动端 PWA 项目', { exact: false }).first().click();
   await page.waitForTimeout(1200);

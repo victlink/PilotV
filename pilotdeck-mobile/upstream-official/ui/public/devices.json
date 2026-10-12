@@ -1,0 +1,6 @@
+{
+  "devices": [
+    { "name": "marc-linux-pc", "origin": "http://100.72.0.111:3001" },
+    { "name": "jx88", "origin": "http://100.108.86.109:3001" }
+  ]
+}

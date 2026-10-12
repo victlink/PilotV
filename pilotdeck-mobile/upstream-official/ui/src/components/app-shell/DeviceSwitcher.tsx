@@ -1,11 +1,48 @@
 import { useEffect, useState } from 'react';
-import { DEVICE_KEY, decodeDevices, mergeDevices, parseDeviceImport, validateDevice, type Device } from './deviceRegistry';
+import {
+  DEVICE_DEFAULTS_URL,
+  DEVICE_HIDDEN_KEY,
+  DEVICE_KEY,
+  decodeDeviceDefaults,
+  decodeDevices,
+  decodeHiddenOrigins,
+  mergeDeviceDefaults,
+  mergeDevices,
+  parseDeviceImport,
+  validateDevice,
+  type Device,
+} from './deviceRegistry';
+
+function safeRead(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
+function safeWrite(key: string, value: string): void { try { localStorage.setItem(key, value); } catch { /* 存储不可用则忽略 */ } }
 
 export default function DeviceSwitcher({ compact }: { compact: boolean }) {
   const current = window.location.origin;
   const [devices, setDevices] = useState<Device[]>(() => {
-    try { return decodeDevices(localStorage.getItem(DEVICE_KEY)); } catch { return []; }
+    try { return decodeDevices(safeRead(DEVICE_KEY)); } catch { return []; }
   });
+  // 预置设备来自随构建发布的 devices.json：换台机器打开也能看到同一批设备，
+  // 不再依赖每个浏览器手工录入一次。拉取失败就退回纯本地列表。
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    fetch(DEVICE_DEFAULTS_URL, { cache: 'no-store', signal: controller.signal })
+      .then(response => (response.ok ? response.json() : null))
+      .then((payload: unknown) => {
+        if (cancelled || !payload) return;
+        const defaults = decodeDeviceDefaults(payload);
+        if (!defaults.length) return;
+        setDevices(currentDevices => {
+          const hidden = decodeHiddenOrigins(safeRead(DEVICE_HIDDEN_KEY));
+          const merged = mergeDeviceDefaults(currentDevices, defaults, hidden);
+          safeWrite(DEVICE_KEY, JSON.stringify(merged));
+          return merged;
+        });
+      })
+      .catch(() => { /* 离线或未部署该文件：用本机列表即可 */ });
+    return () => { cancelled = true; controller.abort(); };
+  }, []);
+
   // 一次性设备导入：?addDevice=… 只写这台浏览器本地，写完就把参数抹掉，
   // 刷新后不会重复导入，也不会把地址留在地址栏或历史记录里。
   useEffect(() => {
@@ -56,7 +93,11 @@ export default function DeviceSwitcher({ compact }: { compact: boolean }) {
       <label>官方 UI 地址<input aria-label="官方 UI 地址" type="url" required placeholder="http://100.x.x.x:3001/" value={address} onChange={e => setAddress(e.target.value)} style={{ width: '100%', color: 'inherit', background: 'transparent', border: '1px solid var(--border)', padding: 6 }} /></label>
       <p style={{ fontSize: 12 }}>仅本浏览器保存名称与地址。切换会打开目标网页并使用其独立登录态；设备列表不会自动同步至另一地址。HTTP 仅建议用于可信网络。</p>
       <div style={{ display: 'flex', gap: 8, fontSize: 13 }}><button type="submit" style={{ minHeight: 44, flex: 1 }}>保存设备</button><button type="button" style={{ minHeight: 44 }} onClick={() => { setOpen(false); setError(''); }}>取消</button></div>
-      {devices.map(d => <div key={d.origin} style={{ display: 'flex', gap: 4, minWidth: 0 }}><span style={{ flex: 1 }}>{d.name}</span><button type="button" aria-label={`删除设备 ${d.name}`} onClick={() => { if (window.confirm(`删除设备配置“${d.name}”？不会删除后端数据。`)) persist(devices.filter(item => item.origin !== d.origin)); }}>删除</button></div>)}
+      {devices.map(d => <div key={d.origin} style={{ display: 'flex', gap: 4, minWidth: 0 }}><span style={{ flex: 1 }}>{d.name}</span><button type="button" aria-label={`删除设备 ${d.name}`} onClick={() => { if (window.confirm(`删除设备配置“${d.name}”？不会删除后端数据。`)) {
+          const hidden = decodeHiddenOrigins(safeRead(DEVICE_HIDDEN_KEY));
+          if (!hidden.includes(d.origin)) safeWrite(DEVICE_HIDDEN_KEY, JSON.stringify([...hidden, d.origin]));
+          persist(devices.filter(item => item.origin !== d.origin));
+        } }}>删除</button></div>)}
     </form>}
     {error && <p role="alert">{error}</p>}
   </div>;

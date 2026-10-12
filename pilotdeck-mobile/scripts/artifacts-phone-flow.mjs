@@ -17,7 +17,8 @@ try {
     const btn = page.locator('button[aria-label="Show sidebar"]');
     if (await btn.isVisible().catch(() => false)) { await btn.click().catch(() => {}); await page.waitForTimeout(1200); }
   };
-  await page.getByText('PilotV', { exact: true }).first().click().catch(() => {});
+  // 项目行是 button，左上角 Logo 是 span；改名后两者文本都是 PilotV，必须按角色区分。
+  await page.getByRole('button', { name: 'PilotV', exact: true }).first().click().catch(() => {});
   await page.waitForTimeout(1500);
   await reopen();
   const project = page.getByText('新建 PilotDeck 移动端 PWA 项目', { exact: false }).first();

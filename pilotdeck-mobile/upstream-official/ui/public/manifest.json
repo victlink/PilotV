@@ -1,7 +1,7 @@
 {
-  "name": "PilotDeck",
-  "short_name": "PilotDeck",
-  "description": "PilotDeck — agent-driven development workspace",
+  "name": "PilotV",
+  "short_name": "PilotV",
+  "description": "PilotV — 多设备 PilotDeck 前端",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

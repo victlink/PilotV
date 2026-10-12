@@ -51,3 +51,41 @@ export function mergeDevices(current: Device[], incoming: Device[]): Device[] {
   for (const device of [...current, ...incoming]) if (!byOrigin.has(device.origin)) byOrigin.set(device.origin, device);
   return [...byOrigin.values()];
 }
+
+/** 部署侧预置设备：随构建一起发布的 devices.json。
+ *  作用是「换台机器打开也能看到同一批设备」，不再依赖每台浏览器手工录入。 */
+export const DEVICE_DEFAULTS_URL = 'devices.json';
+export const DEVICE_HIDDEN_KEY = 'pilotdeck-device-directory-hidden-v1';
+
+export function decodeDeviceDefaults(raw: unknown): Device[] {
+  const list = Array.isArray(raw) ? raw : (raw as { devices?: unknown } | null)?.devices;
+  if (!Array.isArray(list)) return [];
+  const devices: Device[] = [];
+  for (const value of list) {
+    if (!value || typeof value !== 'object') continue;
+    const { name, origin } = value as { name?: unknown; origin?: unknown };
+    if (typeof name !== 'string' || typeof origin !== 'string') continue;
+    try { devices.push(validateDevice(name, origin)); } catch { /* 跳过非法项 */ }
+  }
+  return devices;
+}
+
+/** 本机已删除的预置设备 origin，避免每次加载又冒出来。 */
+export function decodeHiddenOrigins(raw: string | null): string[] {
+  try {
+    const list: unknown = JSON.parse(raw || '[]');
+    if (!Array.isArray(list)) return [];
+    return list.filter((value): value is string => typeof value === 'string' && value.startsWith('http'));
+  } catch { return []; }
+}
+
+/** 合并规则：预置设备在前（保证各机器看到同一顺序），本机新增的追加在后；
+ *  同 origin 以先出现者为准；hidden 里的预置设备不显示。 */
+export function mergeDeviceDefaults(stored: Device[], defaults: Device[], hidden: string[] = []): Device[] {
+  const blocked = new Set(hidden);
+  const byOrigin = new Map<string, Device>();
+  for (const device of [...defaults.filter(d => !blocked.has(d.origin)), ...stored]) {
+    if (!byOrigin.has(device.origin)) byOrigin.set(device.origin, device);
+  }
+  return [...byOrigin.values()];
+}
