@@ -50,7 +50,10 @@
         <i></i><span id="liveLabel">未连接</span>
       </button>
       <button class="ghost-btn icon-only" id="btnTheme" title="切换主题">☾</button>
-      <button class="ghost-btn" id="btnRefresh" type="button" title="重新读取成果列表">重载</button>
+      <!-- 「重载」拆成文字/图形两态：桌面显字，手机窄屏只剩图标（顶栏横向空间不够） -->
+      <button class="ghost-btn" id="btnRefresh" type="button" title="重新读取成果列表">
+        <span class="btn-label">重载</span><span class="btn-glyph" aria-hidden="true">↻</span>
+      </button>
       <button class="ghost-btn icon-only side-toggle" id="btnAnnoToggle" type="button"
               title="收起 / 展开标注栏" aria-pressed="false">◨</button>
       <!-- 设置入口：常驻顶栏，不藏在需要「正好点中」的位置。

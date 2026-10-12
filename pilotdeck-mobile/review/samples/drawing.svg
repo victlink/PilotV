@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+  <rect width="800" height="600" fill="#ffffff"/>
+  <g stroke="#1f2937" stroke-width="2" fill="none">
+    <rect x="60" y="60" width="680" height="480"/>
+    <rect x="120" y="140" width="240" height="180"/>
+    <circle cx="520" cy="230" r="70"/>
+    <line x1="120" y1="400" x2="680" y2="400"/>
+  </g>
+  <g fill="#111827" font-family="sans-serif" font-size="18">
+    <text x="180" y="235">机柜 A</text>
+    <text x="480" y="235">转台</text>
+    <text x="360" y="450">基准线</text>
+  </g>
+</svg>

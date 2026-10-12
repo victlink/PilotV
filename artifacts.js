@@ -434,6 +434,7 @@
     pdfPage: 1,             // 图纸当前页（服务端栅格化，一页一图）
     showHidden: false,      // 展开显示「附属产物 / 显示不出来」的那批
     mvMode: 'view',         // 三维：'view' 旋转 / 'anno' 标注，两种手势互斥
+    pan: { k: 1, x: 0, y: 0 },  // 图纸／静态图的缩放与平移
     drafts: [],             // 已落点、还没写说明的标注草稿（只在本地，见 addDraft）
     editingId: null,        // 正在改写说明的已存标注 id
     edit: null,             // { body } 改写中的正文
@@ -914,9 +915,63 @@
     return allArts().find((a) => a.id === state.selectedId) || null;
   }
 
+  /* 文本类文档：<object> 只认插件类型，纯文本会渲染成空白，
+     所以自己把 raw 抓回来铺成可滚动的 <pre>。 */
+  function hydrateTextStage(root) {
+    const pre = root.querySelector('pre.art-text[data-src]');
+    if (!pre) return;
+    const src = pre.getAttribute('data-src');
+    pre.removeAttribute('data-src');
+    fetch(src, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((text) => { pre.textContent = text; })
+      .catch((err) => { pre.textContent = `文本读不出来：${err.message}`; });
+  }
+
+  /* 图纸／静态图：浏览模式下支持滚轮缩放和拖动平移。
+   标注在位时手势交给标注层，这里不抢 —— 两套手势不能同时生效。 */
+  function attachPanZoom(inner) {
+    const target = inner.querySelector('.art-render > img, .art-render > svg');
+    if (!target) return;
+    const apply = () => {
+      const { k, x, y } = state.pan;
+      target.style.transform = (k === 1 && !x && !y) ? '' : `translate(${x}px, ${y}px) scale(${k})`;
+      target.style.transformOrigin = 'center center';
+      target.style.willChange = 'transform';
+    };
+    let dragging = null;
+    inner.addEventListener('wheel', (ev) => {
+      if (noteArmed()) return;
+      ev.preventDefault();
+      const next = state.pan.k * (ev.deltaY < 0 ? 1.12 : 0.89);
+      state.pan.k = Math.min(8, Math.max(0.2, next));
+      apply();
+    }, { passive: false });
+    inner.addEventListener('pointerdown', (ev) => {
+      if (noteArmed() || ev.button > 0) return;
+      dragging = { x: ev.clientX, y: ev.clientY, ox: state.pan.x, oy: state.pan.y };
+      inner.setPointerCapture(ev.pointerId);
+    });
+    inner.addEventListener('pointermove', (ev) => {
+      if (!dragging) return;
+      state.pan.x = dragging.ox + (ev.clientX - dragging.x);
+      state.pan.y = dragging.oy + (ev.clientY - dragging.y);
+      apply();
+    });
+    const stop = () => { dragging = null; };
+    inner.addEventListener('pointerup', stop);
+    inner.addEventListener('pointercancel', stop);
+    inner.addEventListener('dblclick', () => {
+      if (noteArmed()) return;
+      state.pan = { k: 1, x: 0, y: 0 };
+      apply();
+    });
+  }
+
   function renderStage() {
     const stage = $('stage');
     const a = current();
+    defaultGestureMode(a);
 
     // 工具条
     $('stageTitle').textContent = a ? a.title : '未选择成果';
@@ -960,6 +1015,12 @@
     overlay.className = 'art-overlay';
     overlay.id = 'overlay';
     inner.appendChild(overlay);
+    hydrateTextStage(inner);
+    if (state.panArtifact !== (a && a.id)) {
+      state.panArtifact = a && a.id;
+      state.pan = { k: 1, x: 0, y: 0 };
+    }
+    attachPanZoom(inner);
 
     stage.innerHTML = '';
     if (rail) stage.appendChild(rail);
@@ -1355,9 +1416,11 @@
 
     switch (a.kind) {
       case 'page':
-        if (state.mode === 'live' && a.live) {
+        /* 真机预览优先用真地址；没有真地址时退回原页面本身，
+           否则点「真机预览」看到的还是同一张快照，等于没得切。 */
+        if (state.mode === 'live' && (a.live || a.kind === 'page')) {
           return `<div class="art-render"><iframe title="${esc(a.title)}" sandbox="allow-scripts allow-same-origin"
-            src="${esc(a.live)}"></iframe></div>`;
+            src="${esc(a.live || bust)}"></iframe></div>`;
         }
         if (snap) return `<div class="art-render"><img src="${esc(snap)}" alt="${esc(a.title)}"></div>`;
         return `<div class="art-render"><iframe title="${esc(a.title)}" sandbox="allow-scripts allow-same-origin"
@@ -1386,9 +1449,16 @@
           <span>${esc(hint)}</span>
           <a class="ghost-btn" href="${esc(bust)}" target="_blank" rel="noopener">在新标签打开原文件</a></div>`;
       }
-      case 'doc':
-        return `<div class="art-render"><object data="${esc(bust)}" type="${esc(a.mime || 'application/pdf')}"
+      case 'doc': {
+        /* text/* 塞进 <object> 浏览器根本不渲染（只认 pdf 等插件类型），
+           表现为一片空白。这里改成自己抓文本铺出来。 */
+        const mime = a.mime || '';
+        if (/^text\//.test(mime) || /\.(txt|md|log|csv|json|ya?ml)$/i.test(a.file_name || a.title || '')) {
+          return `<div class="art-render"><pre class="art-text" data-src="${esc(bust)}">${esc(a.title)}</pre></div>`;
+        }
+        return `<div class="art-render"><object data="${esc(bust)}" type="${esc(mime || 'application/pdf')}"
             class="art-doc"><img src="${esc(snap || a.thumb || '')}" alt="${esc(a.title)}"></object></div>`;
+      }
       case 'image':
         return `<div class="art-render"><img src="${esc(bust)}" alt="${esc(a.title)}"></div>`;
       default:
@@ -1444,8 +1514,21 @@
       mv.setAttribute('camera-controls', '');
       mv.setAttribute('auto-rotate', '');
     }
-    /* 标注模式同时把标注层接上：不然点了没反应，用户会以为按钮坏了。 */
-    applyArmed(anno || noteArmed());
+    /* 标注模式同时把标注层接上：不然点了没反应，用户会以为按钮坏了。
+       浏览模式必须让覆盖层彻底让路 —— 否则它会吃掉 model-viewer 的
+       拖动和滚轮，旋转／缩放看起来就"没反应"。 */
+    applyArmed(anno || (noteArmed() && state.mvMode !== 'view'));
+  }
+
+  /* 三维／图纸这类可交互画面：进成果时默认停在浏览模式，
+     标注要用户自己点一下才接管手势（之前默认 armed，旋转永远失灵）。 */
+  const GESTURE_KINDS = new Set(['model3d', 'drawing']);
+  function defaultGestureMode(a) {
+    if (!a || !GESTURE_KINDS.has(a.kind)) return;
+    if (state.gestureArtifact === a.id) return;
+    state.gestureArtifact = a.id;
+    state.mvMode = 'view';
+    state.noteArmed = false;
   }
 
   /* ------------------------------------------------------------ 文字就地编辑（需求 4） */
@@ -2437,11 +2520,21 @@
   }
 
   /* ------------------------------------------------------------ 窄屏抽屉
-   * CSS 已经把右栏画成底部抽屉（≤1024px）、左栏画成全屏盖层（≤768px），
-   * 但两处状态类 .open / .mobile-stage 之前没有任何代码去加 —— 规则写了等于没写。
-   * 这里补上进入与退出两条路径，并且只在真的窄的时候生效，桌面行为不变。 */
-  const NARROW_DRAWER = '(max-width: 1024px)';
-  const NARROW_TREE = '(max-width: 768px)';
+   * CSS 已经把右栏画成底部抽屉、左栏画成全屏盖层，但两处状态类 .open /
+   * .mobile-stage 之前没有任何代码去加 —— 规则写了等于没写。
+   * 这里补上进入与退出两条路径，并且只在真的窄的时候生效，桌面行为不变。
+   *
+   * 这两条查询必须和 artifacts.css 的响应式段逐字对齐：CSS 画了抽屉而这里
+   * 不认，抽屉就永远打不开（反过来也一样）。
+   *
+   * 平板为什么用「触摸设备 ≤1400」而不是纯宽度：
+   *   纯宽度的话 iPad 一转屏就会从 834 跨到 1194、1024 跨到 1366，
+   *   右侧栏在竖屏是常驻列、横屏变底部抽屉 —— 骨架整个换掉。
+   *   改成按设备类别判定（触摸 = 一整类设备，无论横竖屏宽度多少），
+   *   平板转屏就只是变宽变窄，布局不动；鼠标设备维持 1200 的纯宽度线，
+   *   窄窗口照样降级抽屉，大窗口保持三栏。 */
+  const NARROW_DRAWER = '(max-width: 1200px), (max-width: 1400px) and (any-pointer: coarse)';
+  const NARROW_TREE = '(max-width: 699px)';
   const isNarrow = (q) => window.matchMedia(q).matches;
 
   function setAnnoDrawer(open) {
@@ -2776,7 +2869,31 @@
     });
 
     $('btnApprove').addEventListener('click', () => setStatus('approved'));
-    $('btnReject').addEventListener('click', () => setStatus('changes_requested'));
+    /* 下载：走 blob 而不是直接开 raw 地址 —— 直接跳转只会把内容显示在
+       浏览器里，不会落盘，用户以为按钮坏了。 */
+    $('btnDownload').addEventListener('click', async () => {
+      const a = current();
+      if (!a || !a.src) return;
+      try {
+        const res = await fetch(a.src, { credentials: 'same-origin' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = a.file_name || a.title || 'artifact';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 20000);
+      } catch (err) {
+        toast(`下载失败：${err.message || err}`, 'warn');
+      }
+    });
+    /* 后端只认 pending/ready/reviewing/approved/rework/rejected，
+       之前发的 changes_requested 会被 400 打回，乐观更新再回滚，
+       看起来就是"驳回没反应"。 */
+    $('btnReject').addEventListener('click', () => setStatus('rework'));
 
     $('stageModes').addEventListener('click', (e) => {
       const b = e.target.closest('[data-mode]');

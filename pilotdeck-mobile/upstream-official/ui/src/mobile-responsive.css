@@ -1,0 +1,12 @@
+/* Mobile-only additions: retain all official colors, typography and desktop layout. */
+@media (max-width: 1024px) {
+  @supports (height: 100dvh) {
+    body.pwa-mode #root { height: 100dvh; }
+    #root { min-height: 100dvh; }
+  }
+  /* Prevent iOS focus zoom without changing desktop typography. */
+  @media (pointer: coarse) {
+    input:not([type='checkbox']):not([type='radio']), textarea, select { font-size: max(16px, 1em); }
+  }
+  [role='dialog'] { max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)); max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow-y: auto; }
+}

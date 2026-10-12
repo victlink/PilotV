@@ -1,0 +1,52 @@
+[
+  {
+    "name": "phone",
+    "width": 390,
+    "height": 844,
+    "overflow": false,
+    "title": "PilotDeck",
+    "buttons": 43,
+    "body": "对话\n成果\nGeneral conversation\nWhat's on the plan today?\npro\n--\nGeneral conversation",
+    "errors": []
+  },
+  {
+    "name": "landscape",
+    "width": 844,
+    "height": 390,
+    "overflow": false,
+    "title": "PilotDeck",
+    "buttons": 41,
+    "body": "PiloV\n当前设备\n＋ 增加设备\nNew conversation\nSkills\nScheduled Tasks\nProjects\nPilotV\n设备管理\nPilotCode\nMingxin\n公司\nPilotDeck-src\n.pilotdeck\napp\nsub2api-deploy\nConversations\n修改 Pilotdeck 源码并提交 Git",
+    "errors": []
+  },
+  {
+    "name": "tablet",
+    "width": 768,
+    "height": 1024,
+    "overflow": false,
+    "title": "PilotDeck",
+    "buttons": 41,
+    "body": "PiloV\n当前设备\n＋ 增加设备\nNew conversation\nSkills\nScheduled Tasks\nProjects\nPilotV\n设备管理\nPilotCode\nMingxin\n公司\nPilotDeck-src\n.pilotdeck\napp\nsub2api-deploy\nConversations\n修改 Pilotdeck 源码并提交 Git",
+    "errors": []
+  },
+  {
+    "name": "tablet-wide",
+    "width": 1024,
+    "height": 768,
+    "overflow": false,
+    "title": "PilotDeck",
+    "buttons": 41,
+    "body": "PiloV\n当前设备\n＋ 增加设备\nNew conversation\nSkills\nScheduled Tasks\nProjects\nPilotV\n设备管理\nPilotCode\nMingxin\n公司\nPilotDeck-src\n.pilotdeck\napp\nsub2api-deploy\nConversations\n修改 Pilotdeck 源码并提交 Git",
+    "errors": []
+  },
+  {
+    "name": "desktop",
+    "width": 1440,
+    "height": 900,
+    "overflow": false,
+    "title": "PilotDeck",
+    "buttons": 41,
+    "body": "PiloV\n当前设备\n＋ 增加设备\nNew conversation\nSkills\nScheduled Tasks\nProjects\nPilotV\n设备管理\nPilotCode\nMingxin\n公司\nPilotDeck-src\n.pilotdeck\napp\nsub2api-deploy\nConversations\n修改 Pilotdeck 源码并提交 Git",
+    "errors": []
+  }
+]

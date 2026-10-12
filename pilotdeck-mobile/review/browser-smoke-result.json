@@ -1,0 +1,552 @@
+{
+  "results": [
+    {
+      "label": "phone-portrait",
+      "pass": true,
+      "measure": {
+        "viewport": [
+          390,
+          844
+        ],
+        "document": {
+          "left": 0,
+          "right": 390,
+          "top": 0,
+          "bottom": 844,
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "scrollHeight": 844,
+          "clientHeight": 844
+        },
+        "app": {
+          "left": 0,
+          "right": 390,
+          "top": 0,
+          "bottom": 844,
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "scrollHeight": 844,
+          "clientHeight": 844
+        },
+        "main": {
+          "left": 0,
+          "right": 390,
+          "top": 58,
+          "bottom": 844,
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "scrollHeight": 786,
+          "clientHeight": 786
+        },
+        "modal": null,
+        "horizontalOverflow": false,
+        "verticalOverflow": false
+      },
+      "image": "pilotdeck-mobile/review/phone-portrait.png"
+    },
+    {
+      "label": "phone-landscape",
+      "pass": true,
+      "measure": {
+        "viewport": [
+          844,
+          390
+        ],
+        "document": {
+          "left": 0,
+          "right": 844,
+          "top": 0,
+          "bottom": 390,
+          "scrollWidth": 844,
+          "clientWidth": 844,
+          "scrollHeight": 390,
+          "clientHeight": 390
+        },
+        "app": {
+          "left": 0,
+          "right": 844,
+          "top": 0,
+          "bottom": 390,
+          "scrollWidth": 844,
+          "clientWidth": 844,
+          "scrollHeight": 390,
+          "clientHeight": 390
+        },
+        "main": {
+          "left": 284,
+          "right": 844,
+          "top": 68,
+          "bottom": 390,
+          "scrollWidth": 560,
+          "clientWidth": 560,
+          "scrollHeight": 322,
+          "clientHeight": 322
+        },
+        "modal": null,
+        "horizontalOverflow": false,
+        "verticalOverflow": false
+      },
+      "layout": {
+        "feed": {
+          "top": 190,
+          "bottom": 275,
+          "height": 85
+        },
+        "empty": {
+          "top": 200,
+          "bottom": 363.390625,
+          "height": 163.390625
+        },
+        "composer": {
+          "top": 275,
+          "bottom": 382,
+          "height": 107
+        },
+        "tabsScrollable": true,
+        "tabCount": 10,
+        "feedScrollable": true
+      },
+      "image": "pilotdeck-mobile/review/phone-landscape.png"
+    },
+    {
+      "label": "tablet-portrait",
+      "pass": true,
+      "measure": {
+        "viewport": [
+          768,
+          1024
+        ],
+        "document": {
+          "left": 0,
+          "right": 768,
+          "top": 0,
+          "bottom": 1024,
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "scrollHeight": 1024,
+          "clientHeight": 1024
+        },
+        "app": {
+          "left": 0,
+          "right": 768,
+          "top": 0,
+          "bottom": 1024,
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "scrollHeight": 1024,
+          "clientHeight": 1024
+        },
+        "main": {
+          "left": 284,
+          "right": 768,
+          "top": 68,
+          "bottom": 1024,
+          "scrollWidth": 484,
+          "clientWidth": 484,
+          "scrollHeight": 956,
+          "clientHeight": 956
+        },
+        "modal": null,
+        "horizontalOverflow": false,
+        "verticalOverflow": false
+      },
+      "image": "pilotdeck-mobile/review/tablet-portrait.png"
+    },
+    {
+      "label": "tablet-landscape",
+      "pass": true,
+      "measure": {
+        "viewport": [
+          1024,
+          768
+        ],
+        "document": {
+          "left": 0,
+          "right": 1024,
+          "top": 0,
+          "bottom": 768,
+          "scrollWidth": 1024,
+          "clientWidth": 1024,
+          "scrollHeight": 768,
+          "clientHeight": 768
+        },
+        "app": {
+          "left": 0,
+          "right": 1024,
+          "top": 0,
+          "bottom": 768,
+          "scrollWidth": 1024,
+          "clientWidth": 1024,
+          "scrollHeight": 768,
+          "clientHeight": 768
+        },
+        "main": {
+          "left": 284,
+          "right": 1024,
+          "top": 68,
+          "bottom": 768,
+          "scrollWidth": 740,
+          "clientWidth": 740,
+          "scrollHeight": 700,
+          "clientHeight": 700
+        },
+        "modal": null,
+        "horizontalOverflow": false,
+        "verticalOverflow": false
+      },
+      "image": "pilotdeck-mobile/review/tablet-landscape.png"
+    },
+    {
+      "label": "desktop",
+      "pass": true,
+      "measure": {
+        "viewport": [
+          1440,
+          900
+        ],
+        "document": {
+          "left": 0,
+          "right": 1440,
+          "top": 0,
+          "bottom": 900,
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "scrollHeight": 900,
+          "clientHeight": 900
+        },
+        "app": {
+          "left": 0,
+          "right": 1440,
+          "top": 0,
+          "bottom": 900,
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "scrollHeight": 900,
+          "clientHeight": 900
+        },
+        "main": {
+          "left": 284,
+          "right": 1440,
+          "top": 68,
+          "bottom": 900,
+          "scrollWidth": 1156,
+          "clientWidth": 1156,
+          "scrollHeight": 832,
+          "clientHeight": 832
+        },
+        "modal": null,
+        "horizontalOverflow": false,
+        "verticalOverflow": false
+      },
+      "image": "pilotdeck-mobile/review/desktop.png"
+    },
+    {
+      "label": "scrollable modules and panel layouts",
+      "pass": true,
+      "states": [
+        {
+          "tab": "工作空间",
+          "layout": {
+            "panelBottom": 844,
+            "panelScrollHeight": 606,
+            "panelClientHeight": 606,
+            "tabScrollWidth": 604,
+            "tabClientWidth": 390,
+            "buttons": [
+              44,
+              44,
+              44,
+              44,
+              44
+            ]
+          },
+          "image": "pilotdeck-mobile/review/phone-native-panel.png"
+        },
+        {
+          "tab": "MCP",
+          "layout": {
+            "panelBottom": 844,
+            "panelScrollHeight": 658,
+            "panelClientHeight": 658,
+            "tabScrollWidth": 604,
+            "tabClientWidth": 390,
+            "buttons": [
+              44,
+              44,
+              44,
+              44
+            ]
+          },
+          "image": "pilotdeck-mobile/review/phone-mcp-panel.png"
+        }
+      ]
+    },
+    {
+      "label": "add form open and scroll",
+      "pass": true,
+      "measure": {
+        "viewport": [
+          390,
+          844
+        ],
+        "document": {
+          "left": 0,
+          "right": 390,
+          "top": 0,
+          "bottom": 844,
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "scrollHeight": 844,
+          "clientHeight": 844
+        },
+        "app": {
+          "left": 0,
+          "right": 390,
+          "top": 0,
+          "bottom": 844,
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "scrollHeight": 844,
+          "clientHeight": 844
+        },
+        "main": {
+          "left": 0,
+          "right": 390,
+          "top": 58,
+          "bottom": 844,
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "scrollHeight": 786,
+          "clientHeight": 786
+        },
+        "modal": {
+          "left": 18,
+          "right": 372,
+          "top": 54,
+          "bottom": 791,
+          "scrollWidth": 352,
+          "clientWidth": 352,
+          "scrollHeight": 735,
+          "clientHeight": 735
+        },
+        "horizontalOverflow": false,
+        "verticalOverflow": false
+      },
+      "image": "pilotdeck-mobile/review/phone-add-form.png"
+    },
+    {
+      "label": "invalid form validation",
+      "pass": true,
+      "alert": "请填写实例名称"
+    },
+    {
+      "label": "save dummy config",
+      "pass": true,
+      "saved": {
+        "name": "Smoke dummy",
+        "rest": "http://127.0.0.1:65534",
+        "ws": "ws://127.0.0.1:65534",
+        "tokenLength": 0
+      },
+      "image": "pilotdeck-mobile/review/phone-saved-dummy.png"
+    },
+    {
+      "label": "edit form and persist",
+      "pass": true,
+      "formImage": "pilotdeck-mobile/review/phone-edit-form.png",
+      "persisted": true,
+      "image": "pilotdeck-mobile/review/phone-edited-reloaded.png"
+    },
+    {
+      "label": "REST login clears busy and conceals token",
+      "pass": true,
+      "loginCompleted": true,
+      "tokenHidden": true
+    },
+    {
+      "label": "saved config across viewports",
+      "pass": true,
+      "states": [
+        {
+          "label": "phone-landscape",
+          "measure": {
+            "viewport": [
+              844,
+              390
+            ],
+            "document": {
+              "left": 0,
+              "right": 844,
+              "top": 0,
+              "bottom": 390,
+              "scrollWidth": 844,
+              "clientWidth": 844,
+              "scrollHeight": 390,
+              "clientHeight": 390
+            },
+            "app": {
+              "left": 0,
+              "right": 844,
+              "top": 0,
+              "bottom": 390,
+              "scrollWidth": 844,
+              "clientWidth": 844,
+              "scrollHeight": 390,
+              "clientHeight": 390
+            },
+            "main": {
+              "left": 284,
+              "right": 844,
+              "top": 68,
+              "bottom": 390,
+              "scrollWidth": 560,
+              "clientWidth": 560,
+              "scrollHeight": 618,
+              "clientHeight": 322
+            },
+            "modal": null,
+            "horizontalOverflow": false,
+            "verticalOverflow": false
+          },
+          "image": "pilotdeck-mobile/review/phone-landscape-saved.png"
+        },
+        {
+          "label": "tablet-portrait",
+          "measure": {
+            "viewport": [
+              768,
+              1024
+            ],
+            "document": {
+              "left": 0,
+              "right": 768,
+              "top": 0,
+              "bottom": 1024,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "scrollHeight": 1024,
+              "clientHeight": 1024
+            },
+            "app": {
+              "left": 0,
+              "right": 768,
+              "top": 0,
+              "bottom": 1024,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "scrollHeight": 1024,
+              "clientHeight": 1024
+            },
+            "main": {
+              "left": 284,
+              "right": 768,
+              "top": 68,
+              "bottom": 1024,
+              "scrollWidth": 484,
+              "clientWidth": 484,
+              "scrollHeight": 956,
+              "clientHeight": 956
+            },
+            "modal": null,
+            "horizontalOverflow": false,
+            "verticalOverflow": false
+          },
+          "image": "pilotdeck-mobile/review/tablet-portrait-saved.png"
+        },
+        {
+          "label": "tablet-landscape",
+          "measure": {
+            "viewport": [
+              1024,
+              768
+            ],
+            "document": {
+              "left": 0,
+              "right": 1024,
+              "top": 0,
+              "bottom": 768,
+              "scrollWidth": 1024,
+              "clientWidth": 1024,
+              "scrollHeight": 768,
+              "clientHeight": 768
+            },
+            "app": {
+              "left": 0,
+              "right": 1024,
+              "top": 0,
+              "bottom": 768,
+              "scrollWidth": 1024,
+              "clientWidth": 1024,
+              "scrollHeight": 768,
+              "clientHeight": 768
+            },
+            "main": {
+              "left": 284,
+              "right": 1024,
+              "top": 68,
+              "bottom": 768,
+              "scrollWidth": 740,
+              "clientWidth": 740,
+              "scrollHeight": 700,
+              "clientHeight": 700
+            },
+            "modal": null,
+            "horizontalOverflow": false,
+            "verticalOverflow": false
+          },
+          "image": "pilotdeck-mobile/review/tablet-landscape-saved.png"
+        },
+        {
+          "label": "desktop",
+          "measure": {
+            "viewport": [
+              1440,
+              900
+            ],
+            "document": {
+              "left": 0,
+              "right": 1440,
+              "top": 0,
+              "bottom": 900,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "scrollHeight": 900,
+              "clientHeight": 900
+            },
+            "app": {
+              "left": 0,
+              "right": 1440,
+              "top": 0,
+              "bottom": 900,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "scrollHeight": 900,
+              "clientHeight": 900
+            },
+            "main": {
+              "left": 284,
+              "right": 1440,
+              "top": 68,
+              "bottom": 900,
+              "scrollWidth": 1156,
+              "clientWidth": 1156,
+              "scrollHeight": 832,
+              "clientHeight": 832
+            },
+            "modal": null,
+            "horizontalOverflow": false,
+            "verticalOverflow": false
+          },
+          "image": "pilotdeck-mobile/review/desktop-saved.png"
+        }
+      ]
+    }
+  ],
+  "errors": [
+    "console: WebSocket connection to 'ws://127.0.0.1:65534/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED",
+    "console: WebSocket connection to 'ws://127.0.0.1:65534/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED",
+    "console: WebSocket connection to 'ws://127.0.0.1:65534/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED",
+    "console: WebSocket connection to 'ws://127.0.0.1:65534/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"
+  ],
+  "failures": []
+}

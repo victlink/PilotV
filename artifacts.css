@@ -9,8 +9,23 @@
 .art-shell {
   display: grid;
   grid-template-rows: auto 1fr;
+  /* 隐式列必须是 minmax(0, 1fr)，不能留 auto：auto 轨的基准尺寸取子元素
+     min-content，顶栏在手机下装不下就会算出 ~938px，整条列被它撑宽，
+     .art-body / .art-main 跟着变成 938px，再被 overflow:hidden 悄悄裁掉 ——
+     表现是「右边一截没了，还没有滚动条」。0 作为下限 = 谁都不许把这一列撑宽。 */
+  grid-template-columns: minmax(0, 1fr);
+  /* 手机浏览器地址栏会占掉一截，100vh 把底部内容顶出可视区。
+     dvh 跟着地址栏收放；老浏览器不认这条就自动落回上一行的 100vh。 */
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
+  /* HTML 声明了 viewport-fit=cover，成果台又常被加到主屏（PWA standalone），
+     刘海/灵动岛/小白条因此真的会压到内容上。四边内缩一次算清，
+     shell 之外的 fixed 元素（抽屉 / toast / 设置页）另在响应式段兜底。 */
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
 }
 
 /* ------------------------------------------------------------------ 顶栏 */
@@ -759,7 +774,9 @@
 }
 .art-render img {
   max-width: 100%;
+  /* 同 .art-shell：先 100vh 兜底，再让认得 dvh 的浏览器用真实可视高度 */
   max-height: calc(100vh - var(--topbar-h) * 2 - 36px);
+  max-height: calc(100dvh - var(--topbar-h) * 2 - 36px);
   object-fit: contain;
   display: block;
   border-radius: var(--radius-sm);
@@ -1235,15 +1252,51 @@
 .art-body.focus .art-restore { display: flex; }
 .art-restore { display: none; }
 
-/* ------------------------------------------------------------------ 响应式（§7） */
-@media (max-width: 1280px) {
+/* ------------------------------------------------------------------ 响应式（§7）
+ *
+ * 三条铁律，改这块之前先读：
+ *   1) 断点必须与 artifacts.js 的 NARROW_DRAWER / NARROW_TREE 逐字对应。
+ *      JS 靠这两条 matchMedia 决定「标注抽屉能不能点开」「左栏是不是盖层」。
+ *      CSS 单方面挪断点 = 抽屉画出来了却没人给它加 .open = 一块点不动的板子。
+ *   2) 只看宽度不够。手机横屏 852×393 宽度很宽，高度却只剩两条工具条，
+ *      所以必须再补一组按高度判定的规则（见矮屏段）。
+ *   3) 转屏不该换骨架 —— 这一条靠「按设备类别判定」实现，不是靠多加断点：
+ *      纯宽度线必然被 iPad 跨过去（834↔1194、1024↔1366），一转屏右侧栏就在
+ *      「常驻列」和「底部抽屉」之间换形态。所以触摸设备整类走 ≤1400 的抽屉布局，
+ *      横竖屏宽度多少都一样；鼠标设备走 ≤1200 纯宽度线，窄窗口照样降级、
+ *      宽窗口保持三栏。两种设备转屏都只是变宽变窄，骨架不动。
+ */
+
+/* 重载按钮的文字/图形两态。基础态放媒体查询之前：
+   同优先级下后写的赢，写在后面会把窄屏的图标态盖掉。 */
+#btnRefresh .btn-glyph { display: none; font-style: normal; }
+/* 顶栏被挤到一两行时，连接状态文字不该自己断成「实/时」两截 */
+.art-live span { white-space: nowrap; }
+
+/* ---- 桌面窄窗：仅 1201–1280 之间收窄左栏，更窄的归抽屉段 ---- */
+@media (min-width: 1201px) and (max-width: 1280px) {
   .art-body { grid-template-columns: 224px 1fr var(--anno-w, 360px); }
 }
 
-@media (max-width: 1024px) {
+/* ---- 抽屉布局：鼠标设备 ≤1200，触摸设备 ≤1400（与 NARROW_DRAWER 逐字一致）。
+       iPad 横屏 1194 / 1376 都落在这里，和竖屏 834 / 1032 同一套骨架，
+       转屏不再把右侧栏在「常驻列 ↔ 底部抽屉」之间换来换去。 ---- */
+@media (max-width: 1200px), (max-width: 1400px) and (any-pointer: coarse) {
+  /* 抽屉布局下左栏跟着收窄。必须显式改 --side-w 而不是只写 grid-template-columns：
+     --side-w 是 console-app.css 的主题变量（268px），下面所有引用它的栅格规则
+     都会读它，只在一处写死 224px 的话另一处照旧 268px，两套宽度打架。
+     断掉 :root 的继承、就地给一个值，作用域刚好是这个媒体查询。 */
+  .art-shell { --side-w: 224px; }
   /* 右栏降级为底部抽屉，舞台全宽 */
   .art-body,
   .art-body.focus { grid-template-columns: var(--side-w, 224px) 1fr; }
+  /* 抽屉布局下栅格只剩两列，第三列显式收掉，别留一条 0 宽轨道占着 */
+  .art-body.no-anno:not(.focus),
+  .art-body.no-side.no-anno:not(.focus) { grid-template-columns: var(--side-w, 224px) 1fr; }
+  /* 顶栏 ◨ 折的正是栅格第三列：抽屉布局下已经没有那一列，
+     留着它就是个按了没反应的按钮，不如收起来。 */
+  #btnAnnoToggle { display: none; }
+
   .art-anno {
     position: fixed;
     z-index: 70;
@@ -1251,6 +1304,7 @@
     right: 0;
     bottom: 0;
     max-height: 62vh;
+    padding-bottom: env(safe-area-inset-bottom);
     border-left: 0;
     border-top: 1px solid var(--line);
     border-radius: 14px 14px 0 0;
@@ -1275,20 +1329,44 @@
   .art-anno.open .art-anno-head::after { content: "▼"; }
 }
 
-@media (max-width: 768px) {
+/* ---- 矮屏（手机横屏 / 矮窗口）：先砍工具条高度，再砍留白 ---- */
+@media (max-height: 560px) {
+  .art-topbar,
+  .art-toolbar { height: 40px; gap: 6px; }
+  .art-anno-head { padding: 8px 12px 7px; }
+  .art-anno-foot { padding: 8px 10px; }
+}
+@media (max-height: 560px) and (max-width: 1200px),
+       (max-height: 560px) and (max-width: 1400px) and (any-pointer: coarse) {
+  /* 横屏才是 62vh 最憋屈的场景：393px 高的屏只剩 244px 给抽屉。
+     放宽上限，同时别让它吃掉整块舞台。 */
+  .art-anno { max-height: min(74vh, 320px); }
+  /* 收起态只露 38px：矮屏上顶栏 40 + 工具条 40 + 拉手 38 已经吃掉三成屏 */
+  .art-anno { transform: translateY(calc(100% - 38px)); }
+  .art-anno.open { transform: none; }
+}
+
+/* ---- 手机竖屏（≤699）：单栏，左栏做全屏盖层，舞台独占 ---- */
+@media (max-width: 699px) {
   .art-body,
   .art-body.focus { grid-template-columns: 1fr; }
   .art-side {
     position: fixed;
     z-index: 68;
-    inset: var(--topbar-h) 0 0 0;
+    inset: calc(var(--topbar-h) + env(safe-area-inset-top)) 0 0 0;
     width: 100%;
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
     border-right: 0;
     background: var(--bg);
   }
   .art-body.mobile-stage .art-side { display: none; }
+
+  /* 返回键只在盖层真的盖住舞台时出现。原来这里写死 display:inline-flex，
+     直接压在 [hidden] 属性上，于是它在 768px 以下永远显形 —— 连盖层没打开时也在。 */
   .art-back {
-    display: inline-flex;
+    display: none;
     align-items: center;
     gap: 5px;
     height: 28px;
@@ -1301,6 +1379,68 @@
     cursor: pointer;
     font-family: inherit;
   }
+  .art-body.mobile-stage .art-back { display: inline-flex; }
+
+  /* 393px 的顶栏装不下「字标 + 两个下拉 + 5 个按钮」：
+     字标与连接状态文字让位，两个下拉压成等宽可压缩，其余按钮只留图形。
+     flex-basis 必须是 0：留 auto 的话这一段的基准尺寸取下拉内容的 max-content，
+     两个长项目名一撑就是 500+，把整条顶栏的 min-content 顶到 900 多。 */
+  .art-topbar { gap: 6px; padding: 0 8px; }
+  .art-topbar > * { min-width: 0; }
+  .art-topbar .brand-text { display: none; }
+  .art-topbar .art-scope-bar { max-width: none; flex: 1 1 0; min-width: 0; }
+  .art-topbar .art-scope-bar .art-select { flex: 1 1 0; width: auto; min-width: 0; }
+  /* 顶栏那个弹性空隙默认也是 flex-grow:1，会和 scope-bar 平分抢来的那点宽度，
+     结果两个下拉各只剩 40 多 px、连项目名都读不出来。空隙就该是空隙。 */
+  .art-topbar .spacer { flex: 0 0 0; width: 0; }
+  .art-live span { white-space: nowrap; }
+  #liveLabel { display: none; }
+  .art-top-actions { gap: 4px; }
+  #btnRefresh .btn-label { display: none; }
+  #btnRefresh .btn-glyph { display: inline-block; }
+
+  /* 工具条在 393px 上装不下「标题 + 版本 + 4 个文字按钮 + 专注」：
+     文字按钮收窄、标题先让位；万一还差几像素，整条横向滚动兜底 ——
+     按钮宁可滑过去，也不能被 overflow:hidden 裁掉半截。 */
+  .art-toolbar {
+    gap: 5px;
+    padding: 0 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .art-toolbar::-webkit-scrollbar { display: none; }
+  .art-toolbar .ghost-btn { flex: 0 0 auto; padding: 0 7px; font-size: 11.5px; }
+  .art-toolbar .ghost-btn.icon-only { flex: 0 0 auto; width: 30px; padding: 0; }
+}
+
+/* 再窄一点（≤430：小屏安卓、iPhone SE 一类）连字标图标都让位，
+   顶栏只留：☰ · 项目▾ 会话▾ · ● 🌙 ↻ ⚙ */
+@media (max-width: 430px) {
+  .art-topbar .brand { display: none; }
+}
+
+/* ---- 触摸设备：28px 的按钮对手指来说太小，放到能点中的尺寸。
+       用 any-pointer 而不是 pointer：插着鼠标的触屏笔记本也不该突然变回 28px。 ---- */
+@media (any-pointer: coarse) {
+  .art-topbar .ghost-btn,
+  .art-toolbar .ghost-btn,
+  .art-live { min-height: 40px; }
+  .art-topbar .ghost-btn.icon-only { min-width: 40px; }
+  .art-anno-modes button { min-height: 40px; }
+}
+
+/* ---- 安全区兜底：以下都是 shell 之外的 fixed 元素，
+       不继承 .art-shell 的 padding，得各自让开刘海/小白条 ---- */
+.art-toast { bottom: calc(28px + env(safe-area-inset-bottom)); }
+.art-apply { bottom: calc(28px + env(safe-area-inset-bottom)); }
+.art-sheet {
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.art-gate {
+  padding: calc(20px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right))
+           calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));
 }
 
 /* 动作回执：评审动作必须立刻有反馈，否则用户以为没点上又点一遍 */
@@ -1952,4 +2092,38 @@
 
 @media (max-width: 640px) {
   .art-sheet-card { width: 100%; }
+}
+
+/* 文本类成果的正文：可滚动、可选中，不再依赖浏览器插件渲染。 */
+.art-render .art-text {
+  width: 100%; height: 100%; margin: 0; padding: 18px 22px;
+  overflow: auto; white-space: pre-wrap; word-break: break-word;
+  background: #0b1220; color: #e2e8f0;
+  font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* 窄屏（手机／竖屏平板）：三栏横排在 390px 宽里会把舞台压成一条缝
+   （实测 stage 只剩 36px）。改成上下两段：舞台占满宽度，标注栏落到下面，
+   左栏继续保持隐藏 —— 主窗口优先。 */
+@media (max-width: 860px) {
+  .art-body,
+  .art-body.focus,
+  .art-body.no-side:not(.focus),
+  .art-body.no-anno:not(.focus),
+  .art-body.no-side.no-anno:not(.focus),
+  .art-body.focus.no-anno {
+    /* 单列两行。列必须显式指派：自动排布会把舞台塞进 0 宽的左栏列，
+       加上 18px 内边距正好剩 36px 的竖条。 */
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(140px, 40vh);
+  }
+  .art-body.no-anno:not(.focus),
+  .art-body.no-side.no-anno:not(.focus),
+  .art-body.focus.no-anno { grid-template-rows: minmax(0, 1fr) 0; }
+  .art-body > .art-side { display: none; }
+  .art-body > .art-stage { grid-column: 1; grid-row: 1; }
+  .art-body > .art-anno { grid-column: 1; grid-row: 2; }
+  .art-anno { border-left: 0; border-top: 1px solid var(--line, #e5e7eb); overflow: auto; }
+  .art-toolbar { flex-wrap: wrap; row-gap: 4px; }
+  .art-stage { min-height: 46vh; }
 }

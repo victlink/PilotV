@@ -1,0 +1,33 @@
+// Evidence: PilotDeck-src/src/gateway/server/GatewayWsConnection.ts:177-322 dispatches the ONLY WebSocket RPC names; :326-339 capability guard and :353-369 skill guard.
+// Evidence: PilotDeck-src/src/gateway/protocol/types.ts:390-425 describes server capabilities and project_files_list (metadata only); :571-698 Gateway interface and optional methods.
+// Evidence: PilotDeck-src/src/cron/protocol/types.ts:91-163 cron input and result contracts.
+// Evidence: PilotDeck-src/src/extension/skills/types.ts:72-190 skill list/address/create/write/validate/scan/import inputs.
+// Evidence: PilotDeck-src/src/web/client/protocol.ts:330-375 session/subagent read and fork inputs.
+// No dispatcher RPC for workspace creation/editing, agents management, general file reads/writes, vector memory, plugin marketplace/configuration, settings get/set, or logs. These modules must NOT invent RPC endpoints.
+export type NativeModule = 'workspaces' | 'agents' | 'tasks' | 'files' | 'memory' | 'plugins' | 'settings' | 'logs';
+export interface Operation { method: string; title: string; template: Record<string, unknown>; capability?: string; destructive?: boolean; refresh?: boolean }
+export interface ModuleContract { title: string; list?: Operation; actions: Operation[]; unavailable: string[] }
+const op = (method: string, title: string, template: Record<string, unknown> = {}, extra: Partial<Operation> = {}): Operation => ({ method, title, template, ...extra });
+export const contracts: Record<NativeModule, ModuleContract> = {
+  workspaces: { title: '工作空间 / 项目', list: op('list_projects', '列出项目'), actions: [op('describe_project', '项目详情', { projectKey: '$projectKey' }), op('list_sessions', '项目会话', { projectKey: '$projectKey', limit: 50 }), op('new_session', '创建会话', { projectKey: '$projectKey', channelKey: 'web' }), op('close_project_sessions', '关闭项目会话', { projectKey: '$projectKey' }, { destructive: true })], unavailable: ['创建、删除、修改项目：网关无对应 RPC'] },
+  agents: { title: '代理 / 会话', list: op('list_sessions', '列出会话', { projectKey: '$projectKey', limit: 50 }), actions: [op('resume_session', '恢复会话', { sessionKey: '$sessionKey' }), op('read_subagent_messages', '读取子代理消息', { sessionKey: '$sessionKey', subagentId: '', projectKey: '$projectKey' }), op('active_turn_snapshot', '活跃回合快照', { sessionKey: '$sessionKey' }), op('close_session', '关闭会话', { sessionKey: '$sessionKey' }, { destructive: true }), op('fork_session', '分叉会话', { sessionKey: '$sessionKey', projectKey: '$projectKey', fromEntryId: '' })], unavailable: ['代理定义 / 管理：无 RPC；子代理消息读取需准确 subagentId，具体字段可用 JSON 输入'] },
+  tasks: { title: '计划任务', list: op('cron_list', '任务与历史', { projectKey: '$projectKey', includeHistory: true, limit: 100 }), actions: [op('cron_create', '创建任务', { projectKey: '$projectKey', sessionKey: '$sessionKey', channelKey: 'web', message: '', schedule: { type: 'delay', amount: 1, unit: 'hour' } }, { refresh: true }), op('cron_update', '更新任务', { taskId: '', projectKey: '$projectKey', expectedRevision: 0, message: '', schedule: { type: 'cron', expression: '0 9 * * *' } }, { refresh: true }), op('cron_run_now', '立即执行', { taskId: '', projectKey: '$projectKey' }, { refresh: true }), op('cron_stop', '停止执行', { taskId: '', projectKey: '$projectKey' }, { refresh: true }), op('cron_delete', '删除任务', { taskId: '', projectKey: '$projectKey' }, { destructive: true, refresh: true })], unavailable: [] },
+  files: { title: '项目文件', list: op('project_files_list', '浏览 / 搜索文件', { projectKey: '$projectKey', includeDirs: true, limit: 100 }, { capability: 'project_files_list' }), actions: [op('project_files_list', '分页 / 查询', { projectKey: '$projectKey', query: '', includeDirs: true, limit: 100 }, { capability: 'project_files_list' })], unavailable: ['文件正文读取、写入、上传：网关无对应 RPC；仅返回元数据'] },
+  memory: { title: '记忆', actions: [], unavailable: ['向量记忆检索、读写：网关无对应 RPC；不能借聊天工具伪装为管理接口'] },
+  plugins: { title: '扩展 / 技能', list: op('skill_list', '列出技能', { projectKey: '$projectKey', scope: 'all', limit: 100 }), actions: [op('skill_read', '读取技能', { scope: 'project', slug: '', projectKey: '$projectKey' }), op('skill_create', '创建技能', { scope: 'project', slug: '', projectKey: '$projectKey', content: '' }, { refresh: true }), op('skill_write', '保存技能', { scope: 'project', slug: '', projectKey: '$projectKey', content: '' }, { refresh: true }), op('skill_validate', '校验技能', { skillMdContent: '', files: [] }), op('skill_scan', '扫描技能', { parentPath: '' }), op('skill_import', '导入技能', { sourcePath: '', scope: 'project', projectKey: '$projectKey', mode: 'copy' }, { refresh: true }), op('skill_delete', '删除技能', { scope: 'project', slug: '', projectKey: '$projectKey' }, { destructive: true, refresh: true }), op('reload_extensions', '重载扩展', {}, { refresh: true })], unavailable: ['插件列表 / 安装 / 配置：无 RPC；技能管理可选，远程实例可能未启用'] },
+  settings: { title: '网关设置', list: op('describe_server', '服务器信息'), actions: [op('model_catalog_list', '模型目录', {}, { capability: 'model_catalog_list' }), op('session_model_get', '会话模型', { projectKey: '$projectKey', sessionKey: '$sessionKey' }, { capability: 'session_model_get' }), op('session_model_set', '设置会话模型', { projectKey: '$projectKey', sessionKey: '$sessionKey', selection: { mode: 'auto' } }, { capability: 'session_model_set' }), op('session_model_clear', '清除会话模型', { projectKey: '$projectKey', sessionKey: '$sessionKey' }, { capability: 'session_model_clear' }), op('reload_config', '重载配置')], unavailable: ['读取 / 编辑全局设置：无 RPC；reload_config 仅重载磁盘已有配置'] },
+  logs: { title: '会话记录', list: op('read_session_messages', '读取会话记录', { projectKey: '$projectKey', sessionKey: '$sessionKey' }), actions: [op('read_subagent_messages', '读取子代理记录', { sessionKey: '$sessionKey', subagentId: '', projectKey: '$projectKey' })], unavailable: ['系统日志 / 实时日志流：无 RPC；仅可读会话与子代理消息'] },
+};
+export function substitute(value: unknown, context: { projectKey: string; sessionKey: string }): unknown {
+  if (value === '$projectKey') return context.projectKey;
+  if (value === '$sessionKey') return context.sessionKey;
+  if (Array.isArray(value)) return value.map(v => substitute(v, context));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, substitute(item, context)]));
+  return value;
+}
+export function parseParams(raw: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw Error('参数必须为 JSON 对象');
+  return parsed as Record<string, unknown>;
+}
+export function isNativeModule(module: string): module is NativeModule { return Object.prototype.hasOwnProperty.call(contracts, module); }

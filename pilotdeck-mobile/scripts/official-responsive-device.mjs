@@ -1,0 +1,33 @@
+import {createRequire} from 'node:module';
+const require=createRequire('/home/Marc/PilotDeck-src/node_modules/.pnpm/playwright@1.60.0/node_modules/playwright/package.json');
+const {chromium}=require('playwright');
+const browser=await chromium.launch({headless:true,executablePath:'/home/Marc/.cache/ms-playwright/chromium-1237/chrome-linux64/chrome',args:['--no-sandbox']});
+try {
+ const page=await browser.newPage({viewport:{width:1440,height:900}});
+ await page.goto('http://127.0.0.1:5186/');
+ if(await page.getByRole('button',{name:'增加设备',exact:true}).count())throw Error('external add button remains');
+ await page.getByLabel('选择设备').waitFor();
+ if(await page.getByLabel('选择设备').locator('option').last().getAttribute('value') !== '__add_device__')throw Error('add is not final option');
+ if(await page.getByLabel('选择设备').evaluate(el=>getComputedStyle(el).fontSize) !== '13px')throw Error('device font not compact');
+ await page.getByLabel('选择设备').selectOption('__add_device__');
+ await page.getByLabel('设备名称',{exact:true}).fill('验收设备');
+ await page.getByLabel('官方 UI 地址',{exact:true}).fill('http://127.0.0.1:65534/');
+ await page.getByRole('button',{name:'保存设备',exact:true}).click();
+ await page.reload();
+ await page.getByLabel('选择设备').waitFor();
+ if(!await page.getByLabel('选择设备').locator('option').filter({hasText:'验收设备'}).count())throw Error('save did not persist');
+ if(await page.getByRole('button',{name:'增加设备',exact:true}).count())throw Error('external add button remains');
+ await page.getByLabel('选择设备').waitFor();
+ if(await page.getByLabel('选择设备').locator('option').last().getAttribute('value') !== '__add_device__')throw Error('add is not final option');
+ if(await page.getByLabel('选择设备').evaluate(el=>getComputedStyle(el).fontSize) !== '13px')throw Error('device font not compact');
+ await page.getByLabel('选择设备').selectOption('__add_device__');
+ page.on('dialog',d=>d.accept());
+ await page.getByRole('button',{name:'删除设备 验收设备',exact:true}).click();
+ if(await page.getByLabel('选择设备').locator('option').filter({hasText:'验收设备'}).count())throw Error('delete failed');
+ if(await page.locator('.brand-lockup,.brand-mark').count())throw Error('old logo remains');
+ await page.getByRole('button',{name:'成果台',exact:true}).click();
+ await page.getByRole('region',{name:'成果台展示',exact:true}).waitFor();
+ await page.getByRole('button',{name:'对话',exact:true}).click();
+ if(await page.getByRole('region',{name:'成果台展示',exact:true}).count())throw Error('console did not close');
+ console.log('PASS: selector replaces logo; add/save/reload/delete; chat and console switching');
+} finally {await browser.close();}
