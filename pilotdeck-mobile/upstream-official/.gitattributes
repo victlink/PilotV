@@ -32,6 +32,7 @@ ui/public/pilotdeck-p-mark-compact.png !filter !diff !merge -text
 # working tree was left half-checked-out, with favicons replaced by 131-byte
 # pointer stubs. De-LFS them so a clone anywhere needs no LFS server at all.
 ui/public/*.png !filter !diff !merge -text
+ui/public/**/*.png !filter !diff !merge -text
 scripts/computer-use/*.png !filter !diff !merge -text
 src/context/memory/*/ui-source/assets/**/*.png !filter !diff !merge -text
 
