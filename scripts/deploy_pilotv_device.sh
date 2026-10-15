@@ -85,8 +85,13 @@ if [ -d "$DEV_DIR/.git" ]; then
 else
   mkdir -p "\$(dirname "$DEV_DIR")"
   # 必须指定 -b main：bundle 里只有 main 这一个 ref，默认分支名猜不对
-  git clone -b main /tmp/pilotv.bundle "$DEV_DIR"
+  #
+  # 跳过 LFS 的 smudge：部分机器上 LFS 对象拉不下来（jx88 上就遇到 smudge EOF），
+  # 一失败整个 checkout 就算失败、目录半残。先把工作树放出来，构建不依赖
+  # 那些二进制大文件；LFS 对象随后尽力拉，拉不到也不挡部署。
+  GIT_LFS_SKIP_SMUDGE=1 git clone -b main /tmp/pilotv.bundle "$DEV_DIR"
 fi
+git -C "$DEV_DIR" lfs pull >/dev/null 2>&1 || echo "  (LFS 对象未拉全，不影响构建)"
 rm -f /tmp/pilotv.bundle
 echo "  开发目录：$DEV_DIR"
 git -C "$DEV_DIR" log --oneline -1
