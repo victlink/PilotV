@@ -172,7 +172,7 @@ if [ "\$OS" = "Darwin" ]; then
   <key>Label</key><string>com.pilotv.gateway</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$NODE</string>
+    <string>\$NODE</string>
     <string>$DEV_DIR/service/pilotv_gateway.mjs</string>
   </array>
   <key>WorkingDirectory</key><string>$DEV_DIR</string>
@@ -197,6 +197,17 @@ if [ "\$OS" = "Darwin" ]; then
 </plist>
 PLIST
   launchctl unload ~/Library/LaunchAgents/com.pilotv.gateway.plist 2>/dev/null || true
+  # 自检：plist 里的 node 路径必须等于刚解析出来的那个。
+  # 踩过的坑 —— plist 写在未加引号的 heredoc 里，$NODE 会被本机 shell 抢先展开，
+  # 结果把 NAS 的 /usr/bin/node 写进了 Mac 的 plist，launchd 直接 EX_CONFIG(78)，
+  # 而且日志一个字都没有。
+  GOT=\$(/usr/libexec/PlistBuddy -c "Print :ProgramArguments:0" ~/Library/LaunchAgents/com.pilotv.gateway.plist)
+  if [ "\$GOT" != "\$NODE" ]; then
+    echo "  ✗ plist 里的 node 路径不对：写了 \$GOT，应为 \$NODE"; exit 1
+  fi
+  echo "  plist node 路径校验通过：\$GOT"
+  launchctl bootout gui/\$(id -u)/com.pilotv.gateway 2>/dev/null || true
+  launchctl bootout user/\$(id -u)/com.pilotv.gateway 2>/dev/null || true
   launchctl load ~/Library/LaunchAgents/com.pilotv.gateway.plist
   sleep 3
   launchctl list | grep com.pilotv.gateway >/dev/null && echo "  launchd 已加载"
