@@ -26,6 +26,15 @@ ui/public/pilotdeck-p-mark-transparent.png !filter !diff !merge -text
 ui/public/pilotdeck-p-mark-transparent-v2.png !filter !diff !merge -text
 ui/public/pilotdeck-p-mark-compact.png !filter !diff !merge -text
 
+# PilotV: the remaining PNGs are small (whole inventory ~2MB) but every device
+# needs them at checkout time. Leaving them in LFS makes a fresh clone fail
+# wherever the LFS endpoint isn't reachable — jx88 hit a smudge EOF and the
+# working tree was left half-checked-out, with favicons replaced by 131-byte
+# pointer stubs. De-LFS them so a clone anywhere needs no LFS server at all.
+ui/public/*.png !filter !diff !merge -text
+scripts/computer-use/*.png !filter !diff !merge -text
+src/context/memory/*/ui-source/assets/**/*.png !filter !diff !merge -text
+
 # Shell scripts MUST stay LF — CRLF breaks the Docker entrypoint (`bash\r` not found)
 *.sh text eol=lf
 docker-entrypoint.sh text eol=lf
