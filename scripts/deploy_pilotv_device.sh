@@ -140,15 +140,58 @@ cd "$DEV_DIR"
 python3 scripts/install_device.py --port $ART_PORT 2>&1 | tail -6
 EOF
 
-say "7. 装网关 systemd 服务（系统级，比用户级更适合常驻）并启动"
+say "7. 装网关常驻服务并启动"
 run <<EOF
 set -e
 cd "$DEV_DIR"
-sudo -n mkdir -p /etc/systemd/system ~/.pilotdeck/logs
+OS=\$(uname -s)
 
-# service/pilotv-gateway.service 是模板，__XXX__ 由本机实际路径/用户/端口替换。
-# 不改模板 —— NAS 自己也是从同一个模板生成 unit 的，改了会两边跑偏。
-sudo -n tee /etc/systemd/system/pilotv-gateway.service >/dev/null <<UNIT
+if [ "\$OS" = "Darwin" ]; then
+  # macOS 没有 systemd，用 launchd。plist 放 ~/Library/LaunchAgents，
+  # 用户登录（或 enable-linger 后）由 launchd 接管，崩溃自动重启。
+  NODE=\$(command -v node)
+  mkdir -p ~/Library/LaunchAgents ~/.pilotdeck/logs
+  cat > ~/Library/LaunchAgents/com.pilotv.gateway.plist <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.pilotv.gateway</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$NODE</string>
+    <string>$DEV_DIR/service/pilotv_gateway.mjs</string>
+  </array>
+  <key>WorkingDirectory</key><string>$DEV_DIR</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>\$HOME</string>
+    <key>PATH</key><string>\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>UI_PORT</key><string>$PORT</string>
+    <key>PILOTV_BIND</key><string>0.0.0.0</string>
+    <key>PILOTDECK_BACKEND</key><string>127.0.0.1:3001</string>
+    <key>PILOTV_DIST</key><string>$DEV_DIR/pilotdeck-mobile/upstream-official/ui/dist</string>
+    <key>PILOTV_DEVICES</key><string>$DEV_DIR/pilotdeck-mobile/upstream-official/ui/public/devices.json</string>
+    <key>PILOTV_ARTIFACTS_PER_DEVICE</key><string>1</string>
+    <key>PILOTV_ARTIFACTS_TARGET</key><string>http://127.0.0.1:$ART_PORT</string>
+    <key>PILOTV_ALLOW_DEVICE_WRITES</key><string>1</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>\$HOME/.pilotdeck/logs/pilotv-gateway.log</string>
+  <key>StandardErrorPath</key><string>\$HOME/.pilotdeck/logs/pilotv-gateway.log</string>
+</dict>
+</plist>
+PLIST
+  launchctl unload ~/Library/LaunchAgents/com.pilotv.gateway.plist 2>/dev/null || true
+  launchctl load ~/Library/LaunchAgents/com.pilotv.gateway.plist
+  sleep 3
+  launchctl list | grep com.pilotv.gateway >/dev/null && echo "  launchd 已加载"
+else
+  sudo -n mkdir -p /etc/systemd/system ~/.pilotdeck/logs
+  # service/pilotv-gateway.service 是模板，__XXX__ 由本机实际路径/用户/端口替换。
+  # 不改模板 —— NAS 自己也是从同一个模板生成 unit 的，改了会两边跑偏。
+  sudo -n tee /etc/systemd/system/pilotv-gateway.service >/dev/null <<UNIT
 \$(sed -e "s#__REPO_ROOT__#$DEV_DIR#g" \\
        -e "s#__HOME__#\$HOME#g" \\
        -e "s#__USER__#\$(id -un)#g" \\
@@ -158,11 +201,11 @@ sudo -n tee /etc/systemd/system/pilotv-gateway.service >/dev/null <<UNIT
        -e "s#__ARTIFACTS_PORT__#$ART_PORT#g" \\
        service/pilotv-gateway.service)
 UNIT
-
-sudo -n systemctl daemon-reload
-sudo -n systemctl enable --now pilotv-gateway.service
-sleep 3
-sudo -n systemctl is-active pilotv-gateway.service
+  sudo -n systemctl daemon-reload
+  sudo -n systemctl enable --now pilotv-gateway.service
+  sleep 3
+  sudo -n systemctl is-active pilotv-gateway.service
+fi
 EOF
 
 say "8. 验证"
@@ -170,10 +213,17 @@ run <<EOF
 set -e
 code=\$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 http://127.0.0.1:$PORT/ || true)
 echo "  网关首页 http://127.0.0.1:$PORT/ -> \$code"
-[ "\$code" = "200" ] || { echo "  ✗ 网关没起来"; sudo -n journalctl -u pilotv-gateway -n 20 --no-pager; exit 1; }
-sudo -n journalctl -u pilotv-gateway --since '-1min' --no-pager 2>&1 | grep -iE 'traceback|error' | head -5 \
-  || echo "  启动日志无报错 ✓"
-IP=\$(hostname -I 2>/dev/null | awk '{print \$1}')
+[ "\$code" = "200" ] || { echo "  ✗ 网关没起来"; LOG="sudo -n journalctl -u pilotv-gateway -n 20 --no-pager"; [ "\$(uname -s)" = "Darwin" ] && LOG="tail -20 ~/.pilotdeck/logs/pilotv-gateway.log"; eval "\$LOG"; exit 1; }
+if [ "\$(uname -s)" = "Darwin" ]; then
+  tail -50 ~/.pilotdeck/logs/pilotv-gateway.log 2>/dev/null | grep -iE 'traceback|uncaught|fatal' | head -5 \
+    || echo "  启动日志无报错 ✓"
+else
+  sudo -n journalctl -u pilotv-gateway --since '-1min' --no-pager 2>&1 | grep -iE 'traceback|error' | head -5 \
+    || echo "  启动日志无报错 ✓"
+fi
+# hostname -I 是 GNU coreutils 的，macOS 上没有；ifconfig 的输出格式也不同。
+IP=\$(hostname -I 2>/dev/null | awk '{print \$1}' | head -1)
+[ -n "\$IP" ] || IP=\$(ipconfig getifaddr en0 2>/dev/null || ifconfig 2>/dev/null | awk '/inet /{print \$2}' | grep -v '^127\.' | head -1)
 echo
 echo "  ── 这台设备的 PilotV 访问地址 ──"
 echo "    http://\$IP:$PORT/"
