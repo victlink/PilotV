@@ -148,17 +148,21 @@ set -e
 cd "$DEV_DIR"
 OS=\$(uname -s)
 
-NODE=$(command -v node || true)
-  if [ -z "$NODE" ] || [ ! -x "$NODE" ]; then
-    for c in /opt/homebrew/bin/node /usr/local/bin/node "$HOME/.local/bin/node"; do
-      [ -x "$c" ] && { NODE="$c"; break; }
-    done
-  fi
-  echo "  node 路径：$NODE"
-  if [ "\$OS" = "Darwin" ]; then
+# node 的真实路径必须写进 service/plist：launchd 与 systemd 的 PATH
+# 都跟交互式 shell 不同（Mac 上 Homebrew 的 /opt/homebrew/bin 默认就不在
+# PATH 里），只写 node 到时就变成配置错误、根本起不来。
+NODE=\$(command -v node || true)
+if [ -z "\$NODE" ] || [ ! -x "\$NODE" ]; then
+  for c in /opt/homebrew/bin/node /usr/local/bin/node "\$HOME/.local/bin/node"; do
+    if [ -x "\$c" ]; then NODE="\$c"; break; fi
+  done
+fi
+[ -n "\$NODE" ] && [ -x "\$NODE" ] || { echo "  ✗ 找不到可执行的 node"; exit 1; }
+echo "  node 路径：\$NODE"
+
+if [ "\$OS" = "Darwin" ]; then
   # macOS 没有 systemd，用 launchd。plist 放 ~/Library/LaunchAgents，
-  # 用户登录（或 enable-linger 后）由 launchd 接管，崩溃自动重启。
-  NODE=\$(command -v node)
+  # KeepAlive 让它崩溃后自动重启。
   mkdir -p ~/Library/LaunchAgents ~/.pilotdeck/logs
   cat > ~/Library/LaunchAgents/com.pilotv.gateway.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -175,7 +179,7 @@ NODE=$(command -v node || true)
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key><string>\$HOME</string>
-    <key>PATH</key><string>\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:\$HOME/.local/bin:/usr/bin:/bin</string>
     <key>UI_PORT</key><string>$PORT</string>
     <key>PILOTV_BIND</key><string>0.0.0.0</string>
     <key>PILOTDECK_BACKEND</key><string>127.0.0.1:3001</string>
@@ -198,7 +202,7 @@ PLIST
   launchctl list | grep com.pilotv.gateway >/dev/null && echo "  launchd 已加载"
 else
   sudo -n mkdir -p /etc/systemd/system ~/.pilotdeck/logs
-  # service/pilotv-gateway.service 是模板，__XXX__ 由本机实际路径/用户/端口替换。
+  # service/pilotv-gateway.service 是模板，__XXX__ 由本机实际值替换。
   # 不改模板 —— NAS 自己也是从同一个模板生成 unit 的，改了会两边跑偏。
   sudo -n tee /etc/systemd/system/pilotv-gateway.service >/dev/null <<UNIT
 \$(sed -e "s#__REPO_ROOT__#$DEV_DIR#g" \\
