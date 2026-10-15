@@ -95,7 +95,16 @@ say "4. 装依赖 + 构建前端"
 run <<EOF
 set -e
 cd "$DEV_DIR/$UI"
-[ -d node_modules ] || npm ci --no-audit --no-fund
+# 上游 .gitignore 把 package-lock.json 排除了，所以这里多半没有 lockfile，
+# npm ci 会直接报 EUSAGE。有 lockfile 才用 ci（可复现），没有就退回 install。
+if [ -d node_modules ]; then
+  echo "  node_modules 已存在，跳过安装"
+elif [ -f package-lock.json ]; then
+  npm ci --no-audit --no-fund
+else
+  echo "  无 lockfile（上游 .gitignore 排除了它），用 npm install"
+  npm install --no-audit --no-fund
+fi
 npm run build
 echo "  dist 体积：\$(du -sh dist | cut -f1)"
 [ -f dist/index.html ] || { echo "  ✗ 没产出 index.html"; exit 1; }
