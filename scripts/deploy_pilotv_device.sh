@@ -80,9 +80,11 @@ if [ -d "$DEV_DIR/.git" ]; then
   echo "  开发目录已存在，先同步远端"
   git -C "$DEV_DIR" fetch /tmp/pilotv.bundle main
   git -C "$DEV_DIR" reset --hard FETCH_HEAD
+  git -C "$DEV_DIR" checkout main 2>/dev/null || true
 else
   mkdir -p "\$(dirname "$DEV_DIR")"
-  git clone /tmp/pilotv.bundle "$DEV_DIR"
+  # 必须指定 -b main：bundle 里只有 main 这一个 ref，默认分支名猜不对
+  git clone -b main /tmp/pilotv.bundle "$DEV_DIR"
 fi
 rm -f /tmp/pilotv.bundle
 echo "  开发目录：$DEV_DIR"
