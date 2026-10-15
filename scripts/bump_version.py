@@ -13,36 +13,45 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NEW = "1.0.0"
 
-# (相对路径, 旧值, 新值) —— 只列已确认的 PilotV 自有版本声明
+# (相对路径, 版本键的正则, 替换模板) —— 只列已确认的 PilotV 自有版本声明
+#
+# 这里按「版本键」匹配，不按旧值匹配。原先写死 '"version": "0.1.0"'，
+# 第一次跑完所有文件都变成 1.0.0 之后，这个脚本就成了永远匹配不上的空操作，
+# 看起来执行成功、实际什么都没做。改成按键匹配才能重复执行。
 TARGETS = [
-    (".pilotdeck/plugins/artifacts/plugin.json", '"version": "0.1.0"', f'"version": "{NEW}"'),
-    ("scripts/install_device.py", '"version": "0.1.0"', f'"version": "{NEW}"'),
-    ("pilotdeck-mobile/package.json", '"version":"0.1.0"', f'"version":"{NEW}"'),
-    ("pilotdeck-mobile/gateway/package.json", '"version": "0.1.0"', f'"version": "{NEW}"'),
-    ("pilotdeck-mobile/upstream-official/package.json", '"version": "0.1.0"', f'"version": "{NEW}"'),
-    ("pilotdeck-mobile/upstream-official/ui/package.json", '"version": "0.1.0"', f'"version": "{NEW}"'),
-    ("pilotdeck-mobile/upstream-official/apps/desktop/package.json", '"version": "0.1.0"', f'"version": "{NEW}"'),
-    ("artifacts-mcp.mjs", 'version: "0.1.0"', f'version: "{NEW}"'),
+    (".pilotdeck/plugins/artifacts/plugin.json", r'("version"\s*:\s*)"[^"]*"', r'\g<1>"%s"' % NEW),
+    ("scripts/install_device.py", r'("version"\s*:\s*)"[^"]*"', r'\g<1>"%s"' % NEW),
+    ("pilotdeck-mobile/package.json", r'("version"\s*:\s*)"[^"]*"', r'\g<1>"%s"' % NEW),
+    ("pilotdeck-mobile/gateway/package.json", r'("version"\s*:\s*)"[^"]*"', r'\g<1>"%s"' % NEW),
+    ("pilotdeck-mobile/upstream-official/package.json", r'("version"\s*:\s*)"[^"]*"', r'\g<1>"%s"' % NEW),
+    ("pilotdeck-mobile/upstream-official/ui/package.json", r'("version"\s*:\s*)"[^"]*"', r'\g<1>"%s"' % NEW),
+    ("pilotdeck-mobile/upstream-official/apps/desktop/package.json", r'("version"\s*:\s*)"[^"]*"', r'\g<1>"%s"' % NEW),
+    ("artifacts-mcp.mjs", r'(version\s*:\s*)"[^"]*"', r'\g<1>"%s"' % NEW),
 ]
 
 SKIP = {"node_modules", "dist", ".git", "target", "build"}
 
 changed, missed = [], []
-for rel, old, new in TARGETS:
+for rel, pattern, repl in TARGETS:
     path = os.path.join(ROOT, rel)
     if not os.path.exists(path):
         missed.append((rel, "文件不存在"))
         continue
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
-    if old not in text:
-        missed.append((rel, f"没找到 {old!r}"))
+    new_text, n = re.subn(pattern, repl, text, count=2)
+    if n == 0:
+        missed.append((rel, f"没匹配到版本键 {pattern!r}"))
         continue
-    if text.count(old) != 1:
-        missed.append((rel, f"{old!r} 出现 {text.count(old)} 次，不敢乱改"))
+    if n > 1:
+        missed.append((rel, f"版本键匹配到 {n} 处，不敢乱改"))
+        continue
+    if new_text == text:
+        # 已经是目标值，说明本来就对，不算改动
+        changed.append(rel + "（本就正确）")
         continue
     with open(path, "w", encoding="utf-8") as fh:
-        fh.write(text.replace(old, new))
+        fh.write(new_text)
     changed.append(rel)
 
 # 改完确认 JSON 还能解析
