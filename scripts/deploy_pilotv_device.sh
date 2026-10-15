@@ -39,7 +39,7 @@ echo "  网关端口：$PORT   成果台端口：$ART_PORT"
 run() {
   if [[ -n "$REMOTE" ]]; then
     ssh -o BatchMode=yes "$REMOTE" \
-      'export PATH="$HOME/.local/bin:$HOME/bin:$PATH"; bash -s'
+      'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/bin:$PATH"; bash -s'
   else
     export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
     bash -s
@@ -49,11 +49,12 @@ run() {
 say "1. 远端依赖体检"
 run <<EOF
 set -e
+export PATH="/opt/homebrew/bin:/usr/local/bin:\$HOME/.local/bin:\$HOME/bin:\$PATH"
 for c in git node npm python3; do
   command -v \$c >/dev/null 2>&1 || { echo "  ✗ 缺 \$c"; exit 1; }
 done
 echo "  git    \$(git --version | awk '{print \$4}')"
-echo "  node   \$(node -v)   (Vite 6 需要 >=18.0)"
+echo "  node   \$(node -v)  @ \$(command -v node)"
 echo "  npm    \$(npm -v)"
 echo "  python \$(python3 -V | awk '{print \$2}')"
 python3 -c 'import aiohttp' 2>/dev/null || echo "  ! 缺 aiohttp，成果台起不来：pip install aiohttp"
@@ -95,6 +96,7 @@ say "4. 装依赖 + 构建前端"
 run <<EOF
 set -e
 cd "$DEV_DIR/$UI"
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
 # 上游 .gitignore 把 package-lock.json 排除了，所以这里多半没有 lockfile，
 # npm ci 会直接报 EUSAGE。有 lockfile 才用 ci（可复现），没有就退回 install。
 if [ -d node_modules ]; then
@@ -146,7 +148,14 @@ set -e
 cd "$DEV_DIR"
 OS=\$(uname -s)
 
-if [ "\$OS" = "Darwin" ]; then
+NODE=$(command -v node || true)
+  if [ -z "$NODE" ] || [ ! -x "$NODE" ]; then
+    for c in /opt/homebrew/bin/node /usr/local/bin/node "$HOME/.local/bin/node"; do
+      [ -x "$c" ] && { NODE="$c"; break; }
+    done
+  fi
+  echo "  node 路径：$NODE"
+  if [ "\$OS" = "Darwin" ]; then
   # macOS 没有 systemd，用 launchd。plist 放 ~/Library/LaunchAgents，
   # 用户登录（或 enable-linger 后）由 launchd 接管，崩溃自动重启。
   NODE=\$(command -v node)
@@ -196,7 +205,7 @@ else
        -e "s#__HOME__#\$HOME#g" \\
        -e "s#__USER__#\$(id -un)#g" \\
        -e "s#__GROUP__#\$(id -gn)#g" \\
-       -e "s#__NODE__#\$(command -v node)#g" \\
+       -e "s#__NODE__#\$NODE#g" \\
        -e "s#__PORT__#$PORT#g" \\
        -e "s#__ARTIFACTS_PORT__#$ART_PORT#g" \\
        service/pilotv-gateway.service)
