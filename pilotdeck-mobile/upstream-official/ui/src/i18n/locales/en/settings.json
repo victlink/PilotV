@@ -82,7 +82,7 @@
       "about": "About"
     },
     "descriptions": {
-      "general": "Set PilotDeck's interface appearance, chat input, and code editing experience.",
+      "general": "Set PilotV's interface appearance, chat input, and code editing experience.",
       "modelPool": "Centrally manage model providers, connection credentials, and available models. Enabled models are used by agents, routing, and memory.",
       "agentRoute": "Configure agent routing, model tiers, and fallbacks.",
       "agentMemory": "Manage memory, summarization intervals, and project memory data.",
@@ -92,7 +92,7 @@
       "integrations": "Connect Feishu, WeChat, and WeCom message channels.",
       "mcpServers": "Connect local tools and remote services so agents can safely use external capabilities and context.",
       "officePreview": "Configure Office file preview.",
-      "computerUse": "Let PilotDeck view your screen and operate local applications.",
+      "computerUse": "Let PilotV view your screen and operate local applications.",
       "privacy": "Manage tool rules and anonymous usage data. The chat composer controls global access permissions.",
       "advanced": "Manage application retry, service, and environment variable settings.",
       "about": "View the current version and check for updates.",
@@ -190,7 +190,7 @@
         "localChanges": "Local changes exist, or this build includes modified source. Update manually with Git.",
         "notGit": "This is not a standard Git deployment. Update using your original deployment method.",
         "shallow": "Git history is incomplete. Update manually.",
-        "unofficial": "This checkout is not connected to the official PilotDeck repository. Update manually.",
+        "unofficial": "This checkout is not connected to the official PilotV repository. Update manually.",
         "unknownVersion": "The running build cannot be identified. Rebuild and restart before checking again.",
         "runtimeMismatch": "Source or build files differ from the running version. Check manually and restart.",
         "ahead": "This checkout is ahead of the latest release. Automatic downgrades are disabled.",
@@ -499,7 +499,7 @@
     "apiDocsLink": "API Documentation",
     "documentation": {
       "title": "External API Documentation",
-      "description": "Learn how to use the external API to trigger PilotDeck sessions from your applications.",
+      "description": "Learn how to use the external API to trigger PilotV sessions from your applications.",
       "viewLink": "View API Documentation →"
     },
     "loading": "Loading...",
@@ -550,7 +550,7 @@
         "description": "Google Gemini AI assistant"
       },
       "pilotdeck": {
-        "description": "OpenBMB PilotDeck AI assistant"
+        "description": "OpenBMB PilotV AI assistant"
       }
     },
     "connectionStatus": "Connection Status",
@@ -664,13 +664,13 @@
     },
     "telemetry": {
       "title": "Anonymous usage data",
-      "description": "Send anonymous feature usage and performance data to help improve PilotDeck. Conversations, file contents, and credentials are never included."
+      "description": "Send anonymous feature usage and performance data to help improve PilotV. Conversations, file contents, and credentials are never included."
     }
   },
   "mcpServers": {
     "title": "MCP Servers",
     "description": {
-      "pilotdeck": "Model Context Protocol servers provide additional tools and data sources to PilotDeck",
+      "pilotdeck": "Model Context Protocol servers provide additional tools and data sources to PilotV",
       "cursor": "Model Context Protocol servers provide additional tools and data sources to Cursor",
       "codex": "Model Context Protocol servers provide additional tools and data sources to Codex"
     },
@@ -703,7 +703,7 @@
   },
   "mcpConfig": {
     "title": "MCP Servers",
-    "description": "Edit PilotDeck MCP config. Global config lives in ~/.pilotdeck/mcp.json; project config lives in .pilotdeck/mcp.json and overrides global servers with the same name.",
+    "description": "Edit PilotV MCP config. Global config lives in ~/.pilotdeck/mcp.json; project config lives in .pilotdeck/mcp.json and overrides global servers with the same name.",
     "project": "Project for project-scoped config",
     "scopes": {
       "global": "Global",
@@ -783,7 +783,7 @@
     }
   },
   "pilotDeckConfig": {
-    "loading": "Loading PilotDeck config...",
+    "loading": "Loading PilotV config...",
     "header": {
       "configFile": "Config file",
       "configPreview": "Config preview",
@@ -882,7 +882,7 @@
       },
       "memory": {
         "label": "Memory",
-        "description": "PilotDeck memory service"
+        "description": "PilotV memory service"
       },
       "tools": {
         "label": "Search",
@@ -894,7 +894,7 @@
       },
       "router": {
         "label": "Router",
-        "description": "PilotDeck Router"
+        "description": "PilotV Router"
       },
       "gateway": {
         "label": "Gateway",
@@ -940,7 +940,7 @@
       },
       "officePreview": {
         "title": "Office File Preview Service",
-        "description": "Choose how Office files are previewed in read-only mode. PDF always uses PilotDeck's built-in viewer.",
+        "description": "Choose how Office files are previewed in read-only mode. PDF always uses PilotV's built-in viewer.",
         "fields": {
           "service": {
             "label": "Preview service",
@@ -1163,7 +1163,7 @@
           "label": "Subagents default",
           "description": "Default model for subagents on non-router paths.",
           "inherit": "Inherit main agent model",
-          "routerNote": "When PilotDeck Router or Token Saver is enabled, subagent requests enter the router first. By default, the subagent policy re-judges each subagent turn and picks a tier model. This default only acts as a direct subagent fallback or inherited baseline; it does not override the subagent routing policy in Router advanced settings."
+          "routerNote": "When PilotV Router or Token Saver is enabled, subagent requests enter the router first. By default, the subagent policy re-judges each subagent turn and picks a tier model. This default only acts as a direct subagent fallback or inherited baseline; it does not override the subagent routing policy in Router advanced settings."
         }
       },
       "customEnv": {
@@ -1418,7 +1418,7 @@
         }
       },
       "router": {
-        "title": "PilotDeck Router",
+        "title": "PilotV Router",
         "description": "Embedded router for fan-out across providers (tier-based routing, token saver, auto-orchestrate).",
         "enabled": { "label": "Enabled", "description": "When on, agents use the router instead of the configured provider directly." },
         "advancedToggle": "Advanced settings",
@@ -1626,11 +1626,11 @@
     "updateComplete": "Update complete!",
     "updateFailed": "Update failed",
     "restartToApply": "Restart to Apply",
-    "restartingTitle": "Restarting PilotDeck...",
+    "restartingTitle": "Restarting PilotV...",
     "restartingDescription": "Page will reload automatically when server is ready.",
     "restartWaitingDescription": "Restart may take a little while. Please wait.",
     "restartFailedTitle": "Automatic restart ran into a problem",
-    "restartFailedDescription": "Restart PilotDeck manually from the command line, then refresh this page.",
+    "restartFailedDescription": "Restart PilotV manually from the command line, then refresh this page.",
     "refreshPage": "Refresh page",
     "downloadUpdate": "Download Update",
     "downloading": "Downloading... {{percent}}%",
@@ -1791,7 +1791,7 @@
   "computerUse": {
     "controlTitle": "Control",
     "enable": "Enable computer use",
-    "enableDescription": "Allow PilotDeck to view your screen, read application controls, and use the mouse and keyboard for tasks you authorize. Windows may switch. Actions follow the current task’s approval settings.",
+    "enableDescription": "Allow PilotV to view your screen, read application controls, and use the mouse and keyboard for tasks you authorize. Windows may switch. Actions follow the current task’s approval settings.",
     "permissionsTitle": "System permissions",
     "permissions": {
       "accessibility": "Accessibility",
@@ -1804,7 +1804,7 @@
     "linuxPermissions": "The component uses your current desktop login session. Capture, accessibility, and input capabilities depend on the desktop environment and system services.",
     "permissionHint": "Grant permissions to {{owner}} in System Settings, then return here and recheck. If macOS still asks you to reopen the application, restart it as instructed.",
     "permissionFallbackTitle": "Application missing from the permission list?",
-    "permissionFallbackIntro": "If {{owner}} is missing from the list, add the application included with PilotDeck manually. No separate download is needed.",
+    "permissionFallbackIntro": "If {{owner}} is missing from the list, add the application included with PilotV manually. No separate download is needed.",
     "permissionFallbackAdd": "Click Grant permission to open the relevant permission page in System Settings.",
     "permissionFallbackSelect": "Click Show permission application and drag the selected application from Finder into the permission list. Or click + below the list, press ⌘⇧G in the file picker, paste the path below, and open it.",
     "permissionFallbackFinish": "Enable the application's permission, complete any system verification, then return here and click Recheck.",
@@ -1829,6 +1829,6 @@
     "refresh": "Recheck",
     "stop": "Stop and disable",
     "waylandHint": "This is a Wayland desktop. The system may request permission on the first capture; some operations require a desktop helper. Unsupported operations report a specific reason.",
-    "missingDriver": "The deployed computer use component is missing. Redeploy PilotDeck; the component is included with the runtime and needs no separate installation."
+    "missingDriver": "The deployed computer use component is missing. Redeploy PilotV; the component is included with the runtime and needs no separate installation."
   }
 }

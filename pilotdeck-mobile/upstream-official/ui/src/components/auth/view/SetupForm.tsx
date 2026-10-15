@@ -3,8 +3,7 @@ import type { TFunction } from 'i18next';
 import { useCallback, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
-import pilotdeckLogoDark from '../../../assets/pilotdeck-wordmark-dark.png';
-import pilotdeckLogoLight from '../../../assets/pilotdeck-wordmark-light.png';
+import PilotVLogo from '../../app-shell/PilotVLogo';
 import AuthErrorAlert from './AuthErrorAlert';
 import AuthInputField from './AuthInputField';
 import AuthScreenLayout from './AuthScreenLayout';
@@ -91,19 +90,8 @@ export default function SetupForm() {
       description={t('common:uiText.setupDescription')}
       footerText={t('common:uiText.singleUser')}
       logo={
-        <div className="flex items-center justify-center gap-2">
-          <img
-            src={pilotdeckLogoLight}
-            alt="PilotDeck"
-            className="h-14 w-auto max-w-72 select-none object-contain dark:hidden"
-            draggable={false}
-          />
-          <img
-            src={pilotdeckLogoDark}
-            alt="PilotDeck"
-            className="hidden h-14 w-auto max-w-72 select-none object-contain dark:block"
-            draggable={false}
-          />
+        <div className="flex items-center justify-center">
+          <PilotVLogo height={56} animated={false} />
         </div>
       }
     >

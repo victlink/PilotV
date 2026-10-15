@@ -1,0 +1,45 @@
+[Unit]
+Description=PilotV Gateway (PilotDeck UI on :5186)
+Documentation=file:///vol3/1000/Work/00/PilotV/service/pilotv_gateway.mjs
+After=network-online.target pilotdeck.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=Marc
+Group=Users
+WorkingDirectory=/vol3/1000/Work/00/PilotV
+Environment=HOME=/home/Marc
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=LANG=en_US.UTF-8
+# --- 监听 ---
+Environment=UI_PORT=5186
+Environment=PILOTV_BIND=0.0.0.0
+# --- 默认后端（3001 由 pilotdeck.service 提供，这里只做反向代理，不强依赖）---
+Environment=PILOTDECK_BACKEND=127.0.0.1:3001
+# --- 前端构建产物与预置设备清单 ---
+Environment=PILOTV_DIST=/vol3/1000/Work/00/PilotV/pilotdeck-mobile/upstream-official/ui/dist
+Environment=PILOTV_DEVICES=/vol3/1000/Work/00/PilotV/pilotdeck-mobile/upstream-official/ui/public/devices.json
+# --- 成果台（127.0.0.1:8799 的 serve_artifacts.py，独立进程托管）---
+Environment=PILOTV_ARTIFACTS_PER_DEVICE=1
+Environment=PILOTV_ARTIFACTS_TARGET=http://127.0.0.1:8799
+# --- 资料（WeKnora）---
+Environment=PILOTV_WEKNORA_PORT=8080
+# --- 设备写操作 ---
+# 网关默认不允许改设备清单（能把新地址加进转发白名单，权限最大的入口）。
+# 要用界面里的设备管理，必须在这里显式打开；凭据是首页种下的 pdv_admin
+# 会话 Cookie，没配 PILOTV_ADMIN_TOKEN 时网关会自己在清单旁边生成一个随机密钥。
+Environment=PILOTV_ALLOW_DEVICE_WRITES=1
+ExecStart=/usr/bin/node /vol3/1000/Work/00/PilotV/service/pilotv_gateway.mjs
+
+# 崩了必拉起，且不限次数；日志落盘，事后能查死因。
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+TimeoutStopSec=15
+KillMode=mixed
+StandardOutput=append:/home/Marc/.pilotdeck/logs/pilotv-gateway.log
+StandardError=append:/home/Marc/.pilotdeck/logs/pilotv-gateway.log
+
+[Install]
+WantedBy=multi-user.target

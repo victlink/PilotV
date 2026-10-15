@@ -82,7 +82,7 @@
       "about": "关于"
     },
     "descriptions": {
-      "general": "设置 PilotDeck 的界面外观、聊天输入和代码编辑体验。",
+      "general": "设置 PilotV 的界面外观、聊天输入和代码编辑体验。",
       "modelPool": "集中管理模型提供商、连接凭据和可用模型。已启用模型将供智能体、路由和记忆功能使用。",
       "agentRoute": "按任务复杂度选择模型，在保证效果的基础上节省token成本。",
       "agentMemory": "持续整理并记住项目重要信息，在后续任务中自动使用。",
@@ -91,8 +91,8 @@
       "agentSchedule": "按设定的时间自动唤起智能体执行任务，无需你持续在线。",
       "integrations": "连接常用通讯工具，让智能体可以从飞书、微信与企业微信接收消息并回复。",
       "mcpServers": "连接本地工具与远程服务，让智能体可以安全使用外部能力和上下文。",
-      "officePreview": "选择 Office 文档的只读预览方式。PDF 始终使用 PilotDeck 内置浏览器，不受此设置影响。",
-      "computerUse": "开启后，PilotDeck 可以查看屏幕并操作本机应用。",
+      "officePreview": "选择 Office 文档的只读预览方式。PDF 始终使用 PilotV 内置浏览器，不受此设置影响。",
+      "computerUse": "开启后，PilotV 可以查看屏幕并操作本机应用。",
       "privacy": "管理工具规则和匿名使用数据。全局访问权限由聊天输入框统一设置。",
       "advanced": "管理应用级的重试、服务与环境变量配置。",
       "about": "查看当前版本并检查更新。",
@@ -190,7 +190,7 @@
         "localChanges": "存在本地修改，或当前版本由修改后的源码构建，请通过 Git 手动更新。",
         "notGit": "此部署不是标准 Git 仓库，请按原部署方式手动更新。",
         "shallow": "当前 Git 历史不完整，无法确认版本关系，请手动更新。",
-        "unofficial": "此仓库未连接官方 PilotDeck 仓库，请手动更新。",
+        "unofficial": "此仓库未连接官方 PilotV 仓库，请手动更新。",
         "unknownVersion": "无法确认当前构建版本，请重新构建并重启服务后再检查。",
         "runtimeMismatch": "源码或构建产物与运行版本不一致，请手动确认并重启服务。",
         "ahead": "当前代码领先于最新发布版本，不支持自动降级，请通过 Git 手动管理。",
@@ -499,7 +499,7 @@
     "apiDocsLink": "API 文档",
     "documentation": {
       "title": "外部 API 文档",
-      "description": "了解如何使用外部 API 从您的应用程序触发 PilotDeck 会话。",
+      "description": "了解如何使用外部 API 从您的应用程序触发 PilotV 会话。",
       "viewLink": "查看 API 文档 →"
     },
     "loading": "加载中...",
@@ -550,7 +550,7 @@
         "description": "Google Gemini AI 助手"
       },
       "pilotdeck": {
-        "description": "OpenBMB PilotDeck AI 助手"
+        "description": "OpenBMB PilotV AI 助手"
       }
     },
     "connectionStatus": "连接状态",
@@ -664,13 +664,13 @@
     },
     "telemetry": {
       "title": "匿名使用数据",
-      "description": "发送匿名功能使用与性能数据，帮助改进 PilotDeck。不会包含对话、文件内容或凭据。"
+      "description": "发送匿名功能使用与性能数据，帮助改进 PilotV。不会包含对话、文件内容或凭据。"
     }
   },
   "mcpServers": {
     "title": "MCP 服务器",
     "description": {
-      "pilotdeck": "Model Context Protocol 服务器为 PilotDeck 提供额外的工具和数据源",
+      "pilotdeck": "Model Context Protocol 服务器为 PilotV 提供额外的工具和数据源",
       "cursor": "Model Context Protocol 服务器为 Cursor 提供额外的工具和数据源",
       "codex": "Model Context Protocol 服务器为 Codex 提供额外的工具和数据源"
     },
@@ -703,7 +703,7 @@
   },
   "mcpConfig": {
     "title": "MCP 服务器",
-    "description": "编辑 PilotDeck MCP 配置。全局配置位于 ~/.pilotdeck/mcp.json；项目配置位于 .pilotdeck/mcp.json，同名服务器会覆盖全局配置。",
+    "description": "编辑 PilotV MCP 配置。全局配置位于 ~/.pilotdeck/mcp.json；项目配置位于 .pilotdeck/mcp.json，同名服务器会覆盖全局配置。",
     "project": "项目级配置对应的项目",
     "scopes": {
       "global": "全局",
@@ -783,7 +783,7 @@
     }
   },
   "pilotDeckConfig": {
-    "loading": "正在加载 PilotDeck 配置...",
+    "loading": "正在加载 PilotV 配置...",
     "header": {
       "configFile": "配置文件",
       "configPreview": "配置预览",
@@ -882,7 +882,7 @@
       },
       "memory": {
         "label": "记忆",
-        "description": "PilotDeck 记忆服务"
+        "description": "PilotV 记忆服务"
       },
       "tools": {
         "label": "搜索",
@@ -894,7 +894,7 @@
       },
       "router": {
         "label": "路由",
-        "description": "PilotDeck Router"
+        "description": "PilotV Router"
       },
       "gateway": {
         "label": "网关",
@@ -940,7 +940,7 @@
       },
       "officePreview": {
         "title": "Office 文件预览服务",
-        "description": "选择 Office 文件的只读预览方式。PDF 始终使用 PilotDeck 内置浏览器，不受此设置影响。",
+        "description": "选择 Office 文件的只读预览方式。PDF 始终使用 PilotV 内置浏览器，不受此设置影响。",
         "fields": {
           "service": {
             "label": "预览服务",
@@ -1163,7 +1163,7 @@
           "label": "子智能体默认模型",
           "description": "非路由路径下子智能体默认使用的模型。",
           "inherit": "继承主智能体模型",
-          "routerNote": "启用 PilotDeck Router 或 Token 节省后，子智能体请求会先进入路由器；默认会按子智能体策略重新判定层级并选择模型。这里的默认模型只作为直接子智能体路径或继承兜底，不会覆盖 Router 高级设置中的子智能体路由策略。"
+          "routerNote": "启用 PilotV Router 或 Token 节省后，子智能体请求会先进入路由器；默认会按子智能体策略重新判定层级并选择模型。这里的默认模型只作为直接子智能体路径或继承兜底，不会覆盖 Router 高级设置中的子智能体路由策略。"
         }
       },
       "customEnv": {
@@ -1418,7 +1418,7 @@
         }
       },
       "router": {
-        "title": "PilotDeck Router",
+        "title": "PilotV Router",
         "description": "内嵌路由器，跨提供商路由分发（按层级分流、Token 节省、自动编排）。",
         "enabled": { "label": "启用", "description": "启用后，智能体通过路由器而非直接使用配置的提供商。" },
         "advancedToggle": "高级设置",
@@ -1620,11 +1620,11 @@
     "updateComplete": "更新完成！",
     "updateFailed": "更新失败",
     "restartToApply": "重启以应用",
-    "restartingTitle": "正在重启 PilotDeck...",
+    "restartingTitle": "正在重启 PilotV...",
     "restartingDescription": "服务恢复后页面会自动刷新。",
     "restartWaitingDescription": "重启需要一段时间，请耐心等待。",
     "restartFailedTitle": "自动重启遇到问题",
-    "restartFailedDescription": "请通过命令行手动重启 PilotDeck，然后刷新此页面。",
+    "restartFailedDescription": "请通过命令行手动重启 PilotV，然后刷新此页面。",
     "refreshPage": "刷新页面",
     "downloadUpdate": "下载更新",
     "downloading": "下载中... {{percent}}%",
@@ -1785,7 +1785,7 @@
   "computerUse": {
     "controlTitle": "操作控制",
     "enable": "启用电脑操控",
-    "enableDescription": "允许 PilotDeck 在你授权的任务中查看屏幕、读取应用控件并操作鼠标键盘。可能切换窗口，操作审批沿用当前任务的权限设置。",
+    "enableDescription": "允许 PilotV 在你授权的任务中查看屏幕、读取应用控件并操作鼠标键盘。可能切换窗口，操作审批沿用当前任务的权限设置。",
     "permissionsTitle": "系统权限",
     "permissions": {
       "accessibility": "辅助功能",
@@ -1798,7 +1798,7 @@
     "linuxPermissions": "组件将使用当前登录用户的桌面会话。截图、控件读取和输入能力取决于桌面环境及系统服务。",
     "permissionHint": "请在系统设置中为 {{owner}} 授权，再回到本页点击“重新检测”。若系统仍要求重新打开应用，请按提示重启。",
     "permissionFallbackTitle": "授权列表里没有应用？",
-    "permissionFallbackIntro": "如果列表中没有 {{owner}}，可以手动添加随 PilotDeck 提供的应用，无需另行下载。",
+    "permissionFallbackIntro": "如果列表中没有 {{owner}}，可以手动添加随 PilotV 提供的应用，无需另行下载。",
     "permissionFallbackAdd": "点击对应权限的“前往授权”，打开系统设置中的权限页面。",
     "permissionFallbackSelect": "点击“显示授权应用”，将 Finder 中选中的应用拖入授权列表；也可以在列表下方点击“＋”，在选择窗口中按 ⌘⇧G，粘贴下方路径并打开。",
     "permissionFallbackFinish": "开启该应用的权限，按系统提示完成验证，再回到本页点击“重新检测”。",
@@ -1823,6 +1823,6 @@
     "refresh": "重新检测",
     "stop": "停止并关闭",
     "waylandHint": "当前为 Wayland 桌面。系统可能在首次截图时请求授权；部分操作需要桌面辅助组件。任务遇到不支持的操作时会返回具体原因。",
-    "missingDriver": "部署环境中的电脑操控组件缺失。请重新部署 PilotDeck；组件随环境提供，无需另行安装。"
+    "missingDriver": "部署环境中的电脑操控组件缺失。请重新部署 PilotV；组件随环境提供，无需另行安装。"
   }
 }

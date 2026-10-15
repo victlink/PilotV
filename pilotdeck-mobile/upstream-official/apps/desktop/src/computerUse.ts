@@ -115,7 +115,7 @@ export class ComputerUseController {
     if (permissions && (!permissions.accessibility || !permissions.screenRecording)) {
       await this.stopChild(); this.state.phase = 'needs-permissions'; delete this.state.error; return;
     }
-    if (!this.state.available) { this.state.phase = 'error'; this.state.error = 'Bundled Driver is missing. Reinstall PilotDeck.'; return; }
+    if (!this.state.available) { this.state.phase = 'error'; this.state.error = 'Bundled Driver is missing. Reinstall PilotV.'; return; }
     if (process.platform === 'linux' && this.state.desktopSession === 'unknown') {
       this.state.phase = 'error'; this.state.error = 'No interactive desktop session was found.'; return;
     }
@@ -127,12 +127,12 @@ export class ComputerUseController {
         const identity = checks?.find(check => check.name === 'bundle_identity');
         if (identity?.status !== 'pass' || identity.data?.bundle_identifier !== this.options.bundleId
           || identity.data.identity_source !== 'parent_application' || identity.data.parent_process_id !== process.pid) {
-          throw new Error('Driver is not directly hosted by PilotDeck.');
+          throw new Error('Driver is not directly hosted by PilotV.');
         }
         const permissionsResult = await this.call('check_permissions');
         const source = permissionsResult.source as Record<string, unknown> | undefined;
         if (source?.attribution !== 'host' || source.host_bundle_id !== this.options.bundleId || source.pid !== this.child?.pid) {
-          throw new Error('Driver permission identity does not match PilotDeck.');
+          throw new Error('Driver permission identity does not match PilotV.');
         }
         if (permissionsResult.accessibility !== true || permissionsResult.screen_recording !== true) {
           await this.stopChild(); this.state.phase = 'needs-permissions'; return;

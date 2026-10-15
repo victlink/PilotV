@@ -2,6 +2,7 @@ import { globalModelSelectionStore } from '../components/chat/utils/globalModelS
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../components/auth/context/AuthContext';
 import { IS_PLATFORM } from '../constants/config';
+import { withDeviceParam } from '../components/app-shell/pilotvRuntime';
 
 type WSSubscriber = (msg: any) => void;
 
@@ -40,8 +41,9 @@ export const useWebSocket = () => {
 
 const buildWebSocketUrl = (token: string | null) => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  if (IS_PLATFORM || !token) return `${protocol}//${window.location.host}/ws`;
-  return `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+  // 带上当前设备：这个长连接连的是哪台后端，不能由别的标签页改掉。
+  if (IS_PLATFORM || !token) return withDeviceParam(`${protocol}//${window.location.host}/ws`);
+  return withDeviceParam(`${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`);
 };
 
 const INITIAL_RECONNECT_MS = 1000;

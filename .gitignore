@@ -41,3 +41,14 @@ dist/
 
 # ── 验收截图（可由脚本重新生成，不入库）──────────────────────────
 pilotdeck-mobile/review/artifacts/
+pilotdeck-mobile/scripts/weknora-e2e-shots/
+
+# ── 网关运行时本机状态（含管理密钥，绝不入库）─────────────────────
+# devices.local.json.secret 是网关的设备写操作会话密钥：
+# 拿到它就能通过网关改设备清单、进而决定转发目标。
+# devices.local.json.lock 是运行期锁文件。
+# devices.local.json 是本机设备重命名/隐藏状态，属于个人偏好。
+service/data/
+
+# 兜底：任何 .secret / *.secret 一律不入库
+*.secret

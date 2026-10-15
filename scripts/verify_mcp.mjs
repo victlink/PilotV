@@ -131,6 +131,6 @@ await client.stop?.();
 // ---------------------------------------------------------- 汇总
 console.log("\n" + "=".repeat(56));
 console.log(`结果：${fail === 0 ? "全部通过 ✓" : `${fail} 项失败`}（${pass} 通过 / ${fail} 失败）`);
-console.log(`成果台页面：${API.replace(/127\.0\.0\.1/, "localhost")}/artifacts.html#${aid}`);
+console.log(`成果页：${API.replace(/127\.0\.0\.1/, "localhost")}/`);
 console.log("=".repeat(56));
 process.exit(fail === 0 ? 0 : 1);

@@ -9,7 +9,8 @@
 
 | 要做的事 | 命令 / 地址 |
 |---|---|
-| 打开网页 | `http://$(tailscale ip -4 \| head -1):8799/artifacts.html`（本机当前是 `100.90.196.104`，会变） |
+| 打开成果 | **在 PilotV 里**：顶部切到「成果」tab，列表只列当前会话的成果（`http://$(tailscale ip -4 \| head -1):5186/`，本机当前是 `100.90.196.104`，会变） |
+| 单个成果的直链 | 暂时没有 —— 成果视图是应用内状态，要先切到对应会话和成果。侧车 `8799` 只提供 API，不提供页面 |
 | 登录 | 页面自带登录框：用户名 `artifacts`，口令在 `/vol3/1000/Work/00/PilotV/.artifacts-secrets.env` 的 `ARTIFACTS_CONSOLE_PASSWORD`（文件 `chmod 600`） |
 | 机器调 API | `Authorization: Bearer $ARTIFACTS_TOKEN`，token 同样在那个文件里 |
 | 起 / 重启 console | `bash scripts/start-console-tailscale.sh [--restart\|--status]` |
@@ -20,7 +21,10 @@
 | 自检（真截一张首屏图） | `python3 scripts/shoot_console_home.py /tmp/x.png` |
 | **改登录口令** | 页面右上角 ⚙ → 「修改登录口令」，见 §0.3 |
 
-### 0.0 页面为什么可以匿名打开
+### 0.0 （历史）旧成果台页面为什么可以匿名打开
+
+> 这一节描述的是**已经删掉的** `artifacts.html` 独立页面。成果视图现在在 PilotV
+> 前端里，没有自己的登录闸门。下面保留原文只为解释历史，别照着改。
 
 console 没有登录页，未登录时任何受保护路径只回一行 `{"error": "unauthorized"}` 的 JSON ——
 人打开链接只看到这行字，根本没法登进去。所以：
@@ -109,6 +113,12 @@ console 没有登录页，未登录时任何受保护路径只回一行 `{"error
 
 成果台是 `mount()` 进 console 的（`artifacts_console.py:mount`），**它自己没有入口脚本**。
 console 起的时候顺手就有了：
+
+```
+PilotV 前端 (:5186) ──网关──> 侧车 (默认 8799) ──> /api/artifacts/*
+```
+
+旧结构（已下线）：
 
 ```
 console (默认 8799) ──mount──> /artifacts.html + /api/artifacts/*
@@ -244,7 +254,7 @@ curl -s http://127.0.0.1:8799/api/artifacts/notify
 ```
 [成果台] opencode · page · v2
 「登录页」→ 待返工（按钮对比度不够）
-https://pilotdeck.internal/artifacts.html#art_ab12cd
+https://pilotdeck.internal/          # 成果页在应用内，切到那个会话 + 那条成果即可
 ```
 
 **推送永远不会拖垮成果台**：事件回调只入队，HTTP 发送在线程里；webhook 挂了只是
@@ -266,7 +276,7 @@ https://pilotdeck.internal/artifacts.html#art_ab12cd
 | `artifacts_cdp.py` | Chromium CDP：页面截图、selector 重锚 |
 | `artifacts_deliver.py` | 成果判定（只收最终成果）、`.parts.json` 部件树、返工单落地、文字编辑 |
 | `artifacts-mcp.mjs` | MCP 侧车（4 个工具） |
-| `artifacts.html/css/js` | 成果台前端（勿回退 CSS，见交接文档 §8.2） |
+| `pilotdeck-mobile/.../app-shell/ArtifactStage.tsx`、`ArtifactsConsolePane.tsx` | 成果页（预览 + 标注），旧 `artifacts.html/css/js` 已删 |
 | `static/vendor/model-viewer.min.js` | 三维渲染器本地副本（成果台常在内网/离线机器上看，拉不到 CDN） |
 | `scripts/verify_*.py\|mjs` | 验收套件；`run_deliverables_verify.sh`（REST）+ `run_gestures_verify.sh`（真浏览器手势）是需求 1-5 的主验收 |
 | `scripts/make_mini_pdf.py` | 手搓最小合法 PDF（图纸验收用；本机没装 reportlab/fpdf） |

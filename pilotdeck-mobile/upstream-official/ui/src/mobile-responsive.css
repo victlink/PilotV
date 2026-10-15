@@ -22,4 +22,18 @@
      toggle and swallow its taps. Both are still reachable from the project
      workspace body and the sidebar drawer, so only the header copies go away. */
   .workspace-header .workspace-actions .file-entry { display: none; }
+
+  /* 设备设置悬浮窗：手机上改成贴底的全宽面板，避免在窄屏里缩成一列窄条。
+     只改这个新增窗口的尺寸与排布，桌面与其他弹窗完全不动。 */
+  @media (max-width: 640px) {
+    [data-dialog-backdrop] { align-items: flex-end; padding: 0; }
+    .pd-device-settings {
+      max-width: none;
+      width: 100%;
+      max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 12px);
+      border-radius: 16px 16px 0 0;
+      border-bottom: none;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+  }
 }

@@ -170,12 +170,12 @@
   background: transparent;
 }
 
+/* PilotV mark is full-bleed in its own viewBox, so it needs no upscale. */
 .onboarding-shell .setup-icon img {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
-  transform: scale(1.76);
 }
 
 .onboarding-shell .sidebar-kicker {

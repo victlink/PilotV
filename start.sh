@@ -11,6 +11,10 @@
 #   ARTIFACTS_BIND       成果台监听地址，默认 127.0.0.1（只有回环）。
 #                        改成 0.0.0.0 必须同时设 ARTIFACTS_TOKEN，否则服务拒绝启动。
 #   PILOTV_ARTIFACTS_HOST  service（默认，本项目自带）| console（挂 PilotDeck 宿主 console）
+#   ARTIFACTS_WATCH_DIRS   分号分隔的目录列表，watcher 自动盯这些目录的新文件并发布成果
+#                          默认盯 design/，即设计产物一落地就进成果台
+#   PILOTV_WEKNORA_PORT    「资料」页打开的 WeKnora 端口，默认 8080
+#   PILOTV_WEKNORA_URL     直接钉死 WeKnora 地址（HTTPS 入口时必填，见 WEKNORA.md）
 #
 # 用法：
 #   ./start.sh              起成果台（若未运行）再起前端
@@ -64,9 +68,15 @@ stop_all() {
 
 status() {
   port_busy "$UI_PORT" && echo "前端 http://<本机>:$UI_PORT/ 运行中" || echo "前端未运行（$UI_PORT）"
-  local cp="${ARTIFACTS_TARGET##*:}"
-  port_busy "$cp" && echo "成果台 $ARTIFACTS_TARGET 运行中" || echo "成果台未运行（$ARTIFACTS_TARGET）"
-  curl -fsS --noproxy '*' --max-time 3 "$ARTIFACTS_TARGET/api/artifacts?limit=1" >/dev/null 2>&1 \
+  # --status 不带环境变量运行时 ARTIFACTS_TARGET 是空的，`set -u` 会直接把脚本打挂，
+  # 于是「前端正常、成果台忘了起」这种最需要状态页的场合反而看不到状态。
+  local cp="${ARTIFACTS_TARGET:-$ARTIFACTS_PORT}"
+  cp="${cp##*:}"
+  [ -n "$cp" ] || cp=$(console_port)
+  local target="${ARTIFACTS_TARGET:-}"
+  [ -n "$target" ] || target="http://127.0.0.1:$cp"
+  port_busy "$cp" && echo "成果台 $target 运行中" || echo "成果台未运行（$target）"
+  curl -fsS --noproxy '*' --max-time 3 "$target/api/artifacts?limit=1" >/dev/null 2>&1 \
     && echo "成果台 API 正常" || echo "成果台 API 不可达（未启动或被锁定）"
   curl -fsS --noproxy '*' --max-time 3 "http://127.0.0.1:$UI_PORT/" >/dev/null 2>&1 \
     && echo "前端代理 http://127.0.0.1:$UI_PORT/api/artifacts 正常" || echo "前端代理未就绪"
@@ -79,7 +89,9 @@ start_console() {
   # 优先用本项目自带的 service/serve_artifacts.py：只装本项目就能跑，
   # 不再需要 PilotCode 目录里的 console_server.py。
   if [ "${PILOTV_ARTIFACTS_HOST:-service}" = "service" ]; then
-    (setsid nohup python3 "$HERE/service/serve_artifacts.py" --host "${ARTIFACTS_BIND:-127.0.0.1}" --port "$port" \
+    (setsid nohup env \
+      ARTIFACTS_WATCH_DIRS="${ARTIFACTS_WATCH_DIRS:-$HERE/design;$HERE/files}" \
+      python3 "$HERE/service/serve_artifacts.py" --host "${ARTIFACTS_BIND:-127.0.0.1}" --port "$port" \
       </dev/null >"$RUN_DIR/console.log" 2>&1 & echo $! > /tmp/art-console.pid)
   elif [ -f "$HOST_CONSOLE_DIR/console_server.py" ]; then
     # 退路：挂到 PilotDeck 宿主 console 上。三个鉴权变量必须显式传入 ——
@@ -134,17 +146,43 @@ port_busy "$UI_PORT" && die "$UI_PORT 已被占用（先 ./start.sh --stop，或
 
 export PROXY_HOST="${PILOTDECK_BACKEND%:*}"
 export SERVER_PORT="${PILOTDECK_BACKEND##*:}"
+# 网关是子进程，得把端口和默认后端一起传下去，否则它会退回 5186/127.0.0.1:3001。
+export UI_PORT
+export PILOTDECK_BACKEND
 # 前面 console_port 已经算过端口了：没显式指定就指向本机那个成果台实例。
 ARTIFACTS_TARGET=${ARTIFACTS_TARGET:-http://127.0.0.1:$(console_port)}
-export ARTIFACTS_PROXY_TARGET="$ARTIFACTS_TARGET"
+# 网关自己读这些变量：默认后端、设备清单、成果台去哪儿。
+export PILOTV_DIST="$UI_DIR/dist"
+export PILOTV_DEVICES="${PILOTV_DEVICES:-$UI_DIR/public/devices.json}"
+export PILOTV_ARTIFACTS_TARGET="$ARTIFACTS_TARGET"
+# 成果台默认跟着当前设备走；某台机器没部署成果台时，用 PILOTV_ARTIFACTS_PER_DEVICE=0 退回本机。
+export PILOTV_ARTIFACTS_PER_DEVICE="${PILOTV_ARTIFACTS_PER_DEVICE:-1}"
+# 远端设备各自部署成果台后，用它们自己的令牌鉴权；网关转发时换成这个令牌，
+# 浏览器自带的 Authorization 一律不采信。令牌只在网关进程里，不进前端、不进仓库。
+# 没显式导出时从固定位置读，免得起网关时还要记得带环境变量。
+if [ -z "${PILOTV_ARTIFACTS_TOKEN:-}" ]; then
+  TOKEN_FILE="${PILOTV_ARTIFACTS_TOKEN_FILE:-$HOME/.config/pilotv/artifacts-token}"
+  if [ -r "$TOKEN_FILE" ]; then
+    PILOTV_ARTIFACTS_TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE")"
+  fi
+fi
+export PILOTV_ARTIFACTS_TOKEN="${PILOTV_ARTIFACTS_TOKEN:-}"
+
+# 「资料」页要打开的 WeKnora 地址。默认按当前入口主机 + 8080 算，
+# 这样换台机器部署不用改代码；走 HTTPS 入口时把 PILOTV_WEKNORA_URL 钉死，
+# 否则浏览器会把 https 页面里的 http iframe 当混合内容拦掉。
+export PILOTV_WEKNORA_PORT="${PILOTV_WEKNORA_PORT:-8080}"
+export PILOTV_WEKNORA_URL="${PILOTV_WEKNORA_URL:-}"
 
 echo "PilotV"
 echo "  前端   http://0.0.0.0:$UI_PORT/"
-echo "  后端   $PILOTDECK_BACKEND"
+echo "  后端   $PILOTDECK_BACKEND（默认设备）"
 echo "  成果台 $ARTIFACTS_TARGET"
+echo "  资料   ${PILOTV_WEKNORA_URL:-http://<本机>:$PILOTV_WEKNORA_PORT/}（WeKnora）"
 # 放进新会话（setsid）再脱离挂起：调用方的进程组被收走时，前端不会被连带杀掉。
 # 只靠 & 或 nohup 不够 —— 这正是之前 5190 起完就消失的原因。
-(cd "$UI_DIR" && setsid nohup npx vite preview --host 0.0.0.0 --port "$UI_PORT" --strictPort </dev/null >"$UI_LOG" 2>&1 & echo $! > "$PID_UI")
+# 跑网关而不是 vite preview：同一个页面来源要能按 ?d= 转发到不同设备的后端。
+(setsid nohup node "$HERE/service/pilotv_gateway.mjs" </dev/null >"$UI_LOG" 2>&1 & echo $! > "$PID_UI")
 
 # 有环境里 vite 只绑到具体网卡、回环不通，所以回环不通再试本机地址。
 PROBES="127.0.0.1 $(hostname -I 2>/dev/null | tr ' ' '\n' | grep -v '^127\.' | head -1)"

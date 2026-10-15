@@ -1,7 +1,7 @@
 """页面回归用的一次性服务：只挂成果台，不带 console 的登录鉴权。
 
 为什么需要它：
-    /artifacts.html 与 /static/* 走 console 自己的鉴权，只有 /api/artifacts 对回环放行。
+    /artifacts-static/* 与 /static/* 走 console 自己的鉴权，只有 /api/artifacts 对回环放行。
     console 若没有 CONSOLE_SESSION_SECRET（随机密钥），自动化没法造登录态。
     回归要验的是「前端 ↔ 成果台 API ↔ SSE」，这一层与 console 鉴权无关，
     所以单起一个进程来验，不去动正在跑的 console。
@@ -41,9 +41,9 @@ def build_app():
     app = web.Application()
     app.router.add_get("/static/{path:.*}", static_)
     artifacts_console.mount(app)
-    # 自检：三个页面文件必须都注册上了（历史上少一个逗号就静默失效过）
+    # 自检：成果页要用的静态资源与 API 必须注册上（历史上少一个逗号就静默失效过）
     paths = {r.resource.canonical for r in app.router.routes()}
-    for need in ("/artifacts.html", "/artifacts.css", "/artifacts.js"):
+    for need in ("/artifacts-static/{name}", "/api/artifacts", "/api/artifacts/workspace"):
         assert need in paths, f"{need} 没注册上"
     print(f"[serve_test] 路由自检通过（{len(paths)} 条）", flush=True)
     return app

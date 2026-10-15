@@ -67,6 +67,16 @@ vi.mock('../main-content/view/MainContent', async () => {
   };
 });
 
+// 成果页的手绘画布要测自己有多大；jsdom 没有 ResizeObserver。
+if (!('ResizeObserver' in globalThis)) {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
+}
+
 vi.mock('../../utils/api', () => ({
   api: {
     alwaysOnDashboardEvents: vi.fn(async () => new Response(JSON.stringify({ events: [] }))),
@@ -115,7 +125,7 @@ afterEach(() => {
 });
 
 describe('MainAreaV2 dashboard switcher', () => {
-  it('keeps General on chat and hides project-scoped Files and Explore tools', async () => {
+  it('keeps General on chat and hides the project-scoped Files page', async () => {
     const generalProject: Project = {
       name: 'general',
       displayName: 'general',
@@ -127,11 +137,41 @@ describe('MainAreaV2 dashboard switcher', () => {
 
     render(<Harness initialTab="files" selectedProject={generalProject} />);
 
-    expect(screen.queryByRole('button', { name: 'tabs.files' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Open dashboards menu' })).toBeNull();
+    // general 没有文件工作台，顶栏那一页整个不出现，而不是灰着点不动。
+    expect(screen.queryByRole('button', { name: '文件' })).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
     });
+    expect(screen.getByRole('button', { name: '对话' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '成果' })).toBeTruthy();
+  });
+
+  it('switches chat, files and artifacts from one three-page header', () => {
+    render(<Harness />);
+
+    const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
+    const chatButton = pages.getByRole('button', { name: '对话' });
+    const filesButton = pages.getByRole('button', { name: '文件' });
+    const artifactsButton = pages.getByRole('button', { name: '成果' });
+
+    expect(chatButton.getAttribute('aria-pressed')).toBe('true');
+    expect(filesButton.getAttribute('aria-pressed')).toBe('false');
+    expect(artifactsButton.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(filesButton);
+    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('files');
+    expect(filesButton.getAttribute('aria-pressed')).toBe('true');
+    expect(chatButton.getAttribute('aria-pressed')).toBe('false');
+
+    // 成果页盖住主内容，但不该把底层 tab 改掉：再点对话才切回去。
+    fireEvent.click(artifactsButton);
+    expect(artifactsButton.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('files');
+
+    fireEvent.click(chatButton);
+    expect(chatButton.getAttribute('aria-pressed')).toBe('true');
+    expect(artifactsButton.getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
   });
 
   it('renames the selected session inline after double-clicking the header title', () => {
@@ -165,47 +205,13 @@ describe('MainAreaV2 dashboard switcher', () => {
     expect(localStorage.getItem('pilotdeck:customSessionTitles')).toBeNull();
   });
 
-  it('places an available chat search button before Files and keeps its state in sync', async () => {
+  it('leaves chat search to the composer instead of the header', () => {
     render(<Harness initialTab="files" withSession />);
 
-    const tools = screen.getByLabelText('common:uiText.tools');
-    const searchButton = within(tools).getByRole('button', { name: 'Search current conversation' });
-    const filesButton = within(tools).getByRole('button', { name: 'tabs.files' });
-    const toolButtons = within(tools).getAllByRole('button');
-
-    expect(toolButtons[0]).toBe(searchButton);
-    expect(toolButtons[1]).toBe(filesButton);
-    expect(searchButton.getAttribute('aria-pressed')).toBe('false');
-
-    fireEvent.click(searchButton);
-    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
-    expect(screen.getByTestId('main-content').getAttribute('data-search-open')).toBe('true');
-    expect(searchButton.getAttribute('aria-pressed')).toBe('true');
-    expect(searchButton.className).toContain('bg-blue-100');
-    expect(searchButton.className).toContain('text-blue-700');
-    expect(searchButton.className).not.toContain('shadow');
-
-    const headerSearch = within(screen.getByRole('banner')).getByRole('search');
-    expect(headerSearch.className).not.toContain('absolute');
-    expect(headerSearch.className).not.toContain('shadow');
-    expect(within(headerSearch).getAllByRole('button')).toHaveLength(2);
-    expect(screen.getByTitle('Searchable chat').textContent).toBe('Searchable chat');
-    fireEvent.click(searchButton);
-    await waitFor(() => expect(searchButton.getAttribute('aria-pressed')).toBe('false'));
-
-    fireEvent.click(searchButton);
-    fireEvent.click(filesButton);
-    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('files');
-    expect(screen.getByTestId('main-content').getAttribute('data-search-open')).toBe('false');
-    expect(searchButton.getAttribute('aria-pressed')).toBe('false');
-  });
-
-  it('disables chat search while no conversation is mounted', () => {
-    render(<Harness />);
-
-    expect(
-      (screen.getByRole('button', { name: 'Search current conversation' }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    // 搜索按钮搬到了对话框左下角的项目目录旁边，顶栏不再有它。
+    expect(screen.queryByRole('button', { name: 'Search current conversation' })).toBeNull();
+    expect(screen.queryByLabelText('common:uiText.tools')).toBeNull();
+    expect(screen.queryByRole('searchbox')).toBeNull();
   });
 
   it('does not leave Files when an embedded chat search opens', () => {
@@ -217,94 +223,41 @@ describe('MainAreaV2 dashboard switcher', () => {
     expect(screen.getByTestId('main-content').getAttribute('data-search-open')).toBe('true');
   });
 
-  it('preserves Chinese IME composition through the header search controller', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
-    render(<Harness withSession />);
+  it('keeps the page switch available while a dashboard panel is open', () => {
+    render(<Harness initialTab="memory" />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Search current conversation' }));
-    const input = screen.getByRole('searchbox') as HTMLInputElement;
-
-    fireEvent.compositionStart(input);
-    fireEvent.change(input, { target: { value: 'wos' } });
-    expect(input.value).toBe('wos');
-    expect(screen.getByTestId('main-content').getAttribute('data-search-query')).toBe('');
-
-    fireEvent.change(input, { target: { value: '我是' } });
-    fireEvent.compositionEnd(input);
-
-    await waitFor(() => {
-      expect(input.value).toBe('我是');
-      expect(screen.getByTestId('main-content').getAttribute('data-search-query')).toBe('我是');
-    });
-
-    fireEvent.keyDown(input, { key: 'Enter', keyCode: 13, which: 13 });
-    expect(screen.getByTestId('main-content').getAttribute('data-search-index')).toBe('0');
-
-    now.mockReturnValue(1_200);
-    fireEvent.keyDown(input, { key: 'Enter', keyCode: 13, which: 13 });
-    expect(screen.getByTestId('main-content').getAttribute('data-search-index')).toBe('1');
-  });
-
-  it('keeps chat implicit and toggles the Files workbench from its button', () => {
-    render(<Harness />);
-
-    expect(screen.queryByText('tabs.chat')).toBeNull();
-    const filesButton = screen.getByRole('button', { name: 'tabs.files' });
-    expect(filesButton.getAttribute('aria-pressed')).toBe('false');
-    expect(filesButton.className).toContain('file-entry');
-
-    fireEvent.click(filesButton);
-    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('files');
-    expect(filesButton.getAttribute('aria-pressed')).toBe('true');
-    expect(filesButton.className).toContain('file-entry');
-    expect(filesButton.className).toContain('font-medium');
-
-    fireEvent.click(filesButton);
-    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
-    expect(filesButton.getAttribute('aria-pressed')).toBe('false');
-  });
-
-  it('keeps the overflow menu available while a dashboard panel is open', async () => {
-    render(<Harness />);
-
-    const overflowButton = screen.getByRole('button', { name: 'Open dashboards menu' });
-    expect(overflowButton.textContent).toContain('Explore');
-    fireEvent.click(overflowButton);
-    const menu = screen.getByRole('menu', { name: 'Dashboards' });
-    expect(menu.className).toContain('z-[90]');
-    expect(menu.className).toContain('w-44');
-    expect(screen.getByRole('menuitem', { name: 'tabs.memory' }).className).toContain('justify-center');
-
-    expect(screen.queryByRole('menuitem', { name: 'tabs.cron' })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: 'tabs.skills' })).toBeNull();
-
-    fireEvent.click(screen.getByRole('menuitem', { name: 'tabs.memory' }));
     expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('memory');
-    expect(screen.getByRole('button', { name: 'Open dashboards menu' })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open dashboards menu' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'tabs.dashboard' }));
-    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('dashboard');
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Open dashboards menu' })).toBeTruthy();
-    });
+    const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
+    expect(pages.getByRole('button', { name: '对话' })).toBeTruthy();
+    expect(pages.getByRole('button', { name: '文件' })).toBeTruthy();
+    expect(pages.getByRole('button', { name: '成果' })).toBeTruthy();
+    // 看板这类面板有自己的 tab，切回来时对话不用重挂，输入框不会丢草稿。
+    expect(screen.getByTestId('main-content')).toBeTruthy();
   });
 
-  it('opens changes from the single Explore entry and emits a fresh request for each opening', () => {
+  it('opens the changes review when the sidebar asks for it', () => {
     render(<Harness withSession />);
-    expect(screen.queryByRole('button', { name: 'dashboardSwitcher.git' })).toBeNull();
-    const menuButton = screen.getByRole('button', { name: 'Open dashboards menu' });
-    fireEvent.click(menuButton);
-    expect(screen.queryByRole('menuitem', { name: 'dashboardSwitcher.git' })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: 'dashboardSwitcher.checkpoints' })).toBeNull();
-    fireEvent.click(screen.getByRole('menuitem', { name: 'dashboardSwitcher.changes' }));
-    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByTestId('main-content').getAttribute('data-review-tab')).toBeNull();
+
+    fireEvent(window, new Event('pilotdeck:open-changes'));
     expect(screen.getByTestId('main-content').getAttribute('data-review-tab')).toBe('changes');
     expect(screen.getByTestId('main-content').getAttribute('data-review-request')).toBe('1');
-    fireEvent.click(menuButton);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'dashboardSwitcher.changes' }));
-    expect(screen.getByTestId('main-content').getAttribute('data-review-tab')).toBe('changes');
+
+    // 再点一次「改动」要能重新弹一次，所以序号必须继续涨。
+    fireEvent(window, new Event('pilotdeck:open-changes'));
     expect(screen.getByTestId('main-content').getAttribute('data-review-request')).toBe('2');
+  });
+
+  it('leaves artifacts when the sidebar asks for the changes review', () => {
+    render(<Harness withSession />);
+
+    fireEvent.click(screen.getByRole('button', { name: '成果' }));
+    expect(screen.getByRole('button', { name: '成果' }).getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent(window, new Event('pilotdeck:open-changes'));
+    expect(screen.getByRole('button', { name: '成果' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByRole('button', { name: '对话' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('main-content').getAttribute('data-review-tab')).toBe('changes');
   });
 
   it('replaces the workspace header with only the scheduled tasks title', async () => {
@@ -314,8 +267,8 @@ describe('MainAreaV2 dashboard switcher', () => {
     expect(screen.getByTestId('cron-page')).toBeTruthy();
     expect(screen.queryByTitle('Searchable chat')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Search current conversation' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'tabs.files' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Open dashboards menu' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '文件' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: '页面切换' })).toBeNull();
   });
 
   it('replaces the workspace header with only the skills title', async () => {
@@ -325,7 +278,7 @@ describe('MainAreaV2 dashboard switcher', () => {
     expect(screen.getByTestId('skills-page')).toBeTruthy();
     expect(screen.queryByTitle('Searchable chat')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Search current conversation' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'tabs.files' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Open dashboards menu' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '文件' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: '页面切换' })).toBeNull();
   });
 });

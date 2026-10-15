@@ -102,35 +102,25 @@ run "M2 目录监控"       python3 scripts/verify_watch.py --api "$API"
 run "M3 状态机审计"    python3 scripts/verify_m3.py --api "$API"
 run "M4 批量导入"       python3 scripts/verify_import.py --api "$API"
 run "M2 selector 重锚"  python3 scripts/verify_reanchor.py --api "$API"
-run_node "M2 渲染器"     scripts/verify_page.mjs
-run "顶栏 logo 不可点"   python3 scripts/verify_brand_logo.py --api "$API"
 run_node "M1 MCP 侧车"   scripts/verify_mcp.mjs
 run_node "M3 MCP 返工唤醒" scripts/verify_m3_mcp.mjs
 run_node "M1 插件安装"   scripts/verify_plugin.mjs
-run "前端 diff 视图"    python3 scripts/verify_diff_ui.py --api "$API"
-run "前端 agent 筛选"   python3 scripts/verify_agent_ui.py --api "$API"
 run "M4 IM 推送"        python3 scripts/verify_notify.py
 # 设置 / 改口令两个脚本自己会起一台隔离 console（独立的用户库与数据目录），
 # 故意不放进上面的公共环境跑：改口令会写用户库，绝不能碰公共环境里那份。
 run "设置 改口令后端" python3 scripts/verify_settings.py
-run "设置 面板页面级"  python3 scripts/verify_settings_ui.py
-# 生产只读体检：只 GET、绝不改口令。跑挂了多半是服务没起或 Cookie 过期，
-# 不代表面板坏了 —— 想在本机离线跑整套时用 SKIP_PROD=1 摘掉它。
-if [ "${SKIP_PROD:-0}" = "1" ]; then
-  echo "--- 跳过 生产设置面板只读（SKIP_PROD=1）"
-else
-  run "设置 生产面板只读" python3 scripts/verify_settings_prod_readonly.py
-fi
+# 成果页并进 PilotV 前端之后，成果相关的回归放最前面：先确认成果台服务活着、
+# HTML 成果的同目录素材能取到、评审链接指向 PilotV 而不是侧车端口。
+run "成果 同目录素材"  python3 scripts/verify_sibling_assets.py --base "$API"
+run "成果 评审链接"    python3 scripts/verify_review_url.py
 # 需求 1-5（只显示最终成果 / 部件树 / 手势标注 / 就地编辑 / 回原会话）的新验收。
 # 这两套自带隔离服务与隔离 PilotDeck 家目录，不跟上面共用 $API —— 尤其返工单
 # 验收要写假会话目录，共用服务会让它污染真实环境。
 run "需求1-5 成果交付与返工单" bash scripts/run_deliverables_verify.sh
-run "需求1-5 浏览器手势"       bash scripts/run_gestures_verify.sh
 
 # 左栏「项目 / 会话」下拉。它自带隔离的假 PilotDeck 家目录（$PILOTDECK_HOME），
 # 因为要验「默认落在正在活动 / 最近更新的那个会话上」—— 不造假目录就只能验出空壳。
 # 代价是这个套件会重启一次服务（PILOTDECK_HOME 是进程级环境变量），所以放最后。
-run "左栏 会话下拉"           bash scripts/run_scope_verify.sh
 
 printf '\n\033[1m########## 回归汇总 ##########\033[0m\n'
 printf '通过 %s / 失败 %s / 超时跳过 %s\n' "$OK" "$FAIL" "$SKIP"

@@ -11,7 +11,8 @@ PilotV 是独立项目：本文件只负责「成果台」自己的路由与页�
 鉴权：宿主的 Cookie 登录态优先；agent / 侧车可用
     - Authorization: Bearer <ARTIFACTS_TOKEN>（环境变量设置后生效），或
     - 本机回环直连（curl、SKILL.md 兜底、localhost 侧的 MCP 侧车）。
-页面 /artifacts.html 本身不含数据，数据仍全走 _guard()。
+本服务不再伺服独立成果台页面；PilotV 成果页直接调用下面的 API 取成果、预览与标注。
+所有数据接口仍走 _guard() 三道鉴权。
 """
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ import shutil
 import sys
 import time
 import traceback  # noqa: F401  (物化异常留现场用)
+import urllib.parse
 from urllib.parse import urlsplit
 
 from aiohttp import web
@@ -120,10 +122,15 @@ def _actor_of(request) -> str:
 
 
 def _review_url(request, artifact_id):
+    # 成果页已经并进 PilotV 官方前端，且成果视图是应用内状态、还没有独立路由，
+    # 所以评审链接只能回到应用根地址；等成果页支持深链接后再把 artifact_id 带回来。
     base = os.environ.get("CONSOLE_PUBLIC_URL")
     if not base:
-        base = f"{request.scheme}://{request.host}"
-    return f"{base.rstrip('/')}/artifacts.html#{artifact_id}"
+        # 网关代理时 Host 会被改写成侧车自己的地址，不看转发头就会把 8799 发给人。
+        host = request.headers.get("X-Forwarded-Host") or request.headers.get("Host") or request.host
+        scheme = request.headers.get("X-Forwarded-Proto") or request.scheme
+        base = f"{scheme}://{host}"
+    return base.rstrip("/") + "/"
 
 
 def _resolve_source_path(raw: str, payload: dict):
@@ -694,6 +701,22 @@ class Watcher:
             "watch": path,
             "watch_sha1": digest,
         }
+        # 推断 run_id：按源文件路径找到项目，再找该项目下"正在实时修改"的会话
+        try:
+            import pilotdeck_workspace as ws
+            project = ws.find_project_for_path(path)
+            if project:
+                tree = ws.scan_projects(session_limit=20)
+                for p in tree.get("projects", []):
+                    if p.get("name") == project.get("name"):
+                        sessions = p.get("sessions", [])
+                        live = [s for s in sessions if s.get("live")]
+                        target = (live or sessions)[0] if sessions else None
+                        if target:
+                            payload["run_id"] = target["id"]
+                        break
+        except Exception:
+            pass
         if parent:
             payload["parent_id"] = parent
         import artifacts_store
@@ -1797,6 +1820,7 @@ def _pair_diff(from_art, to_art):
     }
 
 
+@_guard
 async def api_diff(request):
     store = _store_of(request)
     aid = request.match_info["aid"]
@@ -1818,6 +1842,7 @@ async def api_diff(request):
                   "audit": store.audit_entries(to_id, limit=40)})
 
 
+@_guard
 async def api_wait_rework(request):
     """长轮询等返工：agent 交付完调用一次，评审一提交就立刻拿到清单。
 
@@ -1927,8 +1952,11 @@ async def api_raw(request):
     rng = request.headers.get("Range", "")
     m = re.match(r"bytes=(\d*)-(\d*)$", rng.strip()) if rng else None
     if not m:
+        mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        if mime in ("text/html", "application/xhtml+xml"):
+            return _html_with_base(aid, path)
         return web.FileResponse(path, headers={
-            "Content-Type": mimetypes.guess_type(path)[0] or "application/octet-stream",
+            "Content-Type": mime,
             "Accept-Ranges": "bytes",
             "Content-Disposition": f'inline; filename="{os.path.basename(path)}"',
         })
@@ -1952,6 +1980,88 @@ async def api_raw(request):
         "Content-Range": f"bytes {start}-{end}/{size}",
         "Accept-Ranges": "bytes",
         "Content-Length": str(length),
+    })
+
+
+_BASE_TAG_RE = re.compile(r"<base\b", re.I)
+
+
+def _html_with_base(aid: str, path: str):
+    """给 HTML 成果的正文注入 base，好让 iframe 里的相对素材能取到。
+
+    为什么要注入：iframe 打开的是 /api/artifacts/{id}/raw，浏览器会把页面里的
+    "concepts/a.svg" 解析成 /api/artifacts/{id}/concepts/a.svg，而素材其实在
+    成果的来源目录里。指到 file 路由后，相对路径才落在正确的地方。
+
+    页面自己写了 <base> 就不动它 —— 作者的意图优先。
+    """
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            html = handle.read()
+    except OSError:
+        return _err("file not found", 404)
+    if _BASE_TAG_RE.search(html):
+        html, changed = html, False
+    else:
+        tag = f'<base href="/api/artifacts/{aid}/file/">'
+        match = re.search(r"<head\b[^>]*>", html, re.I)
+        if match:
+            html, changed = html[:match.end()] + tag + html[match.end():], True
+        else:
+            html, changed = tag + html, True
+    return web.Response(text=html, content_type="text/html", charset="utf-8", headers={
+        "Accept-Ranges": "none",
+        "Content-Disposition": f'inline; filename="{os.path.basename(path)}"',
+        "Cache-Control": "no-cache",
+        # 成果 HTML 是用户上传 / 智能体生成的，正文完全不受控。这份响应会被
+        # 成果台用 iframe 直接打开，而 iframe 的 URL 是同源的
+        # /api/artifacts/{id}/raw —— 不隔离的话，成果里的 <script> 就能以
+        # PilotV 的身份跑，直接调成果 API、读会话数据。
+        #
+        # CSP 的 sandbox 指令把这份文档放进「不透明源」，即使前端哪天漏了
+        # iframe sandbox 属性也照样拦住；nosniff 挡住 MIME 嗅探绕过。
+        # 两者都是响应头，不依赖前端是否正确渲染。
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy":
+            "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads",
+    })
+
+
+@_guard
+async def api_sibling_file(request):
+    """HTML 成果用 iframe 打开时，页面里的相对路径要能取到同目录的素材。
+
+    `<img src="lockups/a.svg">` 在 /api/artifacts/{aid}/raw 下会解析成
+    /api/artifacts/{aid}/lockups/a.svg。没有这条路由，成果页打开就是白页加一串 404。
+
+    边界：只读、只给成果自己所在的那一层目录、点文件不提供。目录穿越一律 404 ——
+    这条路由挂在对外的服务上，不能变成任意文件下载器。
+    """
+    aid = request.match_info["aid"]
+    rel = urllib.parse.unquote(request.match_info.get("relpath", "") or "")
+    if not rel or rel.startswith("/") or "\x00" in rel:
+        return _err("file not found", 404)
+    record = _store.get(aid) if _store else None
+    if not record:
+        return _err("file not found", 404)
+    # 素材要回到成果的来源目录找，不是成果库里的副本目录 ——
+    # 发布时 HTML 被复制进了 files/，同目录的 SVG 还留在项目里。
+    source = record.get("source") or {}
+    origin = _resolve_source_path(source.get("path") or "", {})
+    if not origin or not os.path.isfile(origin):
+        return _err("file not found", 404)
+    root = os.path.dirname(os.path.realpath(origin))
+    target = os.path.realpath(os.path.join(root, rel))
+    if target != root and not target.startswith(root + os.sep):
+        return _err("file not found", 404)
+    parts = rel.replace("\\", "/").split("/")
+    if any(part.startswith(".") for part in parts if part):
+        return _err("file not found", 404)
+    if not os.path.isfile(target):
+        return _err("file not found", 404)
+    return web.FileResponse(target, headers={
+        "Content-Type": mimetypes.guess_type(target)[0] or "application/octet-stream",
+        "Cache-Control": "public, max-age=60",
     })
 
 
@@ -1994,16 +2104,27 @@ async def api_health(request):
                   "materialize_queue": _mat.queue.qsize() if _mat else 0})
 
 
+@_guard
 async def api_notify_status(request):
-    """IM 推送通道状态：配没配、送到第几条、最近一次结果。"""
+    """IM 推送通道状态：配没配、送到第几条、最近一次结果。
+
+    同样要鉴权：status() 会把 webhook 的主机名（哪个 IM 服务、最近报了什么错）
+    一并吐出来，那是内部设施信息，不该给没登录的人看。
+    """
     notifier = request.app.get("artifacts_notifier")
     if notifier is None:
         return _json({"ok": False, "error": "notifier not mounted"}, status=503)
     return _json({"ok": True, **notifier.status()})
 
 
+@_guard
 async def api_notify_test(request):
-    """手动发一条测试消息，用来验 webhook 配没配对。"""
+    """手动发一条测试消息，用来验 webhook 配没配对。
+
+    必须鉴权：这条路由会把调用方给的文本经 webhook 原样发出去。漏了 @_guard
+    就等于开了一个匿名消息发送器 —— 任何能连上服务的人都能借这个 webhook
+    往群里刷任意内容。
+    """
     notifier = request.app.get("artifacts_notifier")
     if notifier is None:
         return _json({"ok": False, "error": "notifier not mounted"}, status=503)
@@ -2017,6 +2138,8 @@ async def api_notify_test(request):
     if not isinstance(body, dict):
         body = {}
     text = (body.get("text") or "[成果台] 通道测试：这条是手动发的，配置是通的 ✓").strip()
+    if len(text) > 500:
+        return _err("测试文本过长", 400)
     ok = notifier.send_now(text)
     return _json({"ok": ok, "text": text, **notifier.status()},
                  status=200 if ok else 502)
@@ -2152,55 +2275,11 @@ async def api_change_password(request):
                           "轮换 CONSOLE_SESSION_SECRET 或删掉该账号再重建。"})
 
 
-# --------------------------------------------------------------------- 静态页
+# --------------------------------------------------------------------- 静态资源
 
-PAGE_FILES = ("artifacts.html", "artifacts.css", "artifacts.js")
-
-_PAGE_ASSETS = tuple(f"/{name}" for name in PAGE_FILES)
-
-# 主题底座 / 图标 / manifest 也必须免鉴权，否则页面会掉色板：
-#   1. console-app.css 挂了，artifacts.css 里 var(--side-w) 取不到值，
-#      grid-template-columns 整条失效，三栏塌成竖排；
-#   2. 浏览器取 manifest 用的是 credentials=omit（规范如此，带不上 Cookie），
-#      所以只要它还在鉴权后面，manifest 永远 401。
-# 这一段只放主题与图标，没有任何成果数据（数据走 /api/artifacts 自己的三道鉴权），
-# 和 console 已经放行的 /static/ 是同一性质。
-_PAGE_ASSETS = _PAGE_ASSETS + ("/artifacts-static/",)
-
-
-def _open_page_assets(cs) -> bool:
-    """把页面三件套加进 console 的免鉴权白名单（让浏览器能登进来）。
-
-    console 的 auth 中间件认的就是模块级 OPEN_PATHS，所以这里必须改 console 模块
-    自己的属性，改 artifacts 这边的任何配置都没用。找不到 console 模块就返回 False，
-    页面仍然只是 JSON 401 —— 不静默假装成功。
-    """
-    if cs is None or not hasattr(cs, "OPEN_PATHS"):
-        return False
-    missing = tuple(p for p in _PAGE_ASSETS if p not in cs.OPEN_PATHS)
-    if missing:
-        cs.OPEN_PATHS = tuple(cs.OPEN_PATHS) + missing
-    return True
-
-
-async def _serve_local(request):
-    # 路由是按字面量注册的（/artifacts.html），没有 {filename} 占位符，
-    # 所以只能从 request.path 取文件名 —— 读 match_info 会 KeyError 500。
-    name = os.path.basename(request.path)
-    if name not in PAGE_FILES:
-        return web.Response(status=404, text="not found")
-    path = os.path.join(HERE, name)
-    if not os.path.isfile(path):
-        root = os.environ.get("CONSOLE_ROOT") or ""
-        alt = os.path.join(root, name)
-        if root and os.path.isfile(alt):
-            path = alt
-        else:
-            return web.Response(status=404, text=f"{name} not found")
-    ctype = {"html": "text/html", "css": "text/css", "js": "text/javascript"}[name.rsplit(".", 1)[1]]
-    return web.FileResponse(path, headers={"Content-Type": f"{ctype}; charset=utf-8",
-                                           "Cache-Control": "no-cache"})
-
+# 独立成果台页面已经并进 PilotV 官方前端，这里不再伺服 artifacts.html/css/js。
+# /artifacts-static 仍然保留：成果页要从里面取三维渲染器（vendor/model-viewer.min.js）
+# 和图标。成果数据一律走 /api/artifacts 自己的 Cookie / Bearer / 回环三道鉴权。
 
 # 成果台自带的静态资源（主题 CSS / 图标 / manifest）。
 # 挂在 /artifacts-static 而不是 /static：宿主 app 可能已经有 /static/{path} 这类
@@ -2303,16 +2382,7 @@ def mount(app, console_root=None):
     app.on_cleanup.append(_cleanup)
 
     r = app.router
-    # 页面三件套放进 console 的免鉴权白名单：console 没有登录页，未登录打开
-    # /artifacts.html 只会甩一行 {"error": "unauthorized"} 的 JSON，人根本没法登进来。
-    # 放行的是空壳页面（html/css/js，不含任何成果数据），数据仍然全走
-    # _guard() 的 Cookie / Bearer / 回环三道鉴权 —— 页面公开不等于数据公开。
-    if not _open_page_assets(_console_module()):
-        print("[artifacts] 警告：拿不到 console 模块，页面仍需 console 登录态才能打开")
-    r.add_get("/artifacts.html", _serve_local)
-    r.add_get("/artifacts.css", _serve_local)
-    r.add_get("/artifacts.js", _serve_local)   # 逗号不能少：少了这条路由压根不注册，
-                                              # 会静默落到宿主 app 自己的旧副本上（v0 原型）
+    # 独立成果台页面已删除，这里只剩前端要用的静态资源与 API。
     r.add_get("/artifacts-static/{name:.*}", _serve_static)
     r.add_get("/api/artifacts", api_list)
     r.add_post("/api/artifacts", api_create)
@@ -2348,4 +2418,5 @@ def mount(app, console_root=None):
     r.add_get("/api/artifacts/{aid}/audit", api_audit)
     r.add_get("/api/artifacts/{aid}/thumb", api_thumb)
     r.add_get("/api/artifacts/{aid}/raw", api_raw)
+    r.add_get("/api/artifacts/{aid}/file/{relpath:.*}", api_sibling_file)
     return app

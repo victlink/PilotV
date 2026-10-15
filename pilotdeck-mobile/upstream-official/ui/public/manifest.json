@@ -1,7 +1,7 @@
 {
   "name": "PilotV",
   "short_name": "PilotV",
-  "description": "PilotV — 多设备 PilotDeck 前端",
+  "description": "PilotV — 多设备前端",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

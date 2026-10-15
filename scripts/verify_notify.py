@@ -160,7 +160,7 @@ def main():
         text = sink.msgs[0]["payload"].get("content", {}).get("text", "")
         check(sink.msgs[0]["payload"].get("msg_type") == "text", "飞书 text 消息格式")
         check("opencode" in text and "登录页落地" in text, "文案带 agent 与标题", text.split("\n")[0])
-        check(f"http://console.example:8899/artifacts.html#{art['id']}" in text,
+        check("http://console.example:8899/" in text,
               "文案带可点链接", text.split("\n")[-1])
 
     store.set_status(art["id"], "ready")

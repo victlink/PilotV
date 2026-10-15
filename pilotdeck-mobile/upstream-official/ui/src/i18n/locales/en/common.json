@@ -29,7 +29,17 @@
     "dashboard": "Routing",
     "memory": "Memory",
     "skills": "Skills",
+    "weknora": "Documents",
     "cron": "Cron"
+  },
+  "weknora": {
+    "title": "Documents",
+    "frameTitle": "WeKnora library",
+    "reload": "Reload",
+    "retry": "Try again",
+    "openExternal": "Open in new tab",
+    "down": "Cannot reach WeKnora on this machine",
+    "downHint": "The document service is not running. On the WeKnora host run: docker compose -f docker-compose.yml -f pilotv/docker-compose.pilotv.yml up -d, then try again."
   },
   "dashboardSwitcher": {
     "explore": "Explore",
@@ -226,10 +236,10 @@
     "openInEditor": "Open in Editor"
   },
   "mainContent": {
-    "loading": "Loading PilotDeck",
+    "loading": "Loading PilotV",
     "settingUpWorkspace": "Setting up your workspace...",
     "chooseProject": "Choose Your Project",
-    "selectProjectDescription": "Select a project from the sidebar to start coding with PilotDeck. Each project contains your chat sessions and file history.",
+    "selectProjectDescription": "Select a project from the sidebar to start coding with PilotV. Each project contains your chat sessions and file history.",
     "tip": "Tip",
     "createProjectMobile": "Tap the menu button above to access projects",
     "createProjectDesktop": "Create a new project by clicking the folder icon in the sidebar",
@@ -506,9 +516,9 @@
       "usingProvidedToken": "Using provided token",
       "noAuthentication": "No authentication",
       "sshKey": "SSH Key",
-      "existingInfo": "The workspace will be added to your project list and will be available for PilotDeck sessions.",
+      "existingInfo": "The workspace will be added to your project list and will be available for PilotV sessions.",
       "newWithClone": "The repository will be cloned from this folder.",
-      "newEmpty": "The workspace will be added to your project list and will be available for PilotDeck sessions.",
+      "newEmpty": "The workspace will be added to your project list and will be available for PilotV sessions.",
       "cloningRepository": "Cloning repository..."
     },
     "buttons": {
@@ -619,11 +629,11 @@
   },
   "uiText": {
     "loading": "Loading...",
-    "openSource": "PilotDeck is open source",
+    "openSource": "PilotV is open source",
     "retry": "Retry",
     "retryGateway": "Retry Gateway",
     "modelUnavailable": "Model configuration unavailable",
-    "modelInvalid": "PilotDeck could not validate the model configuration.",
+    "modelInvalid": "PilotV could not validate the model configuration.",
     "fixAndRetry": "Fix the configuration, then retry.",
     "gatewayFailed": "Gateway failed to start",
     "gatewayUnavailable": "Your model configuration was saved, but the local Gateway is unavailable.",
@@ -634,7 +644,7 @@
     "passwordMismatch": "Passwords do not match.",
     "settingUp": "Setting up...",
     "createAccount": "Create Account",
-    "welcome": "Welcome to PilotDeck",
+    "welcome": "Welcome to PilotV",
     "setupDescription": "Set up your account to get started",
     "singleUser": "This is a single-user system. Only one account can be created.",
     "username": "Username",
@@ -762,11 +772,11 @@
     "open": "Open",
     "deleteProjectTitle": "Delete project?",
     "deleteProject": "Delete project",
-    "deleteProjectBody": "This removes the project from PilotDeck and deletes its session metadata.",
+    "deleteProjectBody": "This removes the project from PilotV and deletes its session metadata.",
     "deleteSessions_one": "{{count}} conversation will also be removed.",
     "deleteSessions_other": "{{count}} conversations will also be removed.",
     "deleteSessions": "{{count}} conversations will also be removed.",
-    "keepFiles": "Files on disk are not deleted; only their references in PilotDeck are removed.",
+    "keepFiles": "Files on disk are not deleted; only their references in PilotV are removed.",
     "deleteSessionTitle": "Delete conversation?",
     "deleteSession": "Delete conversation",
     "deleteSessionBody": "This removes the conversation from {{project}}."

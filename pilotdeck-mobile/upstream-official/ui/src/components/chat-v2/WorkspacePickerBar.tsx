@@ -5,6 +5,8 @@ import type { Project } from '../../types/app';
 import { isGeneralProject, compareProjectsBySidebarOrder } from '../app-shell/appShellSelection';
 import { projectDisplayName } from '../../lib/customNames';
 import { cn } from '../../lib/utils.js';
+import ChatHistorySearchBar from './ChatHistorySearchBar';
+import { useOptionalChatHistorySearchController } from './ChatHistorySearchController';
 
 const WORKSPACE_PICKER_LIST_PREFERRED_MAX = 128;
 const WORKSPACE_PICKER_PREFERRED_MAX_HEIGHT = 264;
@@ -36,6 +38,12 @@ export default function WorkspacePickerBar({
   const [query, setQuery] = useState('');
   const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null);
   const [listMaxHeight, setListMaxHeight] = useState<number | null>(null);
+  // 搜索控制器在主区提供。单独渲染这个组件时可能没有 provider，这时
+  // 就不画搜索按钮，而不是把整条项目选择条弄崩。
+  const search = useOptionalChatHistorySearchController();
+  const searchAvailable = Boolean(search?.available);
+  const searchOpen = Boolean(search?.isOpen);
+  const searchPresentation = searchOpen ? search?.presentation ?? null : null;
 
   // A missing selection is only possible briefly while projects are loading.
   // Present it as General instead of exposing a third, unusable null state.
@@ -142,24 +150,62 @@ export default function WorkspacePickerBar({
           'dark:bg-neutral-800/50',
         )}
       >
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-haspopup="listbox"
-          onClick={() => setOpen((previous) => !previous)}
-          className={cn(
-            'inline-flex max-w-[70%] items-center gap-1.5 rounded-md px-1.5 py-1.5 text-[13px] leading-none',
-            'bg-[#eceef2] text-neutral-700 transition-colors hover:bg-[#e2e4ea]',
-            'dark:bg-neutral-700/80 dark:text-neutral-200 dark:hover:bg-neutral-600',
-          )}
-        >
-          {isGeneralSelected ? (
-            <MessageSquare className="h-3.5 w-3.5 shrink-0 text-neutral-500" strokeWidth={1.8} />
-          ) : (
-            <Folder className="h-3.5 w-3.5 shrink-0 text-neutral-500" strokeWidth={1.8} />
-          )}
-          <span className="min-w-0 truncate">{selectedLabel}</span>
-        </button>
+        {searchOpen && searchPresentation ? (
+          // 搜索框就长在项目目录这一行的位置上：按钮按在这里，框也从这里展开，
+          // 不用再往顶栏飘一趟。
+          <div className="min-w-0 flex-1 py-0.5">
+            <ChatHistorySearchBar
+              {...searchPresentation}
+              onClose={() => search?.closeSearch()}
+              placement="inline"
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-haspopup="listbox"
+            onClick={() => setOpen((previous) => !previous)}
+            className={cn(
+              'inline-flex max-w-[70%] items-center gap-1.5 rounded-md px-1.5 py-1.5 text-[13px] leading-none',
+              'bg-[#eceef2] text-neutral-700 transition-colors hover:bg-[#e2e4ea]',
+              'dark:bg-neutral-700/80 dark:text-neutral-200 dark:hover:bg-neutral-600',
+            )}
+          >
+            {isGeneralSelected ? (
+              <MessageSquare className="h-3.5 w-3.5 shrink-0 text-neutral-500" strokeWidth={1.8} />
+            ) : (
+              <Folder className="h-3.5 w-3.5 shrink-0 text-neutral-500" strokeWidth={1.8} />
+            )}
+            <span className="min-w-0 truncate">{selectedLabel}</span>
+          </button>
+        )}
+        {searchAvailable ? (
+          // 放在项目目录右侧：搜索是「看这段对话」的动作，紧挨着对话区比顶栏顺手。
+          <button
+            type="button"
+            aria-label={t('chatSearch.open', { defaultValue: 'Search current conversation' })}
+            title={t('chatSearch.openShortcut', {
+              defaultValue: 'Search current conversation (Ctrl/⌘+F)',
+            })}
+            aria-pressed={searchOpen}
+            onClick={() => {
+              setOpen(false);
+              if (searchOpen) {
+                search?.closeSearch();
+                return;
+              }
+              search?.openSearch();
+            }}
+            className={cn(
+              'ml-1.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-500 transition-colors',
+              'hover:bg-[#e2e4ea] hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-200',
+              searchOpen && 'bg-[#e2e4ea] text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200',
+            )}
+          >
+            <Search className="h-4 w-4" strokeWidth={1.8} />
+          </button>
+        ) : null}
       </div>
 
       {open ? (

@@ -1190,6 +1190,7 @@
     display: flex;
     width: 28px;
     min-height: 84px;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
     flex-direction: column;
@@ -1202,6 +1203,16 @@
     font-size: 12px;
     line-height: 1.35;
     box-shadow: none;
+  }
+
+  /* 页面标签从两条变成三条，矮屏（横屏手机、开着侧栏的窗口）放不下 84px×3，
+     矮屏整体压矮，标签栏自己也留了 overflow-y:auto 兜底。 */
+  @media (max-height: 640px) {
+    .right-rail button {
+      min-height: 58px;
+      padding: 6px 0;
+      font-size: 11px;
+    }
   }
 
   .right-rail button span {
@@ -1534,6 +1545,33 @@
     padding: 4px 9px 8px;
   }
 
+  /* 探索：侧栏底部的一个分区，和「项目」一样折叠收起。
+     展开后条目按内容撑开、一次全列出来，不在分区里再套滚动条：
+     侧栏装不下时由「项目」那份列表（flex: 1 1 0%）先缩，它自己滚。 */
+  .explore-section {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    padding: 4px 9px 8px;
+    border-top: 1px solid rgba(var(--pd-accent-rgb, 100, 86, 189), 0.12);
+  }
+
+  /* 手机横屏这种特别矮的窗口，七条硬撑着会把侧栏顶出去被裁掉；
+     只有这种高度才让探索回到可滚动，常规窗口一律全展开不滚。 */
+  @media (max-height: 640px) {
+    .explore-section {
+      max-height: 55%;
+      overflow-y: auto;
+    }
+  }
+
+  .explore-row-icon {
+    display: grid;
+    width: 12px;
+    place-items: center;
+    color: #7774a4;
+  }
+
   .tree-heading {
     display: flex;
     width: 100%;
@@ -1657,7 +1695,8 @@
     padding: 1px 0 5px 19px;
   }
 
-  .project-conversation {
+  .project-conversation,
+  .explore-row {
     display: grid;
     width: 100%;
     min-width: 0;
@@ -1676,11 +1715,13 @@
   }
 
   .project-conversation:hover,
+  .explore-row:hover,
   .tree-row.chat-row:hover {
     background: #ffffffb8;
   }
 
   .project-conversation.active,
+  .explore-row.active,
   .tree-row.chat-row.active {
     border-color: var(--pd-accent-border, #d9d4fb);
     background: linear-gradient(90deg, var(--pd-accent-tint, #efecff), var(--pd-accent-tint, #edf4ff));
@@ -2298,6 +2339,7 @@
   .dark .tree-row.project-row:hover,
   .dark .tree-heading-actions button:hover,
   .dark .project-conversation:hover,
+  .dark .explore-row:hover,
   .dark .tree-row.chat-row:hover,
   .dark .compact-project-entry:hover {
     background: rgba(255, 255, 255, 0.06);
@@ -2309,15 +2351,25 @@
     color: #c4b5fd;
   }
 
-  .dark .project-conversation {
+  .dark .project-conversation,
+  .dark .explore-row {
     color: #d4d4d4;
   }
 
   .dark .project-conversation.active,
+  .dark .explore-row.active,
   .dark .tree-row.chat-row.active {
     border-color: rgba(129, 140, 248, 0.32);
     background: rgba(99, 102, 241, 0.16);
     color: #e0e7ff;
+  }
+
+  .dark .explore-section {
+    border-top-color: #262626;
+  }
+
+  .dark .explore-row-icon {
+    color: #a1a1aa;
   }
 
   .dark .conversation-dot {

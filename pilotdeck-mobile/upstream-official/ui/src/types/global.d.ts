@@ -6,6 +6,20 @@ import type { DesktopAboutInfo } from '../utils/desktopAbout';
 export {};
 
 declare global {
+  // Custom element registered at runtime from /artifacts-static/vendor.
+  namespace JSX {
+    interface IntrinsicElements {
+      'model-viewer': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+        src?: string;
+        alt?: string;
+        'camera-controls'?: boolean | string;
+        'disable-zoom'?: boolean | string;
+      };
+    }
+  }
+}
+
+declare global {
   interface Window {
     __ROUTER_BASENAME__?: string;
     refreshProjects?: () => void | Promise<void>;

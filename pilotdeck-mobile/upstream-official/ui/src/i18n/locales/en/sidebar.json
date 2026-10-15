@@ -15,11 +15,11 @@
     "untitledSession": "Untitled Session",
     "newSession": "New Session",
     "codexSession": "Codex Session",
-    "fetchingProjects": "Fetching your PilotDeck projects and sessions",
+    "fetchingProjects": "Fetching your PilotV projects and sessions",
     "projects": "projects",
     "noMatchingProjects": "No matching projects",
     "tryDifferentSearch": "Try adjusting your search term",
-    "runPilotDeckCli": "Run PilotDeck CLI in a project directory to get started",
+    "runPilotDeckCli": "Run PilotV CLI in a project directory to get started",
     "collapseAll": "Collapse all projects",
     "expandAll": "Expand all projects",
     "collapse": "Collapse projects",
@@ -36,6 +36,12 @@
     "collapse": "Collapse conversations",
     "expand": "Expand conversations"
   },
+  "explore": {
+    "title": "Explore",
+    "collapse": "Collapse explore",
+    "expand": "Expand explore",
+    "scheduledTasks": "Scheduled Tasks"
+  },
   "quickActions": {
     "label": "Quick actions",
     "newChat": "New Chat",
@@ -43,7 +49,8 @@
     "newProject": "New Project",
     "skills": "Skills",
     "skillsCompact": "Skill Tools",
-    "scheduledTasks": "Scheduled Tasks"
+    "scheduledTasks": "Scheduled Tasks",
+    "explore": "Explore"
   },
   "sectionToggle": {
     "label": "Sidebar section"
@@ -53,7 +60,7 @@
     "label": "Context menu"
   },
   "app": {
-    "title": "PilotDeck",
+    "title": "PilotV",
     "subtitle": "AI coding assistant interface"
   },
   "sessions": {

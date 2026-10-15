@@ -2,7 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { TuiAppState } from "./types.js";
 import { pilotDeckDarkBlueTheme } from "./theme.js";
-import { CondensedLogo } from "./PilotDeckLogo.js";
+import { CondensedLogo } from "./PilotVLogo.js";
 
 export function StatusLine(props: {
   state: TuiAppState;

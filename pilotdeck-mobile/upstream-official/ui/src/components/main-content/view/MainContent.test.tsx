@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => ({
   upload: vi.fn(),
   check: vi.fn(),
   subscribe: vi.fn(() => () => {}),
+  // 文件页现在是「目录整窗 / 编辑器整窗」二选一。editingFile 决定哪一个出现：
+  // null = 目录占满整窗，非 null = 编辑器占满整窗。单测靠它切换两种状态。
+  editingFile: null as unknown,
 }));
 
 vi.mock('../../../utils/api', () => ({
@@ -101,12 +104,7 @@ vi.mock('../../code-editor/hooks/useEditorSidebar', () => ({
     }],
     activeEditorTabId: 'editor-tab-0',
     activeFilePath: '/workspace/PilotDeck/report.pdf',
-    editingFile: {
-      name: 'report.pdf',
-      path: '/workspace/PilotDeck/report.pdf',
-      projectName: 'pilotdeck',
-      diffInfo: null,
-    },
+    editingFile: mocks.editingFile,
     editorWidth: 600,
     editorExpanded: false,
     hasManualWidth: false,
@@ -198,6 +196,7 @@ beforeEach(() => {
   mocks.getFiles.mockReset().mockResolvedValue({ ok: true, json: async () => [] });
   mocks.upload.mockReset();
   mocks.check.mockReset().mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
+  mocks.editingFile = null;
 });
 
 function RouteLocation() {
@@ -205,14 +204,9 @@ function RouteLocation() {
 }
 
 describe('AppShell upload lifetime across dedicated routes', () => {
-  async function openExplorer() {
-    const toggle = await screen.findByRole('button', { name: /filesWorkbench\.fileDirectory|^Files$/ });
-    if (toggle.getAttribute('aria-pressed') !== 'true') fireEvent.click(toggle);
-  }
-
+  // 文件页整窗显示：目录一直在主区里，不需要再点「文件目录」标签。
   async function startShellUpload(files = [new File(['upload contents'], 'large.txt')]) {
     const view = render(<MemoryRouter initialEntries={['/p/pilotdeck']}><AppShellV2 /><RouteLocation /></MemoryRouter>);
-    await openExplorer();
     await waitFor(() => expect(view.container.querySelector('input[type="file"]')).not.toBeNull());
     fireEvent.change(view.container.querySelector('input[type="file"]')!, { target: { files } });
     await waitFor(() => expect(mocks.check).toHaveBeenCalledOnce());
@@ -241,7 +235,6 @@ describe('AppShell upload lifetime across dedicated routes', () => {
     await waitFor(() => expect(mocks.upload).toHaveBeenCalledOnce());
     act(() => mocks.upload.mock.calls[0][2].onProgress(45));
     fireEvent.click(screen.getByRole('button', { name: 'Back to workspace' }));
-    await openExplorer();
     expect((await screen.findByRole('progressbar')).getAttribute('aria-valuenow')).toBe('45');
     expect(screen.getByTestId('route-location').textContent).toBe('/p/pilotdeck');
     await act(async () => finishUpload({ ok: true, body: { files: files.map(file => ({ name: file.name, size: file.size })), errors: [] } }));
@@ -262,7 +255,6 @@ describe('AppShell upload lifetime across dedicated routes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Go to scheduled tasks' }));
     await screen.findByTestId('cron-page');
     fireEvent.click(screen.getByRole('button', { name: 'Back to workspace' }));
-    await openExplorer();
     fireEvent.click(await screen.findByRole('button', { name: 'fileTree.uploadStatus.retry' }));
     await waitFor(() => expect(mocks.upload).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole('button', { name: 'fileTree.uploadStatus.cancel' }));
@@ -286,31 +278,26 @@ describe('AppShell upload lifetime across dedicated routes', () => {
 });
 
 describe('workspace uploads across panel visibility changes', () => {
+  // 文件页不再能折叠目录：它整窗显示，能被藏起来的只有整个「文件」标签。
   async function startUpload() {
     const view = render(<MainContent {...propsFor('files')} />);
-    const toggle = await screen.findByRole('button', { name: /filesWorkbench\.fileDirectory|^Files$/ });
-    if (toggle.getAttribute('aria-pressed') !== 'true') fireEvent.click(toggle);
     await waitFor(() => expect(view.container.querySelector('input[type="file"]')).not.toBeNull());
     const file = new File(['upload contents'], 'large.txt');
     fireEvent.change(view.container.querySelector('input[type="file"]')!, { target: { files: [file] } });
     await waitFor(() => expect(mocks.upload).toHaveBeenCalledOnce());
-    return { ...view, file, toggle, options: mocks.upload.mock.calls[0][2] };
+    return { ...view, file, options: mocks.upload.mock.calls[0][2] };
   }
 
-  it.each(['chat', 'collapse'] as const)('continues uploading when hiding the explorer via %s', async (hide) => {
+  it('continues uploading while the Files tab is closed and restores progress on return', async () => {
     let finish!: (value: unknown) => void;
     mocks.upload.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-    const { rerender, file, toggle, options } = await startUpload();
-    if (hide === 'chat') rerender(<MainContent {...propsFor('chat')} />);
-    else fireEvent.click(toggle);
+    const { rerender, file, options } = await startUpload();
+    rerender(<MainContent {...propsFor('chat')} />);
     expect(screen.queryByRole('progressbar')).toBeNull();
     expect(options.signal.aborted).toBe(false);
 
     act(() => options.onProgress(45));
-    if (hide === 'chat') {
-      rerender(<MainContent {...propsFor('files')} />);
-      fireEvent.click(screen.getByRole('button', { name: /filesWorkbench\.fileDirectory|^Files$/ }));
-    } else fireEvent.click(toggle);
+    rerender(<MainContent {...propsFor('files')} />);
     expect(await screen.findByRole('progressbar')).toHaveProperty('ariaValueNow', '45');
     expect(mocks.upload).toHaveBeenCalledOnce();
 
@@ -320,34 +307,36 @@ describe('workspace uploads across panel visibility changes', () => {
     await waitFor(() => expect(mocks.getFiles.mock.calls.length).toBeGreaterThan(readsBeforeSave));
   });
 
-  it('shows completion and refreshed files when the upload finishes while the explorer is hidden', async () => {
+  it('shows completion and refreshed files when the upload finishes outside Files', async () => {
     let finish!: (value: unknown) => void;
     mocks.upload.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-    const { toggle, file, options } = await startUpload();
-    fireEvent.click(toggle);
+    const { rerender, file, options } = await startUpload();
+    rerender(<MainContent {...propsFor('chat')} />);
     expect(options.signal.aborted).toBe(false);
     mocks.getFiles.mockResolvedValue({ ok: true, json: async () => [{ name: file.name, path: `/workspace/PilotDeck/${file.name}`, type: 'file' }] });
     await act(async () => finish({ ok: true, body: { files: [{ name: file.name, size: file.size }], errors: [] } }));
-    fireEvent.click(toggle);
+    rerender(<MainContent {...propsFor('files')} />);
     expect(await screen.findByRole('status')).toHaveProperty('textContent', 'fileTree.uploadStatus.completed');
     await waitFor(() => expect(screen.getAllByText(file.name).length).toBeGreaterThan(1));
   });
 
-  it('keeps failures and retry available after reopening the explorer, and still supports explicit cancellation', async () => {
+  it('keeps failures and retry available after returning to Files, and still supports explicit cancellation', async () => {
     let fail!: (reason: unknown) => void;
     mocks.upload.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }))
       .mockImplementationOnce((_project, _form, { signal }) => new Promise((_resolve, reject) => {
         signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
       }));
-    const { toggle } = await startUpload();
-    fireEvent.click(toggle);
+    const { rerender } = await startUpload();
     await act(async () => fail(new Error('UPLOAD_NETWORK_ERROR')));
-    fireEvent.click(toggle);
     fireEvent.click(await screen.findByRole('button', { name: 'fileTree.uploadStatus.retry' }));
     await waitFor(() => expect(mocks.upload).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole('button', { name: 'fileTree.uploadStatus.cancel' }));
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('fileTree.uploadStatus.cancelled'));
     expect(mocks.upload.mock.calls[1][2].signal.aborted).toBe(true);
+    // 回到文件页重挂组件后，失败状态仍然读得回来。
+    rerender(<MainContent {...propsFor('chat')} />);
+    rerender(<MainContent {...propsFor('files')} />);
+    expect(await screen.findByRole('button', { name: 'fileTree.uploadStatus.retry' })).toBeTruthy();
   });
 });
 
@@ -358,46 +347,46 @@ afterEach(() => {
 });
 
 describe('MainContent file workspace routing', () => {
-  it('resizes along the visible vertical axis when a horizontal preference falls back to a narrow overlay', async () => {
-    localStorage.setItem('pilotdeck:files-panel-layout', 'horizontal');
-    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, right: 900, top: 0, bottom: 900, width: 900, height: 900, toJSON() {} });
-    try {
-      render(<MainContent {...propsFor('files')} />);
-      fireEvent.click(await screen.findByRole('button', { name: /filesWorkbench\.fileDirectory|^Files$/ }));
-      const separator = await screen.findByRole('separator', { name: /filesWorkbench.resizeVerticalPanels|Resize upper and lower panels/ });
-      fireEvent.mouseDown(separator, { clientX: 100, clientY: 450 });
-      fireEvent.mouseMove(document, { clientX: 100, clientY: 540 });
-      fireEvent.mouseUp(document);
-      expect(separator.getAttribute('aria-valuenow')).toBe('60');
-    } finally { rect.mockRestore(); }
+  it('gives Files the whole window: no split separators, no docked chat, no panel tabs', async () => {
+    const view = render(<MainContent {...propsFor('files')} />);
+    await waitFor(() => expect(view.container.querySelector('input[type="file"]')).not.toBeNull());
+    // 原来的「文件目录 / 智能对话」两块并排删掉了：目录占满整窗，
+    // 中间没有分隔条，右边那两条悬浮标签也不在了。
+    expect(screen.queryByRole('separator', { name: /filesWorkbench\.resize/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /filesWorkbench\.fileDirectory|^Files$/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /filesWorkbench\.smartChat|Smart Chat/ })).toBeNull();
+    const explorer = view.container.querySelector('[data-files-dock-panel="explorer"]');
+    expect(explorer).not.toBeNull();
+    expect(explorer?.className).toContain('flex-1');
+    // 对话面保持挂载（切回对话不丢草稿和流式输出），但文件页里不再显示它。
+    expect(view.container.querySelector('[data-files-dock-panel="assistant"]')?.className).toContain('invisible');
   });
 
-  it('uses switchable full-height panes in a short window and restores the split after resizing', async () => {
-    let height = 500;
-    const callbacks: Array<() => void> = [];
-    vi.stubGlobal('ResizeObserver', class { constructor(callback: () => void) { callbacks.push(callback); } observe() {} disconnect() {} });
-    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ x: 0, y: 0, left: 0, right: 1200, top: 0, bottom: height, width: 1200, height, toJSON() {} }));
-    try {
-      const { container } = render(<MainContent {...propsFor('files')} />);
-      const files = await screen.findByRole('button', { name: /filesWorkbench\.fileDirectory|^Files$/ });
-      const chat = screen.getByRole('button', { name: /filesWorkbench\.smartChat|Smart Chat/ });
-      fireEvent.click(files);
-      await waitFor(() => expect(container.querySelector('[data-files-dock-panel="explorer"]')).not.toBeNull());
-      expect(files.getAttribute('aria-pressed')).toBe('true');
-      expect(chat.getAttribute('aria-pressed')).toBe('false');
-      expect(screen.queryByRole('separator', { name: /filesWorkbench.resizeVerticalPanels|Resize upper and lower panels/ })).toBeNull();
-      fireEvent.click(chat);
-      expect(container.querySelector('[data-files-dock-panel="explorer"]')).toBeNull();
-      expect(chat.getAttribute('aria-pressed')).toBe('true');
-      height = 900;
-      act(() => callbacks.forEach(callback => callback()));
-      await waitFor(() => expect(container.querySelector('[data-files-dock-panel="explorer"]')).not.toBeNull());
-      expect(screen.getByRole('separator', { name: /filesWorkbench.resizeVerticalPanels|Resize upper and lower panels/ })).toBeTruthy();
-    } finally { rect.mockRestore(); }
+  it('hands the whole window to the editor once a file is open — the tree steps aside', async () => {
+    mocks.editingFile = {
+      name: 'report.pdf',
+      path: '/workspace/PilotDeck/report.pdf',
+      projectName: 'pilotdeck',
+      diffInfo: null,
+    };
+    const view = render(<MainContent {...propsFor('files')} />);
+    await waitFor(() => expect(screen.getByTestId('editor-sidebar')).not.toBeNull());
+    // 打开文件后不再左右分屏：目录整个收起，编辑器占满整窗。
+    expect(view.container.querySelector('[data-files-dock-panel="explorer"]')).toBeNull();
+    expect(view.container.querySelector('input[type="file"]')).toBeNull();
+    expect(view.container.querySelector('[data-files-dock-panel="assistant"]')?.className).toContain('invisible');
+    expect(screen.queryByRole('separator', { name: /filesWorkbench\.resize/ })).toBeNull();
   });
 
   it('routes every chat file open into the Files workbench', async () => {
     const setActiveTab = vi.fn();
+    // 有文件开着：文件页整窗就是编辑器。
+    mocks.editingFile = {
+      name: 'report.pdf',
+      path: '/workspace/PilotDeck/report.pdf',
+      projectName: 'pilotdeck',
+      diffInfo: null,
+    };
     const { rerender } = render(<MainContent {...propsFor('files', setActiveTab)} />);
 
     expect(await screen.findByTestId('editor-sidebar')).not.toBeNull();
@@ -435,36 +424,14 @@ describe('MainContent file workspace routing', () => {
     expect(mocks.onMisroutedFileUrlHandled).toHaveBeenCalledOnce();
   });
 
-  it('keeps the agent panel collapsible and persists keyboard resizing', async () => {
-    render(<MainContent {...propsFor('files')} />);
-
-    const conversationTrigger = await screen.findByTestId('files-conversation-switcher-trigger');
-    expect(conversationTrigger.textContent).toContain('filesWorkbench.conversations.newConversation');
-    expect(screen.getByRole('button', {
-      name: 'filesWorkbench.conversations.newConversation',
-    })).toBeTruthy();
-
-    const resizeHandle = screen.getByRole('separator', {
-      name: 'filesWorkbench.resizeAssistant',
-    });
-    expect(resizeHandle.getAttribute('aria-valuenow')).toBe('380');
-
-    fireEvent.keyDown(resizeHandle, { key: 'ArrowLeft' });
-    expect(resizeHandle.getAttribute('aria-valuenow')).toBe('396');
-    await waitFor(() => {
-      expect(localStorage.getItem('pilotdeck:files-assistant-width')).toBe('396');
-    });
-
-    const smartChatToggle = screen.getByRole('button', { name: /filesWorkbench\.smartChat|Smart Chat/ });
-    expect(smartChatToggle.getAttribute('aria-pressed')).toBe('true');
-    fireEvent.click(smartChatToggle);
+  it('shows the conversation switcher on the conversation tab only', async () => {
+    const view = render(<MainContent {...propsFor('files')} />);
+    await waitFor(() => expect(view.container.querySelector('input[type="file"]')).not.toBeNull());
+    // 文件页里不再顶着一个会切会话的面板，会话切换跟着对话页走。
+    expect(screen.queryByTestId('files-conversation-switcher-trigger')).toBeNull();
     expect(screen.queryByRole('separator', { name: 'filesWorkbench.resizeAssistant' })).toBeNull();
-    expect(smartChatToggle.getAttribute('aria-pressed')).toBe('false');
 
-    fireEvent.click(smartChatToggle);
-    expect(screen.getByRole('separator', {
-      name: 'filesWorkbench.resizeAssistant',
-    }).getAttribute('aria-valuenow')).toBe('396');
-    expect(smartChatToggle.getAttribute('aria-pressed')).toBe('true');
+    view.rerender(<MainContent {...propsFor('chat')} />);
+    expect(view.container.querySelector('[data-files-dock-panel="assistant"]')?.className).not.toContain('invisible');
   });
 });

@@ -533,7 +533,7 @@ def _append_index(folder: str, entry: dict) -> None:
 # ---- 对话注入：写进 PilotDeck 的会话输入队列 --------------------------------
 
 def sanitize_session_id(session_id: str) -> str:
-    """与 PilotDeck 的 sanitizeSessionIdForPath 逐字对齐（ui/server/utils/pilotPaths.js:110）。
+    r"""与 PilotDeck 的 sanitizeSessionIdForPath 逐字对齐（ui/server/utils/pilotPaths.js:110）。
 
     **必须对齐**：会话队列的文件名是 PilotDeck 自己算的，我们算出的名字
     只要差一个字符，它就永远读不到我们写的返工单 —— 而且不报错，只是

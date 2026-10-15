@@ -1,32 +1,24 @@
 import ArtifactsConsolePane from './ArtifactsConsolePane';
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   BarChart3,
   Database,
   Folder,
-  MessagesSquare,
-  Package,
+  Library,
   PanelLeftOpen,
   Radio,
   type LucideIcon,
 } from 'lucide-react';
 import type {
-  AlwaysOnDashboardEvent,
-  AlwaysOnDashboardEventsResponse,
   AlwaysOnSubTab,
   AppTab,
   Project,
   ProjectSession,
 } from '../../types/app';
 import MainContent from '../main-content/view/MainContent';
-import {
-  ChatHistorySearchControllerProvider,
-  useChatHistorySearchController,
-} from '../chat-v2/ChatHistorySearchController';
-import ChatHistorySearchBar from '../chat-v2/ChatHistorySearchBar';
+import { ChatHistorySearchControllerProvider } from '../chat-v2/ChatHistorySearchController';
 import type { MainContentProps } from '../main-content/types/types';
-import { cn } from '../../lib/utils.js';
 import {
   projectDisplayName,
   sessionDisplayTitle,
@@ -34,7 +26,6 @@ import {
   useCustomNamesVersion,
 } from '../../lib/customNames';
 import { isImeEnterEvent } from '../../utils/ime';
-import { api } from '../../utils/api';
 import { FindShortcutProvider } from '../../contexts/FindShortcutContext';
 import { isGeneralProject } from './appShellSelection';
 
@@ -147,27 +138,9 @@ const DASHBOARD_TABS: Tab[] = [
   { id: 'dashboard', labelKey: 'tabs.dashboard', icon: BarChart3 },
   { id: 'memory',    labelKey: 'tabs.memory',    icon: Database },
   { id: 'always-on', labelKey: 'tabs.alwaysOn',  icon: Radio },
+  // 资料 = 本机 WeKnora 知识库，整块 iframe 打开，不占用聊天旁边的看板宽度。
+  { id: 'weknora',   labelKey: 'tabs.weknora',   icon: Library },
 ];
-
-const ACTIVE_TOOL_BUTTON_CLASS =
-  'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-950/70 dark:text-blue-200 dark:hover:bg-blue-900/70';
-
-const ALWAYS_ON_EVENT_BADGE_POLL_INTERVAL_MS = 15_000;
-const ALWAYS_ON_LAST_VIEWED_MARKER_KEY = 'pilotdeck:always-on-last-viewed-marker';
-const ALWAYS_ON_EVENT_BADGE_LIMIT = 200;
-
-const BADGE_EVENT_PHASES = new Set<AlwaysOnDashboardEvent['phase']>([
-  'plan_produced',
-  'report_produced',
-]);
-
-const getBadgeEventMarker = (events: AlwaysOnDashboardEvent[]): string | null => {
-  const latestBadgeEvent = events
-    .filter((event) => BADGE_EVENT_PHASES.has(event.phase))
-    .sort((left, right) => right.timestamp.localeCompare(left.timestamp))[0];
-
-  return latestBadgeEvent ? `${latestBadgeEvent.timestamp}:${latestBadgeEvent.eventId}` : null;
-};
 
 // V2 main shell: breadcrumb on the left, tool switcher on the right, and the
 // active tool's content below. The sidebar stays focused on projects+sessions.
@@ -188,21 +161,14 @@ function MainAreaV2Content(props: MainAreaV2Props) {
     setActiveTab,
     isSidebarCollapsed,
     onOpenSidebar,
+    onStartNewSession,
   } = props;
   const [alwaysOnSubTab, setAlwaysOnSubTab] = useState<AlwaysOnSubTab>('dashboard');
-  const [latestAlwaysOnEventMarker, setLatestAlwaysOnEventMarker] = useState<string | null>(null);
-  const [lastViewedAlwaysOnEventMarker, setLastViewedAlwaysOnEventMarker] = useState<string | null>(
-    () => localStorage.getItem(ALWAYS_ON_LAST_VIEWED_MARKER_KEY),
-  );
-  const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false);
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [reviewOpenRequest, setReviewOpenRequest] = useState<MainContentProps['reviewOpenRequest']>();
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [sessionTitleDraft, setSessionTitleDraft] = useState('');
-  const dashboardMenuRef = useRef<HTMLDivElement | null>(null);
-  const dashboardMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const sessionTitleInputRef = useRef<HTMLInputElement | null>(null);
-  const chatHistorySearch = useChatHistorySearchController();
   const generalConversation = Boolean(selectedProject && isGeneralProject(selectedProject));
   const projectFilesEnabled = Boolean(
     selectedProject
@@ -225,78 +191,21 @@ function MainAreaV2Content(props: MainAreaV2Props) {
     }
   }, [activeTab, activeTabIsUnavailable, setActiveTab]);
 
+  // 「改动」现在住在侧栏的探索菜单里，而评审面板在对话内部，两者不在同一棵子树：
+  // 侧栏用这个事件把请求递进来，序号每次加一，面板才会重新弹一次。
   useEffect(() => {
-    if (!projectExploreEnabled) {
-      setDashboardMenuOpen(false);
-    }
-  }, [projectExploreEnabled]);
-
-  useEffect(() => {
-    if (!dashboardMenuOpen) return undefined;
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!dashboardMenuRef.current?.contains(event.target as Node)) {
-        setDashboardMenuOpen(false);
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setDashboardMenuOpen(false);
-        dashboardMenuButtonRef.current?.focus();
-      }
+    const openChanges = () => {
+      setShowArtifacts(false);
+      setActiveTab('chat');
+      setReviewOpenRequest(previous => ({
+        tab: 'changes',
+        sequence: (Number(previous?.sequence) || 0) + 1,
+      }));
     };
 
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [dashboardMenuOpen]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const refreshAlwaysOnEventMarker = async () => {
-      try {
-        const response = await api.alwaysOnDashboardEvents(ALWAYS_ON_EVENT_BADGE_LIMIT);
-        if (!response.ok) {
-          return;
-        }
-
-        const payload = (await response.json()) as AlwaysOnDashboardEventsResponse;
-
-        if (!cancelled) {
-          const marker = Array.isArray(payload.events) ? getBadgeEventMarker(payload.events) : null;
-          setLatestAlwaysOnEventMarker(marker);
-
-          if (marker && !localStorage.getItem(ALWAYS_ON_LAST_VIEWED_MARKER_KEY)) {
-            setLastViewedAlwaysOnEventMarker(marker);
-            localStorage.setItem(ALWAYS_ON_LAST_VIEWED_MARKER_KEY, marker);
-          }
-        }
-      } catch {
-        // Keep the previous marker when the lightweight notification poll fails.
-      }
-    };
-
-    void refreshAlwaysOnEventMarker();
-    const timer = window.setInterval(() => {
-      void refreshAlwaysOnEventMarker();
-    }, ALWAYS_ON_EVENT_BADGE_POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'always-on' && latestAlwaysOnEventMarker) {
-      setLastViewedAlwaysOnEventMarker(latestAlwaysOnEventMarker);
-      localStorage.setItem(ALWAYS_ON_LAST_VIEWED_MARKER_KEY, latestAlwaysOnEventMarker);
-    }
-  }, [activeTab, latestAlwaysOnEventMarker]);
+    window.addEventListener('pilotdeck:open-changes', openChanges);
+    return () => window.removeEventListener('pilotdeck:open-changes', openChanges);
+  }, [setActiveTab]);
 
   // Re-render breadcrumb when the user renames a project/session via the
   // sidebar overlay (subscribes to localStorage + custom event).
@@ -325,16 +234,21 @@ function MainAreaV2Content(props: MainAreaV2Props) {
   const isRenamingSessionTitle = Boolean(
     selectedSession && renamingSessionId === selectedSession.id,
   );
-  const alwaysOnUnread = Boolean(
-    latestAlwaysOnEventMarker &&
-    activeTab !== 'always-on' &&
-    latestAlwaysOnEventMarker !== lastViewedAlwaysOnEventMarker,
-  );
 
   useEffect(() => {
     setRenamingSessionId(null);
     setSessionTitleDraft('');
   }, [selectedSession?.id]);
+
+  // 草图纸上「发送到新对话」用：对话输入本来就会在收到第一条消息时建会话，
+  // 这里只需要把项目落到新对话态。落在当前项目，其次 General，最后第一个项目。
+  const startConversationFromInk = useCallback(() => {
+    const target = selectedProject
+      ?? props.projects.find(isGeneralProject)
+      ?? props.projects[0];
+    if (!target) return;
+    onStartNewSession?.(target);
+  }, [selectedProject, props.projects, onStartNewSession]);
 
   useEffect(() => {
     if (!isRenamingSessionTitle) return;
@@ -378,34 +292,8 @@ function MainAreaV2Content(props: MainAreaV2Props) {
           </button>
         ) : null}
         <div className="workspace-title flex min-w-0 flex-1 items-center gap-3">
-          {/* 状态不能只靠颜色区分：图标、文案、底色三样一起变。亮色暗色都显式取色，
-              不用 inherit —— 之前 inherit 会跟着父级跑，切几次就跟 Files 按钮混在一起。 */}
-          <nav aria-label="对话与成果切换" className="flex shrink-0 items-center gap-0.5 rounded-lg bg-neutral-200/70 p-0.5 text-[12px] dark:bg-neutral-800/80">
-            <button
-              type="button"
-              aria-pressed={!showArtifacts}
-              data-pane-state={!showArtifacts ? 'on' : 'off'}
-              onClick={() => setShowArtifacts(false)}
-              className={`flex min-h-8 items-center gap-1.5 rounded-md px-2 font-medium transition-colors ${showArtifacts
-                ? 'text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100'
-                : 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/5 dark:bg-neutral-700 dark:text-white dark:ring-white/10'}`}
-            >
-              <MessagesSquare aria-hidden="true" strokeWidth={showArtifacts ? 1.8 : 2.2} className={`h-3.5 w-3.5 ${showArtifacts ? '' : 'text-blue-600 dark:text-blue-300'}`} />
-              对话
-            </button>
-            <button
-              type="button"
-              aria-pressed={showArtifacts}
-              data-pane-state={showArtifacts ? 'on' : 'off'}
-              onClick={() => setShowArtifacts(true)}
-              className={`flex min-h-8 items-center gap-1.5 rounded-md px-2 font-medium transition-colors ${showArtifacts
-                ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/5 dark:bg-neutral-700 dark:text-white dark:ring-white/10'
-                : 'text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100'}`}
-            >
-              <Package aria-hidden="true" strokeWidth={showArtifacts ? 2.2 : 1.8} className={`h-3.5 w-3.5 ${showArtifacts ? 'text-blue-600 dark:text-blue-300' : ''}`} />
-              成果
-            </button>
-          </nav>
+          {/* 顶栏只留面包屑。「对话／文件／成果」三个页面搬到了右边悬浮标签栏，
+              每个标签各自整窗显示，顶栏不再有页面切换按钮。 */}
           <div className="flex min-w-0 items-center gap-1.5">
             <Folder aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={1.8} />
             <span className="min-w-0 max-w-[24rem] truncate text-[12px] text-neutral-500 dark:text-neutral-400" title={projectName}>{projectName}</span>
@@ -441,155 +329,58 @@ function MainAreaV2Content(props: MainAreaV2Props) {
           ) : null}
           </div>
         </div>
+      </header>
 
-        {chatHistorySearch.isOpen && chatHistorySearch.presentation ? (
-          <div className="ml-4 w-[min(360px,36vw)] min-w-[240px] shrink">
-            <ChatHistorySearchBar
-              {...chatHistorySearch.presentation}
-              onClose={chatHistorySearch.closeSearch}
-              placement="header"
-            />
-          </div>
-        ) : null}
-
-        <div id="artifacts-header-controls" className="flex min-w-0 items-center gap-1" />
-        <div className="workspace-actions ml-4 h-9 shrink-0" aria-label={t('common:uiText.tools')}>
+      <div className="relative z-0 flex min-h-0 flex-1 overflow-hidden">
+        {showArtifacts && <div className="min-h-0 flex-1 overflow-hidden"><ArtifactsConsolePane sessionId={selectedSession?.id} onStartNewConversation={startConversationFromInk} /></div>}
+        {/* Keep chat mounted so switching views does not discard the composer. */}
+        <div hidden={showArtifacts} className={showArtifacts ? 'hidden' : 'relative min-h-0 flex-1 overflow-hidden'}>
+          <MainContent
+            {...props}
+            activeTab={displayActiveTab}
+            reviewOpenRequest={reviewOpenRequest}
+            alwaysOnSubTab={alwaysOnSubTab}
+            onAlwaysOnSubTabChange={setAlwaysOnSubTab}
+          />
+        </div>
+        {/* 悬浮标签栏。原来的「文件目录／智能对话」两条已经删掉，这里换成
+            「对话／文件／成果」三个页面标签，竖排贴在主区右缘，样式沿用
+            同一套 .right-rail 规则（竖排文字 + 选中态描边）。
+            三个页面各自整窗显示，不再把窗口分成两半。 */}
+        <nav
+          aria-label="页面切换"
+          className="right-rail flex w-[40px] flex-shrink-0 flex-col items-center gap-2 overflow-y-auto border-l border-neutral-200 bg-[var(--pd-accent-soft,#f7f5ff)] px-1.5 py-3 dark:border-neutral-800 dark:bg-neutral-950"
+        >
           <button
             type="button"
-            aria-label={t('chatSearch.open', { defaultValue: 'Search current conversation' }) as string}
-            data-tooltip={t('chatSearch.open', { defaultValue: 'Search current conversation' }) as string}
-            aria-pressed={chatHistorySearch.isOpen}
-            disabled={!chatHistorySearch.available}
-            title={t('chatSearch.openShortcut', {
-              defaultValue: 'Search current conversation (Ctrl/⌘+F)',
-            }) as string}
-            onClick={() => {
-              setDashboardMenuOpen(false);
-              if (chatHistorySearch.isOpen) {
-                chatHistorySearch.closeSearch();
-                return;
-              }
-              if (displayActiveTab !== 'chat') setActiveTab('chat');
-              chatHistorySearch.openSearch();
-            }}
-            className={cn(
-              'icon-button tooltip tooltip-bottom',
-              chatHistorySearch.isOpen
-                ? ACTIVE_TOOL_BUTTON_CLASS
-                : chatHistorySearch.available
-                  ? ''
-                  : 'cursor-not-allowed text-neutral-300 dark:text-neutral-700',
-            )}
+            aria-pressed={!showArtifacts && displayActiveTab === 'chat'}
+            data-pane-state={!showArtifacts && displayActiveTab === 'chat' ? 'on' : 'off'}
+            onClick={() => { setShowArtifacts(false); setActiveTab('chat'); }}
+            className={!showArtifacts && displayActiveTab === 'chat' ? 'active' : ''}
           >
-            <svg aria-hidden="true" className="icon" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
-              <path d="m21 21-4.34-4.34" />
-              <circle cx="11" cy="11" r="8" />
-            </svg>
+            <span>对话</span>
           </button>
-
           {projectFilesEnabled ? (
             <button
               type="button"
-              aria-pressed={displayActiveTab === 'files'}
-              onClick={() => {
-                setDashboardMenuOpen(false);
-                chatHistorySearch.closeSearch();
-                setActiveTab(displayActiveTab === 'files' ? 'chat' : 'files');
-              }}
-              className={cn(
-                'file-entry',
-                displayActiveTab === 'files' && 'font-medium',
-              )}
+              aria-pressed={!showArtifacts && displayActiveTab === FILES_TAB.id}
+              data-pane-state={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'on' : 'off'}
+              onClick={() => { setShowArtifacts(false); setActiveTab(FILES_TAB.id); }}
+              className={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'active' : ''}
             >
-              <svg aria-hidden="true" className="icon" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
-                <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
-              </svg>
-              <span>{t(FILES_TAB.labelKey)}</span>
+              <span>文件</span>
             </button>
           ) : null}
-
-          {projectExploreEnabled ? (
-            <div ref={dashboardMenuRef} className="relative">
-              <button
-                ref={dashboardMenuButtonRef}
-                type="button"
-                aria-label={t('dashboardSwitcher.open', { defaultValue: 'Open dashboards menu' }) as string}
-                aria-haspopup="menu"
-                aria-expanded={dashboardMenuOpen}
-                data-tooltip={t('dashboardSwitcher.open', { defaultValue: 'Open dashboards menu' }) as string}
-                onClick={() => setDashboardMenuOpen((open) => !open)}
-                className="file-entry tooltip tooltip-bottom"
-              >
-                <svg aria-hidden="true" className="icon" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
-                  <circle cx="12" cy="12" r="1" />
-                  <circle cx="19" cy="12" r="1" />
-                  <circle cx="5" cy="12" r="1" />
-                </svg>
-                <span>{t('dashboardSwitcher.explore', { defaultValue: 'Explore' })}</span>
-                {alwaysOnUnread ? (
-                  <span
-                    aria-hidden="true"
-                    className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-blue-500 ring-2 ring-white dark:ring-neutral-950"
-                  />
-                ) : null}
-              </button>
-
-              {dashboardMenuOpen ? (
-                <div
-                  role="menu"
-                  aria-label={t('dashboardSwitcher.menuLabel', { defaultValue: 'Dashboards' }) as string}
-                  className="absolute right-0 top-10 z-[90] w-44 overflow-hidden rounded-xl border border-neutral-200 bg-white p-1.5 shadow-xl shadow-black/10 dark:border-neutral-700 dark:bg-neutral-900"
-                >
-                  {DASHBOARD_TABS.map((tab) => {
-                    const Icon = tab.icon;
-                    return (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setDashboardMenuOpen(false);
-                          chatHistorySearch.closeSearch();
-                          setActiveTab(tab.id);
-                        }}
-                        className="relative flex h-9 w-full items-center justify-center gap-2 rounded-lg px-2 text-[13px] text-neutral-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus:bg-blue-50 focus:text-blue-700 focus:outline-none dark:text-neutral-300 dark:hover:bg-blue-950/60 dark:hover:text-blue-200 dark:focus:bg-blue-950/60 dark:focus:text-blue-200"
-                      >
-                        <Icon className="h-4 w-4 shrink-0 text-neutral-400" strokeWidth={1.75} />
-                        <span>{t(tab.labelKey)}</span>
-                        {tab.id === 'always-on' && alwaysOnUnread ? (
-                          <span className="absolute right-2 h-2 w-2 rounded-full bg-blue-500" aria-label={t('common:uiText.unread')} />
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                  <button type="button" role="menuitem" onClick={() => {
-                      setDashboardMenuOpen(false);
-                      chatHistorySearch.closeSearch();
-                      setReviewOpenRequest(previous => ({ tab: 'changes', sequence: (previous?.sequence ?? 0) + 1 }));
-                    }} className="relative flex h-9 w-full items-center justify-center gap-2 rounded-lg px-2 text-[13px] text-neutral-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus:bg-blue-50 focus:text-blue-700 focus:outline-none dark:text-neutral-300 dark:hover:bg-blue-950/60 dark:hover:text-blue-200 dark:focus:bg-blue-950/60 dark:focus:text-blue-200">
-                    <svg aria-hidden="true" className="h-4 w-4 shrink-0 text-neutral-400" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.75" viewBox="0 0 24 24">
-                      <rect x="3" y="3" width="18" height="18" rx="4" />
-                      <path d="M9 9h6m-3-3v6M9 16h6" />
-                    </svg>
-                    <span>{t('dashboardSwitcher.changes')}</span>
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      </header>
-
-      {showArtifacts && <div className="min-h-0 flex-1 overflow-hidden"><ArtifactsConsolePane sessionId={selectedSession?.id} /></div>}
-      {/* Keep chat mounted so switching views does not discard the composer. */}
-      <div hidden={showArtifacts} className={showArtifacts ? 'hidden' : 'relative z-0 min-h-0 flex-1 overflow-hidden'}>
-        <MainContent
-          {...props}
-          activeTab={displayActiveTab}
-          reviewOpenRequest={reviewOpenRequest}
-          alwaysOnSubTab={alwaysOnSubTab}
-          onAlwaysOnSubTabChange={setAlwaysOnSubTab}
-        />
+          <button
+            type="button"
+            aria-pressed={showArtifacts}
+            data-pane-state={showArtifacts ? 'on' : 'off'}
+            onClick={() => setShowArtifacts(true)}
+            className={showArtifacts ? 'active' : ''}
+          >
+            <span>成果</span>
+          </button>
+        </nav>
       </div>
     </div>
   );

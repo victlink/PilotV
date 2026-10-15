@@ -1,1 +1,1 @@
-{"name":"PilotDeck Mobile","short_name":"PilotDeck","description":"PilotDeck 移动控制台","start_url":"/","scope":"/","display":"standalone","background_color":"#0b1519","theme_color":"#0b1519","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
+{"name":"PilotV Mobile","short_name":"PilotV","description":"PilotV 移动控制台","start_url":"/","scope":"/","display":"standalone","background_color":"#0b1519","theme_color":"#0b1519","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}

@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { useCallback, useEffect, useRef } from 'react';
 import type { Project } from '../../../../types/app';
-import { AUTH_TOKEN_STORAGE_KEY } from '../../../auth/constants';
+import { readTokenFor } from '../../../auth/deviceTokens';
+import { activeBackendOrigin } from '../../../app-shell/pilotvRuntime';
 import { useTheme } from '../../../../contexts/ThemeContext';
 import { applyMemoryAppearance } from '../../../../lib/memoryAppearance';
 
@@ -35,7 +36,7 @@ const MEMORY_PANEL_TEXT: Record<'zh' | 'en', {
 };
 
 function buildMemoryDashboardUrl(project: Project, locale: 'zh' | 'en', theme: 'light' | 'dark'): string | null {
-  const token = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+  const token = readTokenFor(activeBackendOrigin());
   const projectPath = project.fullPath || project.path;
 
   if (!projectPath) {

@@ -49,7 +49,8 @@ def build_app() -> web.Application:
         return web.json_response(HEALTH_BODY)
 
     async def root(_request: web.Request) -> web.Response:
-        raise web.HTTPFound("/artifacts.html")
+        # 独立成果台页面已删除；成果页在 PilotV 前端里，这里只报服务身份。
+        return web.json_response(HEALTH_BODY)
 
     app.router.add_get("/healthz", health)
     app.router.add_get("/", root)
@@ -60,17 +61,34 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PilotV 成果台服务")
     parser.add_argument("--host", default="127.0.0.1", help="默认只监听回环")
     parser.add_argument("--port", type=int, default=int(os.environ.get("ARTIFACTS_PORT", "8799")))
+    parser.add_argument(
+        "--token-file",
+        default="",
+        help="从文件读令牌。每台设备各装一套时用它，而不是把令牌写在命令行上——"
+             "命令行对同机任何进程都可见（ps），文件可以只给自己读。",
+    )
     args = parser.parse_args(argv)
 
     exposed = args.host not in ("127.0.0.1", "localhost", "::1")
-    token = os.environ.get("ARTIFACTS_TOKEN")
+    token = os.environ.get("ARTIFACTS_TOKEN", "")
+    if args.token_file:
+        try:
+            with open(args.token_file, "r", encoding="utf-8") as handle:
+                token = handle.read().strip()
+        except OSError as exc:
+            print(f"读令牌文件失败：{args.token_file}（{exc}）", file=sys.stderr)
+            return 2
     if exposed and not token:
         print(
-            f"拒绝启动：--host {args.host} 会让成果接口对外可达，但没有 ARTIFACTS_TOKEN。"
-            "\n  令牌就是这一层唯一的门禁 —— 要么补上令牌，要么改回 127.0.0.1。",
+            f"拒绝启动：--host {args.host} 会让成果接口对外可达，但没有令牌。"
+            "\n  令牌就是这一层唯一的门禁 —— 要么用 ARTIFACTS_TOKEN / --token-file 补上，"
+            "要么改回 127.0.0.1。",
             file=sys.stderr,
         )
         return 2
+    # artifacts_console 自己读这个变量做鉴权，所以令牌必须落回环境里。
+    if token:
+        os.environ["ARTIFACTS_TOKEN"] = token
 
     os.environ.setdefault("CONSOLE_ROOT", ROOT)
     print(f"成果台 {args.host}:{args.port}  数据目录 {artifacts_console.DATA_DIR}  "

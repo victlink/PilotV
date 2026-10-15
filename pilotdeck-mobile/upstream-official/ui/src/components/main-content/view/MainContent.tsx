@@ -52,6 +52,7 @@ const DashboardV2 = React.lazy(
 const TasksV2 = React.lazy(() => import("../../main-content-v2/TasksV2"));
 const MemoryPanel = React.lazy(() => import("./memory/MemoryPanel"));
 const SkillsV2 = React.lazy(() => import("../../main-content-v2/SkillsV2"));
+const WeKnoraArea = React.lazy(() => import("../../main-content-v2/WeKnoraArea"));
 
 function TabSkeleton() {
   return (
@@ -81,10 +82,6 @@ const FILES_ASSISTANT_HORIZONTAL_MIN_WIDTH = 520;
 const FILES_ASSISTANT_HORIZONTAL_MAX_WIDTH = 800;
 const FILES_ARTIFACT_MIN_WIDTH = 480;
 const FILES_PANEL_RAIL_WIDTH = 40;
-const FILES_PANEL_SPLITTER_HEIGHT = 1;
-const FILES_PANEL_SPLITTER_WIDTH = 1;
-const FILES_PANEL_SECTION_MIN_HEIGHT = 330;
-const FILES_PANEL_SECTION_MIN_WIDTH = 220;
 const FILES_PANEL_LAYOUT_STORAGE_KEY = "pilotdeck:files-panel-layout";
 const FILES_PANEL_ORDER_STORAGE_KEY = "pilotdeck:files-panel-order";
 
@@ -738,7 +735,7 @@ function SplitBody(props: SplitBodyProps) {
   // with chat. Files stays a separate explorer + artifact + assistant mode.
   const isPlugin =
     typeof activeTab === "string" && activeTab.startsWith("plugin:");
-  const fullScreenToolTabs = new Set(["shell", "cron", "tasks"]);
+  const fullScreenToolTabs = new Set(["shell", "cron", "tasks", "weknora"]);
   const isFullScreenTool = fullScreenToolTabs.has(activeTab) || isPlugin;
   const isDashboardPanel = DASHBOARD_PANEL_TABS.has(activeTab);
   const dashboardPanelTab = isDashboardPanel
@@ -755,11 +752,6 @@ function SplitBody(props: SplitBodyProps) {
   const [filesAssistantWidth, setFilesAssistantWidth] = useState(
     readStoredFilesAssistantWidth,
   );
-  const [filesResizeTarget, setFilesResizeTarget] = useState<
-    "assistant" | null
-  >(null);
-  const [filesPanelSplitRatio, setFilesPanelSplitRatio] = useState(0.5);
-  const [filesPanelSplitResizing, setFilesPanelSplitResizing] = useState(false);
   const [filesPanelLayout, setFilesPanelLayout] = useState<FilesPanelLayout>(
     readStoredFilesPanelLayout,
   );
@@ -772,10 +764,7 @@ function SplitBody(props: SplitBodyProps) {
   } | null>(null);
   const [explorerCollapsed, setExplorerCollapsed] = useState(true);
   const [assistantCollapsed, setAssistantCollapsed] = useState(false);
-  const [assistantOverlayOpen, setAssistantOverlayOpen] = useState(false);
   const [workbenchWidth, setWorkbenchWidth] = useState(0);
-  const [workbenchHeight, setWorkbenchHeight] = useState(0);
-  const [activeDockPanel, setActiveDockPanel] = useState<FilesDockPanel>("assistant");
   const [toolPanelWidth, setToolPanelWidth] = useState(
     readStoredToolPanelWidth,
   );
@@ -797,7 +786,6 @@ function SplitBody(props: SplitBodyProps) {
     if (!isFiles) return;
     setExplorerCollapsed(true);
     setAssistantCollapsed(false);
-    setAssistantOverlayOpen(false);
   }, [isFiles]);
 
   useEffect(() => {
@@ -807,7 +795,6 @@ function SplitBody(props: SplitBodyProps) {
     const updateWidth = () => {
       const rect = container.getBoundingClientRect();
       setWorkbenchWidth(rect.width);
-      setWorkbenchHeight(rect.height);
     };
     updateWidth();
     const observer = new ResizeObserver(updateWidth);
@@ -834,11 +821,6 @@ function SplitBody(props: SplitBodyProps) {
   }, [toolPanelWidth, toolPanelResizing]);
 
   useEffect(() => {
-    if (!isNarrowWorkbench) setAssistantOverlayOpen(false);
-  }, [isNarrowWorkbench]);
-
-  useEffect(() => {
-    if (filesResizeTarget) return;
     try {
       localStorage.setItem(
         FILES_ASSISTANT_STORAGE_KEY,
@@ -847,7 +829,7 @@ function SplitBody(props: SplitBodyProps) {
     } catch {
       // Resizing remains available when persistent storage is unavailable.
     }
-  }, [filesAssistantWidth, filesResizeTarget]);
+  }, [filesAssistantWidth]);
 
   useEffect(() => {
     try {
@@ -882,139 +864,9 @@ function SplitBody(props: SplitBodyProps) {
     [dockedHorizontally, workbenchWidth, isNarrowWorkbench],
   );
 
-  const handleFilesAssistantResizeBy = useCallback(
-    (delta: number) => {
-      setFilesAssistantWidth((width) =>
-        clampFilesAssistantWidth(width + delta),
-      );
-    },
-    [clampFilesAssistantWidth],
-  );
-
   useEffect(() => {
     setFilesAssistantWidth((width) => clampFilesAssistantWidth(width));
   }, [clampFilesAssistantWidth]);
-
-  const handleFilesResizeStart = useCallback(
-    (target: "assistant", event: React.MouseEvent<HTMLDivElement>) => {
-      if (!isFiles) return;
-      setFilesResizeTarget(target);
-      event.preventDefault();
-    },
-    [isFiles],
-  );
-
-  useEffect(() => {
-    if (!filesResizeTarget) return undefined;
-
-    const moveBatch = createFrameBatcher((event: globalThis.MouseEvent) => {
-      const container = filesSplitContainerRef.current;
-      if (!container) return;
-
-      const rect = container.getBoundingClientRect();
-      setFilesAssistantWidth(
-        clampFilesAssistantWidth(
-          rect.right - event.clientX - FILES_PANEL_RAIL_WIDTH,
-        ),
-      );
-    });
-    const handleMouseMove = moveBatch.schedule;
-
-    const handleMouseUp = () => {
-      moveBatch.flush();
-      setFilesResizeTarget(null);
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    return () => {
-      moveBatch.cancel();
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-  }, [clampFilesAssistantWidth, filesResizeTarget]);
-
-  const clampFilesPanelSplitRatio = useCallback(
-    (ratio: number) => {
-      const rect = filesSidePanelRef.current?.getBoundingClientRect();
-      if (dockedHorizontally) {
-        const availableWidth = Math.max(
-          1,
-          (rect?.width ?? 0) - FILES_PANEL_SPLITTER_WIDTH,
-        );
-        const minRatio = Math.min(
-          0.5,
-          FILES_PANEL_SECTION_MIN_WIDTH / availableWidth,
-        );
-        const maxRatio = Math.max(0.5, 1 - minRatio);
-        return Math.min(Math.max(ratio, minRatio), maxRatio);
-      }
-      const availableHeight = Math.max(
-        1,
-        (rect?.height ?? 0) - FILES_PANEL_SPLITTER_HEIGHT,
-      );
-      const minRatio = Math.min(
-        0.5,
-        FILES_PANEL_SECTION_MIN_HEIGHT / availableHeight,
-      );
-      const maxRatio = Math.max(0.5, 1 - minRatio);
-      return Math.min(Math.max(ratio, minRatio), maxRatio);
-    },
-    [dockedHorizontally],
-  );
-
-  useEffect(() => {
-    setFilesPanelSplitRatio(clampFilesPanelSplitRatio);
-  }, [clampFilesPanelSplitRatio, filesAssistantWidth, workbenchHeight]);
-
-  useEffect(() => {
-    if (!filesPanelSplitResizing) return undefined;
-
-    const moveBatch = createFrameBatcher((event: globalThis.MouseEvent) => {
-      const panel = filesSidePanelRef.current;
-      if (!panel) return;
-      const rect = panel.getBoundingClientRect();
-      const pointerRatio =
-        dockedHorizontally
-          ? (event.clientX - rect.left) /
-            Math.max(1, rect.width - FILES_PANEL_SPLITTER_WIDTH)
-          : (event.clientY - rect.top) /
-            Math.max(1, rect.height - FILES_PANEL_SPLITTER_HEIGHT);
-      setFilesPanelSplitRatio(
-        clampFilesPanelSplitRatio(
-          filesPanelOrder === "explorer-first"
-            ? pointerRatio
-            : 1 - pointerRatio,
-        ),
-      );
-    });
-    const handleMouseMove = moveBatch.schedule;
-    const handleMouseUp = () => { moveBatch.flush(); setFilesPanelSplitResizing(false); };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    document.body.style.cursor =
-      dockedHorizontally ? "col-resize" : "row-resize";
-    document.body.style.userSelect = "none";
-
-    return () => {
-      moveBatch.cancel();
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-  }, [
-    clampFilesPanelSplitRatio,
-    dockedHorizontally,
-    filesPanelOrder,
-    filesPanelSplitResizing,
-  ]);
 
   const clampToolPanelWidth = useCallback(
     (width: number) =>
@@ -1092,6 +944,7 @@ function SplitBody(props: SplitBodyProps) {
       );
     }
     if (activeTab === "cron") return <CronV2 />;
+    if (activeTab === "weknora") return <WeKnoraArea />;
     if (activeTab === "dashboard")
       return (
         <DashboardV2
@@ -1127,67 +980,21 @@ function SplitBody(props: SplitBodyProps) {
   const showFullScreenTool =
     isFullScreenTool && (activeTab !== "tasks" || shouldShowTasksTab);
   const showChat = !showFullScreenTool;
-  const singlePanelMode = !dockedHorizontally && workbenchHeight > 0
-    && workbenchHeight < FILES_PANEL_SECTION_MIN_HEIGHT * 2 + FILES_PANEL_SPLITTER_HEIGHT;
+  // PilotV：文件页整窗显示。原来并排的「文件目录 / 智能对话」两块、中间那条
+  // 分隔条、以及右边那两条悬浮标签都删掉了 —— 对话有自己的「对话」标签。
+  // 文件这边只剩一个面：没打开文件时目录占满整窗，打开后编辑器占满整窗，
+  // 两者不再并排（!hasEditor 这一条就是「不分屏」的保证）。
   const explorerVisible =
     isFiles &&
     showChat &&
     !editorExpanded &&
-    !isMobile &&
-    !explorerCollapsed &&
-    (!singlePanelMode || assistantCollapsed || activeDockPanel === "explorer") &&
-    (!isNarrowWorkbench || assistantOverlayOpen);
-  const assistantVisible =
-    isFiles &&
-    showChat &&
-    !editorExpanded &&
-    !isMobile &&
-    !assistantCollapsed &&
-    (!singlePanelMode || explorerCollapsed || activeDockPanel === "assistant") &&
-    (!isNarrowWorkbench || assistantOverlayOpen);
-  const filesPanelVisible = explorerVisible || assistantVisible;
-  const assistantIsOverlay = filesPanelVisible && isNarrowWorkbench;
-  const stackedHorizontally =
-    filesPanelLayout === "horizontal" &&
-    explorerVisible &&
-    assistantVisible &&
-    !assistantIsOverlay;
-
-  const toggleExplorer = () => {
-    setActiveDockPanel("explorer");
-    if (singlePanelMode && !explorerVisible) {
-      setExplorerCollapsed(false);
-      if (isNarrowWorkbench) setAssistantOverlayOpen(true);
-      return;
-    }
-    if (isNarrowWorkbench && !assistantOverlayOpen && !explorerCollapsed) {
-      setAssistantOverlayOpen(true);
-      return;
-    }
-    setExplorerCollapsed((collapsed) => {
-      const next = !collapsed;
-      if (!next && isNarrowWorkbench) setAssistantOverlayOpen(true);
-      return next;
-    });
-  };
-
-  const toggleAssistant = () => {
-    setActiveDockPanel("assistant");
-    if (singlePanelMode && !assistantVisible) {
-      setAssistantCollapsed(false);
-      if (isNarrowWorkbench) setAssistantOverlayOpen(true);
-      return;
-    }
-    if (isNarrowWorkbench && !assistantOverlayOpen && !assistantCollapsed) {
-      setAssistantOverlayOpen(true);
-      return;
-    }
-    setAssistantCollapsed((collapsed) => {
-      const next = !collapsed;
-      if (!next && isNarrowWorkbench) setAssistantOverlayOpen(true);
-      return next;
-    });
-  };
+    !hasEditor &&
+    !isMobile;
+  // 恒为 false：对话不再嵌在文件页里。下游那些「两块都在才怎样」的分支
+  // （拖拽换位、分隔条、面板宽度）条件都留着，只是永远走不到；
+  // 哪天要恢复并排，不用把逻辑重写一遍。
+  const assistantVisible = false;
+  const filesPanelVisible = explorerVisible;
 
   const handlePanelHeaderDragStart = (
     event: React.DragEvent<HTMLElement>,
@@ -1300,10 +1107,10 @@ function SplitBody(props: SplitBodyProps) {
         </div>
       ) : null}
 
-      {/* Artifact canvas — the visual center and primary surface in Files. */}
-      {isFiles && showChat && (hasEditor || !isMobile) ? (
+      {/* 文件编辑器。没打开文件时不占位——让文件目录自己占满整窗。 */}
+      {isFiles && showChat && hasEditor ? (
         <div className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-neutral-50/40 dark:bg-neutral-950">
-          {hasEditor && selectedProject ? (
+          {selectedProject ? (
             <EditorSidebar {...editorSidebarProps} workspaceMode />
           ) : (
             <div className="flex h-full flex-col items-center justify-center px-8 text-center">
@@ -1326,48 +1133,18 @@ function SplitBody(props: SplitBodyProps) {
         ref={filesSidePanelRef}
         key="agent-surface"
         className={cn(
-          "pd-workspace-body flex min-h-0 min-w-0 bg-white dark:bg-neutral-950",
-          stackedHorizontally ? "flex-row" : "flex-col",
+          "pd-workspace-body flex min-h-0 min-w-0 flex-1 flex-col bg-white dark:bg-neutral-950",
           !showChat && "invisible absolute h-0 w-0 overflow-hidden",
-          showChat && !isFiles && "flex-1",
-          filesPanelVisible &&
-            !assistantIsOverlay &&
-            "flex-shrink-0 border-l border-neutral-200 dark:border-neutral-800",
-          assistantIsOverlay &&
-            "absolute inset-y-0 right-[40px] z-40 border-l border-neutral-200 shadow-2xl dark:border-neutral-800",
           isFiles &&
             !filesPanelVisible &&
             "invisible absolute h-0 w-0 overflow-hidden",
         )}
-        style={filesPanelVisible ? { width: filesAssistantWidth } : undefined}
         aria-hidden={!showChat || (isFiles && !filesPanelVisible)}
       >
         {isFiles && explorerVisible ? (
           <div
             data-files-dock-panel="explorer"
-            className={cn(
-              "relative flex min-h-0 min-w-0 flex-col overflow-hidden",
-              assistantVisible ? "shrink-0" : "flex-1",
-            )}
-            style={{
-              order: filesPanelOrder === "explorer-first" ? 0 : 2,
-              ...(assistantVisible
-                ? stackedHorizontally
-                  ? {
-                      width: `calc(${filesPanelSplitRatio * 100}% - ${
-                        FILES_PANEL_SPLITTER_WIDTH * filesPanelSplitRatio
-                      }px)`,
-                      minWidth: FILES_PANEL_SECTION_MIN_WIDTH,
-                      height: "100%",
-                    }
-                  : {
-                      height: `calc(${filesPanelSplitRatio * 100}% - ${
-                        FILES_PANEL_SPLITTER_HEIGHT * filesPanelSplitRatio
-                      }px)`,
-                      minHeight: FILES_PANEL_SECTION_MIN_HEIGHT,
-                    }
-                : {}),
-            }}
+            className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
             onDragOverCapture={
               assistantVisible
                 ? (event) => handlePanelBodyDragOver(event, "explorer")
@@ -1418,88 +1195,14 @@ function SplitBody(props: SplitBodyProps) {
           </div>
         ) : null}
 
-        {isFiles && explorerVisible && assistantVisible ? (
-          <div
-            role="separator"
-            aria-orientation={stackedHorizontally ? "vertical" : "horizontal"}
-            aria-label={
-              stackedHorizontally
-                ? t("filesWorkbench.resizeHorizontalPanels", {
-                    defaultValue: "Resize left and right panels",
-                  })
-                : t("filesWorkbench.resizeVerticalPanels", {
-                    defaultValue: "Resize upper and lower panels",
-                  })
-            }
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(filesPanelSplitRatio * 100)}
-            tabIndex={0}
-            onMouseDown={(event) => {
-              event.preventDefault();
-              setFilesPanelSplitResizing(true);
-            }}
-            onKeyDown={(event) => {
-              const shrinkExplorer = stackedHorizontally
-                ? event.key === "ArrowLeft"
-                : event.key === "ArrowUp";
-              const growExplorer = stackedHorizontally
-                ? event.key === "ArrowRight"
-                : event.key === "ArrowDown";
-              if (shrinkExplorer) {
-                event.preventDefault();
-                setFilesPanelSplitRatio((ratio) =>
-                  clampFilesPanelSplitRatio(
-                    ratio +
-                      (filesPanelOrder === "explorer-first" ? -0.05 : 0.05),
-                  ),
-                );
-              } else if (growExplorer) {
-                event.preventDefault();
-                setFilesPanelSplitRatio((ratio) =>
-                  clampFilesPanelSplitRatio(
-                    ratio +
-                      (filesPanelOrder === "explorer-first" ? 0.05 : -0.05),
-                  ),
-                );
-              } else if (event.key === "Home") {
-                event.preventDefault();
-                setFilesPanelSplitRatio(clampFilesPanelSplitRatio(0));
-              } else if (event.key === "End") {
-                event.preventDefault();
-                setFilesPanelSplitRatio(clampFilesPanelSplitRatio(1));
-              }
-            }}
-            className={cn(
-              "panel-splitter",
-              stackedHorizontally ? "vertical" : "horizontal",
-              filesPanelSplitResizing && "active",
-            )}
-            style={{ order: 1 }}
-          />
-        ) : null}
-
+        {/* 对话面。文件页整窗显示时它不再并排出现（assistantVisible 恒为 false），
+            但保持挂载，切回「对话」标签时草稿和流式输出都还在。 */}
         <div
           data-files-dock-panel="assistant"
           className={cn(
-            "relative flex min-h-0 min-w-0 flex-col",
-            !isFiles && "flex-1",
-            isFiles && assistantVisible && "flex-1 overflow-x-hidden",
-            isFiles &&
-              explorerVisible &&
-              assistantVisible &&
-              !stackedHorizontally &&
-              "min-h-[330px]",
-            isFiles &&
-              explorerVisible &&
-              assistantVisible &&
-              stackedHorizontally &&
-              "min-w-[220px]",
-            isFiles &&
-              !assistantVisible &&
-              "invisible absolute h-0 w-0 overflow-hidden",
+            "relative flex min-h-0 min-w-0 flex-1 flex-col",
+            isFiles && "invisible absolute h-0 w-0 overflow-hidden",
           )}
-          style={{ order: filesPanelOrder === "explorer-first" ? 2 : 0 }}
           onDragOverCapture={
             isFiles && explorerVisible && assistantVisible
               ? (event) => handlePanelBodyDragOver(event, "assistant")
@@ -1626,82 +1329,6 @@ function SplitBody(props: SplitBodyProps) {
         >
           <Suspense fallback={<TabSkeleton />}>{renderTool()}</Suspense>
         </ToolSidePanel>
-      ) : null}
-
-      {filesPanelVisible && !assistantIsOverlay ? (
-        <div
-          onMouseDown={(event) => handleFilesResizeStart("assistant", event)}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowLeft") {
-              event.preventDefault();
-              handleFilesAssistantResizeBy(16);
-            } else if (event.key === "ArrowRight") {
-              event.preventDefault();
-              handleFilesAssistantResizeBy(-16);
-            } else if (event.key === "Home") {
-              event.preventDefault();
-              setFilesAssistantWidth(
-                clampFilesAssistantWidth(FILES_ASSISTANT_MIN_WIDTH),
-              );
-            } else if (event.key === "End") {
-              event.preventDefault();
-              setFilesAssistantWidth(
-                clampFilesAssistantWidth(FILES_ASSISTANT_MAX_WIDTH),
-              );
-            }
-          }}
-          className={cn(
-            "files-panel-resizer",
-            filesResizeTarget === "assistant" && "active",
-          )}
-          style={{ right: filesAssistantWidth + FILES_PANEL_RAIL_WIDTH }}
-          title={t("filesWorkbench.resizeAssistant")}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={t("filesWorkbench.resizeAssistant")}
-          aria-valuemin={FILES_ASSISTANT_MIN_WIDTH}
-          aria-valuemax={FILES_ASSISTANT_MAX_WIDTH}
-          aria-valuenow={Math.round(filesAssistantWidth)}
-          tabIndex={0}
-        >
-          <span />
-        </div>
-      ) : null}
-
-      {isFiles && showChat && !editorExpanded && !isMobile ? (
-        <nav
-          className="right-rail flex h-full w-[40px] flex-shrink-0 flex-col items-center gap-2 border-l border-neutral-200 bg-[var(--pd-accent-soft,#f7f5ff)] px-1.5 py-3 dark:border-neutral-800 dark:bg-neutral-950"
-          aria-label={t("filesWorkbench.panelControls", {
-            defaultValue: "Workbench panels",
-          })}
-        >
-          <button
-            type="button"
-            aria-label={t("filesWorkbench.fileDirectory", {
-              defaultValue: "Files",
-            })}
-            aria-pressed={singlePanelMode ? explorerVisible : !explorerCollapsed}
-            onClick={toggleExplorer}
-            className={cn((singlePanelMode ? explorerVisible : !explorerCollapsed) && "active")}
-          >
-            <span>
-              {t("filesWorkbench.fileDirectory", { defaultValue: "Files" })}
-            </span>
-          </button>
-          <button
-            type="button"
-            aria-label={t("filesWorkbench.smartChat", {
-              defaultValue: "Smart Chat",
-            })}
-            aria-pressed={singlePanelMode ? assistantVisible : !assistantCollapsed}
-            onClick={toggleAssistant}
-            className={cn((singlePanelMode ? assistantVisible : !assistantCollapsed) && "active")}
-          >
-            <span>
-              {t("filesWorkbench.smartChat", { defaultValue: "Smart Chat" })}
-            </span>
-          </button>
-        </nav>
       ) : null}
     </div>
     </ChatReviewProvider>

@@ -116,7 +116,8 @@ curl -s "$BASE/api/artifacts/wait-rework?aid=art_ab12cd&timeout=25"
 并且必须再输一次旧口令 —— agent（哪怕持有 token）没有也不该有这条路。
 
 > 用户说「密码不对 / 进不去 / 忘了口令」：别去改口令、别去建新账号。先让用户开
-> `http://<tailscale-ip>:8799/artifacts.html` 用 ⚙ 面板改。若确实拿不到浏览器，
+> PilotV（网关地址，如 `http://<tailscale-ip>:5186/`）用应用内的 Settings 面板改。
+> 若确实拿不到浏览器，
 > 才读 `.artifacts-secrets.env` 里的 `ARTIFACTS_CONSOLE_PASSWORD` —— 但那只是**建号时留下的
 > 记录值**，页面改过口令后它就是过期值。细节见 RUNBOOK §0.3。
 
@@ -223,9 +224,9 @@ drawings/
 - 选择存 `localStorage["pdconsole.artscope.v1"]`，关掉再开还在。
 
 > **不要靠「最近活跃的会话」去猜「当前对话」。** 同时开着三个对话时它们全是活跃的，
-> 猜出来的多半不是用户正看的那个。成果台和 PilotDeck UI 是两个进程，「当前会话」
-> 这个信息只能由 PilotDeck 主动传过来 —— 需要精确到某个对话时，走 hash 深链接
-> `artifacts.html#s=<sessionId>`，别拿活跃度当身份。
+> 猜出来的多半不是用户正看的那个。成果现在就在 PilotV 的「成果」页里看
+> （顶部 tab 切过去，列表只列**当前会话**的成果），成果视图是应用内状态、
+> 暂时还没有可分享的深链接 —— 让用户自己切到那个会话看，不要靠活跃度去猜。
 
 ### 让返工意见回到「原项目目录的对应会话」
 

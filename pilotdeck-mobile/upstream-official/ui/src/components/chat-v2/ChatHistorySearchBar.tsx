@@ -23,7 +23,7 @@ type ChatHistorySearchBarProps = {
   onNext: () => void;
   onClose: () => void;
   inputRef: { current: HTMLInputElement | null };
-  placement?: 'floating' | 'header';
+  placement?: 'floating' | 'header' | 'inline';
 };
 
 export default function ChatHistorySearchBar({
@@ -117,7 +117,11 @@ export default function ChatHistorySearchBar({
         'pointer-events-auto flex items-center gap-1 border border-neutral-200 bg-white px-2 dark:border-neutral-700 dark:bg-neutral-900',
         placement === 'header'
           ? 'h-9 w-full max-w-[360px] rounded-md'
-          : 'absolute right-4 top-4 z-20 w-[min(100%,320px)] rounded-lg bg-white/95 py-1.5 shadow-lg backdrop-blur-sm dark:bg-neutral-900/95',
+          // inline 跟着项目选择条一起贴在对话框左下角，所以不能脱流：
+            // 绝对定位会让它飘到消息区里，脱离用户刚点的那一下。
+          : placement === 'inline'
+            ? 'h-9 w-full rounded-md'
+            : 'absolute right-4 top-4 z-20 w-[min(100%,320px)] rounded-lg bg-white/95 py-1.5 shadow-lg backdrop-blur-sm dark:bg-neutral-900/95',
       )}
       data-chat-history-search
       role="search"
@@ -161,7 +165,7 @@ export default function ChatHistorySearchBar({
       >
         <ChevronDown className="h-4 w-4" strokeWidth={1.75} />
       </button>
-      {placement === 'floating' ? (
+      {placement !== 'header' ? (
         <button
           type="button"
           onClick={onClose}

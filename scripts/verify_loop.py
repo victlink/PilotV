@@ -293,7 +293,7 @@ async def main():
 
         print("\n" + "=" * 56)
         print(f"结果：{'全部通过 ✓' if _fails == 0 else f'{_fails} 项失败 ✗'}")
-        print(f"成果台页面：{args.base}/artifacts.html#{v2}")
+        print(f"成果页：{args.base}/")
         print("=" * 56)
         return 1 if _fails else 0
     finally:

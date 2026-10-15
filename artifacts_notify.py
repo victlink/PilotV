@@ -120,7 +120,9 @@ class Notifier:
         title = (art.get("title") or "(无标题)").strip()
         kind = art.get("kind") or "成果"
         ver = art.get("version") or 1
-        url = f"{self.base_url}/artifacts.html#{aid}" if aid else self.base_url
+        # 旧成果台页面已经没了，成果视图现在是 PilotV 应用内的状态、还没有深链接，
+        # 这里只能给应用根地址，别再拼一个已经不存在的页面。
+        url = self.base_url
         head = f"[成果台] {agent} · {kind} · v{ver}"
         if event == "artifact.added":
             body = f"新成果「{title}」"

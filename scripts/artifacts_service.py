@@ -70,7 +70,7 @@ def main() -> int:
     os.environ["ARTIFACTS_TOKEN"] = token
     data_dir = os.environ.get("ARTIFACTS_DATA_DIR") or os.path.join(HERE, ".artifacts-data")
     print(f"[artifacts] 数据目录 {data_dir}")
-    print(f"[artifacts] 监听 http://{args.host}:{args.port}/artifacts.html")
+    print(f"[artifacts] 监听 http://{args.host}:{args.port}/  （成果视图在 PilotV 前端里）")
 
     web.run_app(build_app(), host=args.host, port=args.port, print=None)
     return 0

@@ -100,7 +100,7 @@ def write_plugin(port: int, host: str = "127.0.0.1") -> str:
     path = os.path.join(base, "plugin.json")
     manifest = {
         "name": "artifacts",
-        "version": "0.1.0",
+        "version": "1.0.0",
         "description": "成果台：把产出的页面/图片/视频/图纸/三维成果登记到评审台，"
                        "人在画面上框选标注，agent 可拉回意见返工",
         "mcpServers": {"artifacts": {"url": f"http://{host}:{port}/api/artifacts-mcp"}},

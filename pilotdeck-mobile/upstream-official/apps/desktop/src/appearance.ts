@@ -13,26 +13,26 @@ export function normalizeAppearance(value: unknown, locale = 'en'): DesktopAppea
 }
 
 const STARTUP_ZH: Record<string, string> = {
-  "Preparing PilotDeck runtime...": "正在准备 PilotDeck 运行环境…",
+  "Preparing PilotV runtime...": "正在准备 PilotDeck 运行环境…",
   "Checking local configuration...": "正在检查本地配置…",
   "Starting Web UI server...": "正在启动网页服务…",
-  "PilotDeck is ready for model setup.": "PilotDeck 已就绪，请配置模型。",
-  "PilotDeck runtime stopped.": "PilotDeck 运行环境已停止。",
+  "PilotV is ready for model setup.": "PilotDeck 已就绪，请配置模型。",
+  "PilotV runtime stopped.": "PilotDeck 运行环境已停止。",
   "Gateway exited unexpectedly. The Web UI is still available.": "Gateway 意外退出，网页界面仍可使用。",
   "Model configuration needs attention.": "模型配置需要修复。",
   "Starting local gateway...": "正在启动本地 Gateway…",
-  "PilotDeck is ready.": "PilotDeck 已就绪。",
+  "PilotV is ready.": "PilotDeck 已就绪。",
   "Gateway failed to start. The Web UI is still available.": "Gateway 启动失败，网页界面仍可使用。",
   "server exited unexpectedly. See runtime log for details.": "网页服务意外退出，请查看运行日志。",
   "gateway exited unexpectedly. See runtime log for details.": "Gateway 意外退出，请查看运行日志。",
-  "PilotDeck failed to start.": "PilotDeck 启动失败。",
-  "PilotDeck failed to restore window.": "PilotDeck 无法恢复窗口。",
+  "PilotV failed to start.": "PilotDeck 启动失败。",
+  "PilotV failed to restore window.": "PilotDeck 无法恢复窗口。",
   "Retry": "重试",
   "Open Log": "打开日志",
-  "Starting PilotDeck...": "正在启动 PilotDeck…",
+  "Starting PilotV...": "正在启动 PilotDeck…",
   "Log: ": "日志：",
   "Unknown startup error.": "未知的启动错误。",
-  "PilotDeck could not stop": "PilotDeck 无法停止"
+  "PilotV could not stop": "PilotDeck 无法停止"
 };
 
 export function startupText(message: string, language: DesktopAppearance['language']): string {
@@ -48,7 +48,7 @@ export function renderLoadingHtml(appearance: DesktopAppearance): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PilotDeck</title>
+  <title>PilotV</title>
   <style>
      :root { color-scheme: light; --bg: ${canvas}; --fg: #171717; --muted: #525252; --line: #e5e5e5; --panel: #fafafa; --error-bg: #fef2f2; --error-fg: #991b1b; --shadow: rgba(0,0,0,.12); }
     :root[data-theme="dark"] { color-scheme: dark; --bg: #0a0a0a; --fg: #f5f5f5; --muted: #a3a3a3; --line: #303039; --panel: #19191f; --error-bg: #35191f; --error-fg: #fecaca; --shadow: rgba(0,0,0,.35); }
@@ -163,11 +163,11 @@ export function renderLoadingHtml(appearance: DesktopAppearance): string {
 </head>
 <body>
   <main>
-    <div class="brand"><div class="mark">P</div><div>PilotDeck</div></div>
+    <div class="brand"><div class="mark" aria-hidden="true"><svg viewBox="0 0 512 512" width="23" height="23" fill="currentColor"><path d="M154.0 144 H218.0 L256.0 213.3 L294.0 144 H358.0 L256.0 330.0 Z"/></svg></div><div>PilotV</div></div>
     <section class="panel" id="panel">
       <div class="row">
         <div class="spinner" aria-hidden="true"></div>
-        <p id="message">${text("Preparing PilotDeck runtime...")}</p>
+        <p id="message">${text("Preparing PilotV runtime...")}</p>
       </div>
       <pre id="detail"></pre>
       <div id="log"></div>
@@ -188,7 +188,7 @@ export function renderLoadingHtml(appearance: DesktopAppearance): string {
     const openLog = document.getElementById("openLog");
 
     window.pilotdeckDesktop?.onRuntimeStatus((status) => {
-      message.textContent = translate(status.message || "Starting PilotDeck...");
+      message.textContent = translate(status.message || "Starting PilotV...");
       log.textContent = status.logPath ? translate("Log: ") + status.logPath : "";
       if (status.phase === "error") {
         panel.classList.add("error");

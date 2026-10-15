@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { PilotDeckLogo } from "./PilotDeckLogo.js";
+import { PilotVLogo } from "./PilotVLogo.js";
 import { pilotDeckDarkBlueTheme } from "./theme.js";
 
 export function WelcomeCard({
@@ -21,7 +21,7 @@ export function WelcomeCard({
       paddingY={1}
       marginX={1}
     >
-      <PilotDeckLogo tagline="AI agent runtime · CLI · TUI · Web · Feishu" />
+      <PilotVLogo tagline="AI agent runtime · CLI · TUI · Web · Feishu" />
       <Box marginTop={1} flexDirection="column">
         <Row label="model" value={model ?? "model"} />
         <Row label="cwd" value={shortenPath(cwd)} />

@@ -122,6 +122,14 @@ export function useChatHistorySearchController(): ChatHistorySearchControllerVal
   return controller;
 }
 
+/**
+ * 没有 provider 时返回 null，而不是抛错。项目选择条这类组件本身可以被
+ * 单独渲染和测试，不能因为外面少了一层 provider 就整个挂掉。
+ */
+export function useOptionalChatHistorySearchController(): ChatHistorySearchControllerValue | null {
+  return useContext(ChatHistorySearchControllerContext);
+}
+
 export function useRegisterChatHistorySearchControls({
   isOpen,
   openSearch,

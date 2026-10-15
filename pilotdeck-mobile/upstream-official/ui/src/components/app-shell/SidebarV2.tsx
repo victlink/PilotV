@@ -1,5 +1,15 @@
 import DeviceSwitcher from './DeviceSwitcher';
+import DeviceUrlSync from './DeviceUrlSync';
+import PilotVLogo from './PilotVLogo';
 import { createFrameBatcher } from '../../utils/frameBatcher';
+import {
+  pinnedProjectSet,
+  pinnedSessionSet,
+  sessionPinKey,
+  toggleProjectPin,
+  toggleSessionPin,
+  usePinnedItems,
+} from '../../lib/pinnedItems';
 import {
   useCallback,
   useEffect,
@@ -20,7 +30,14 @@ import {
   Plus,
   Pencil,
   GitBranch,
+  Pin,
   Trash2,
+  LayoutDashboard,
+  Brain,
+  Zap,
+  BookOpen,
+  Sparkles,
+  CalendarClock,
 } from 'lucide-react';
 import type { AppTab, Project, ProjectSession } from '../../types/app';
 import { cn } from '../../lib/utils.js';
@@ -33,6 +50,7 @@ import {
   useCustomNamesVersion,
 } from '../../lib/customNames';
 import { compareProjectsBySidebarOrder } from './appShellSelection';
+import { artifactCountFor, loadArtifactCounts } from './artifactsMedia';
 
 const asTimestamp = (value: unknown): number => {
   if (typeof value === 'number') return value;
@@ -92,7 +110,19 @@ const isForkChildSession = (session: ProjectSession, knownSessionIds: Set<string
     knownSessionIds.has(session.parentSessionId),
   );
 
-const buildSessionTree = (flatSessions: FlatSession[]): SessionTreeNode[] => {
+// 树的根节点和子节点都要按同一套顺序排，所以置顶必须在这里生效：
+// 上游 collectSessionsForProject 刚排好的顺序在这里会被重新按活动时间覆盖掉。
+const compareSessionRows = (
+  isPinned: (sessionId: string) => boolean,
+) => (left: FlatSession, right: FlatSession) =>
+  Number(isPinned(right.sessionId)) - Number(isPinned(left.sessionId))
+  || right.lastActivity - left.lastActivity;
+
+const buildSessionTree = (
+  flatSessions: FlatSession[],
+  isPinned: (sessionId: string) => boolean = () => false,
+): SessionTreeNode[] => {
+  const byPinThenActivity = compareSessionRows(isPinned);
   const knownSessionIds = new Set(flatSessions.map((item) => item.sessionId));
   const childrenByParent = new Map<string, FlatSession[]>();
   const roots: FlatSession[] = [];
@@ -111,13 +141,11 @@ const buildSessionTree = (flatSessions: FlatSession[]): SessionTreeNode[] => {
   const toNode = (flat: FlatSession): SessionTreeNode => ({
     flat,
     children: (childrenByParent.get(flat.sessionId) ?? [])
-      .sort((left, right) => right.lastActivity - left.lastActivity)
+      .sort(byPinThenActivity)
       .map(toNode),
   });
 
-  return roots
-    .sort((left, right) => right.lastActivity - left.lastActivity)
-    .map(toNode);
+  return roots.sort(byPinThenActivity).map(toNode);
 };
 
 const collectSessionsForProject = (project: Project): FlatSession[] => {
@@ -152,7 +180,6 @@ export type SidebarV2Props = {
   onSelectProject: (project: Project) => void;
   onSelectSession: (project: Project, sessionId: string) => void;
   onStartNewSession: (project: Project) => void;
-  onStartHomeNewConversation?: () => void;
   onCreateProject: () => void;
   pendingDraftProjectName?: string | null;
   onRequestDeleteProject: (project: Project) => void;
@@ -181,13 +208,38 @@ type SidebarContextMenu =
       y: number;
     };
 
+/**
+ * 探索收进来的东西。顶栏只留「对话／文件／成果」三个页面切换，
+ * 技能和定时任务原先各有一个入口，现在并到侧栏这一个分区里。
+ * 「改动」和「资料」不是 tab：改动走对话里的评审面板，资料要带上当前项目，
+ * 所以这两项通过事件或 props 交给上层处理。
+ */
+type ExploreEntry = {
+  key: AppTab | 'changes' | 'weknora';
+  labelKey: string;
+  labelDefault: string;
+  icon: ReactNode;
+};
+
+const EXPLORE_ENTRIES: ExploreEntry[] = [
+  { key: 'dashboard', labelKey: 'tabs.dashboard', labelDefault: 'Dashboard', icon: <LayoutDashboard aria-hidden="true" className="h-3 w-3" strokeWidth={1.8} /> },
+  { key: 'memory', labelKey: 'tabs.memory', labelDefault: 'Memory', icon: <Brain aria-hidden="true" className="h-3 w-3" strokeWidth={1.8} /> },
+  { key: 'always-on', labelKey: 'tabs.alwaysOn', labelDefault: 'Always-on', icon: <Zap aria-hidden="true" className="h-3 w-3" strokeWidth={1.8} /> },
+  { key: 'weknora', labelKey: 'tabs.weknora', labelDefault: '资料', icon: <BookOpen aria-hidden="true" className="h-3 w-3" strokeWidth={1.8} /> },
+  { key: 'changes', labelKey: 'dashboardSwitcher.changes', labelDefault: 'Changes', icon: <GitBranch aria-hidden="true" className="h-3 w-3" strokeWidth={1.8} /> },
+  { key: 'skills', labelKey: 'sidebar:quickActions.skills', labelDefault: 'Skills', icon: <Sparkles aria-hidden="true" className="h-3 w-3" strokeWidth={1.8} /> },
+  // 侧栏这条特意走 explore.scheduledTasks：中文只写「定时」两个字，窄栏里不挤；
+  // 主内容区的页面标题仍旧是 quickActions.scheduledTasks 的「定时任务」。
+  { key: 'cron', labelKey: 'sidebar:explore.scheduledTasks', labelDefault: 'Scheduled Tasks', icon: <CalendarClock aria-hidden="true" className="h-3 w-3" strokeWidth={1.8} /> },
+];
+
 const CONTEXT_MENU_WIDTH = 176;
-const CONTEXT_MENU_HEIGHT = 88;
+const CONTEXT_MENU_HEIGHT = 132;
 const CONTEXT_MENU_MARGIN = 8;
 
-const contextMenuPosition = (event: MouseEvent) => {
+const contextMenuPosition = (event: MouseEvent, height = CONTEXT_MENU_HEIGHT) => {
   const maxX = window.innerWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_MARGIN;
-  const maxY = window.innerHeight - CONTEXT_MENU_HEIGHT - CONTEXT_MENU_MARGIN;
+  const maxY = window.innerHeight - height - CONTEXT_MENU_MARGIN;
   return {
     x: Math.max(CONTEXT_MENU_MARGIN, Math.min(event.clientX, maxX)),
     y: Math.max(CONTEXT_MENU_MARGIN, Math.min(event.clientY, maxY)),
@@ -271,7 +323,6 @@ export default function SidebarV2({
   onSelectProject,
   onSelectSession,
   onStartNewSession,
-  onStartHomeNewConversation,
   onCreateProject,
   pendingDraftProjectName = null,
   onRequestDeleteProject,
@@ -291,34 +342,32 @@ export default function SidebarV2({
   const [renameDraft, setRenameDraft] = useState<string>('');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
   const [contextMenu, setContextMenu] = useState<SidebarContextMenu | null>(null);
+  // 探索是侧栏底部的一个分区（原先是设置按钮位置上的弹出菜单）：
+  // 顶栏只留对话／文件／成果，它和「项目」一样用同一个折叠标题展开收起。
+  const [exploreExpanded, setExploreExpanded] = useState(false);
   const [collapsedSessionProjects, setCollapsedSessionProjects] = useState<Set<string>>(new Set());
+  // 有成果的对话要标出来、且不能被 Show more 折起来，计数只取一次，之后走缓存。
+  const [artifactCounts, setArtifactCounts] = useState<Map<string, number>>(() => new Map());
+  // 首屏那份计数常常还没覆盖完所有会话（会话本身也在分页到齐），
+  // 所以按「项目 + 会话条数」的签名重拉：签名没变就用缓存，别把接口打爆。
+  const artifactCountsSignatureRef = useRef('');
+  useEffect(() => {
+    const signature = projects
+      .map(item => `${item.name}:${Array.isArray(item.sessions) ? item.sessions.length : 0}`)
+      .join('|');
+    if (artifactCountsSignatureRef.current === signature) return;
+    artifactCountsSignatureRef.current = signature;
+    // 这里不能像别处那样用 alive 标记提前丢弃：StrictMode 会把 effect 跑两遍，
+    // 第一遍的请求正是唯一一次真正要落地的，丢掉它计数就永远停在空表。
+    void loadArtifactCounts(true).then(setArtifactCounts);
+  }, [projects]);
   const [draftSessionProjectName, setDraftSessionProjectName] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const sidebarRootRef = useRef<HTMLElement | null>(null);
 
-  const [conversationsExpanded, setConversationsExpanded] = useState(true);
+  // 只有一棵项目树，对话主目录和两块面板之间的分隔条一起没了，
+  // 所以没有可拖的分割比例需要记了。
   const [projectsExpanded, setProjectsExpanded] = useState(true);
-  const projectsConversationsSplitRef = useRef<HTMLDivElement | null>(null);
-  const SIDEBAR_SPLITTER_HEIGHT = 1;
-  const SIDEBAR_SECTION_MIN_HEIGHT = 120;
-  // Header + padding + three 35px conversation rows and two 2px gaps.
-  const DEFAULT_CONVERSATIONS_HEIGHT = 34 + 12 + 3 * 35 + 2 * 2;
-  const SIDEBAR_SPLIT_STORAGE_KEY = 'sidebar-v2-projects-conversations-split-v2';
-  const [savedProjectsSplitRatio, setProjectsSplitRatio] = useState<number | null>(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const current = window.localStorage.getItem(SIDEBAR_SPLIT_STORAGE_KEY);
-      const legacy = Number(window.localStorage.getItem('sidebar-v2-projects-conversations-split'));
-      // The old default wrote 0.5 even without a drag. Preserve other saved sizes.
-      const stored = current !== null ? Number(current) : legacy === 0.5 ? NaN : legacy;
-      return Number.isFinite(stored) && stored > 0 && stored < 1 ? stored : null;
-    } catch {
-      return null;
-    }
-  });
-  const [defaultProjectsSplitRatio, setDefaultProjectsSplitRatio] = useState(0.75);
-  const projectsSplitRatio = savedProjectsSplitRatio ?? defaultProjectsSplitRatio;
-  const [projectsSplitResizing, setProjectsSplitResizing] = useState(false);
 
   // Resizable sidebar width — clamped to a sensible range and persisted across
   // reloads. Drag-handle on the right edge mutates this on the fly.
@@ -338,21 +387,6 @@ export default function SidebarV2({
   const [isResizing, setIsResizing] = useState(false);
   const isCompact = !isMobile && sidebarWidth <= SIDEBAR_COMPACT_THRESHOLD;
   useEffect(() => {
-    const panel = projectsConversationsSplitRef.current;
-    if (!panel || typeof ResizeObserver === 'undefined') return;
-    const update = () => {
-      const available = Math.max(1, panel.getBoundingClientRect().height - SIDEBAR_SPLITTER_HEIGHT);
-      const minRatio = Math.min(0.5, SIDEBAR_SECTION_MIN_HEIGHT / available);
-      setDefaultProjectsSplitRatio(Math.max(minRatio, Math.min(1 - minRatio,
-        1 - DEFAULT_CONVERSATIONS_HEIGHT / available)));
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(panel);
-    return () => observer.disconnect();
-  }, [isMobile, sidebarWidth]);
-
-  useEffect(() => {
     if (isMobile) return;
     const appShell = sidebarRootRef.current?.closest<HTMLElement>('.app-shell');
     if (!appShell) return;
@@ -370,51 +404,6 @@ export default function SidebarV2({
       // localStorage may be unavailable.
     }
   }, []);
-
-  const clampProjectsSplitRatio = useCallback((ratio: number) => {
-    const height = projectsConversationsSplitRef.current?.getBoundingClientRect().height ?? 0;
-    const availableHeight = Math.max(1, height - SIDEBAR_SPLITTER_HEIGHT);
-    const minRatio = Math.min(0.5, SIDEBAR_SECTION_MIN_HEIGHT / availableHeight);
-    const maxRatio = Math.max(0.5, 1 - minRatio);
-    return Math.min(Math.max(ratio, minRatio), maxRatio);
-  }, []);
-
-  useEffect(() => {
-    if (savedProjectsSplitRatio === null || projectsSplitResizing) return;
-    try {
-      window.localStorage.setItem(SIDEBAR_SPLIT_STORAGE_KEY, String(savedProjectsSplitRatio));
-    } catch {
-      // Split remains usable when persistent storage is unavailable.
-    }
-  }, [savedProjectsSplitRatio, projectsSplitResizing]);
-
-  useEffect(() => {
-    if (!projectsSplitResizing) return undefined;
-
-    const moveBatch = createFrameBatcher((event: globalThis.MouseEvent) => {
-      const panel = projectsConversationsSplitRef.current;
-      if (!panel) return;
-      const rect = panel.getBoundingClientRect();
-      const pointerRatio = (event.clientY - rect.top)
-        / Math.max(1, rect.height - SIDEBAR_SPLITTER_HEIGHT);
-      setProjectsSplitRatio(clampProjectsSplitRatio(pointerRatio));
-    });
-    const handleMouseMove = moveBatch.schedule;
-    const handleMouseUp = () => { moveBatch.flush(); setProjectsSplitResizing(false); };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
-
-    return () => {
-      moveBatch.cancel();
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [clampProjectsSplitRatio, projectsSplitResizing]);
 
   const widthDragCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => widthDragCleanupRef.current?.(), []);
@@ -502,19 +491,21 @@ export default function SidebarV2({
     }
   }, [draftSessionProjectName, selectedProject, selectedSession]);
 
-  const generalProject =
-    safeProjects.find((project) => project.name === 'general' || project.displayName === 'general') ?? null;
+  const pinned = usePinnedItems();
+  const pinnedProjects = useMemo(() => pinnedProjectSet(pinned), [pinned]);
+  const pinnedSessions = useMemo(() => pinnedSessionSet(pinned), [pinned]);
 
-  const otherProjects = useMemo(() => {
-    // `general` lives in Conversations, so it is excluded from this list
-    // and from the lastActivity comparison. Remaining projects follow the
-    // projects API `lastActivity` descending (most recently updated first).
-    const remaining = safeProjects.filter((project) => project !== generalProject);
-    return [...remaining].sort(compareProjectsBySidebarOrder);
-  }, [safeProjects, generalProject]);
+  // general 曾经被单独抽出来放在「对话」主目录里；主目录删掉之后它就是一个
+  // 普通文件夹，和其它项目一起按「最近活动 → 名字」排，置顶的排最前。
+  const orderedProjects = useMemo(() => {
+    const pinRank = (project: Project) => Number(pinnedProjects.has(project.name));
+    return [...safeProjects].sort(
+      (left, right) => pinRank(right) - pinRank(left) || compareProjectsBySidebarOrder(left, right),
+    );
+  }, [safeProjects, pinnedProjects]);
 
   const compactRecentItems = useMemo<CompactRecentItem[]>(() => {
-    const items: CompactRecentItem[] = otherProjects.map((project) => ({
+    const items: CompactRecentItem[] = orderedProjects.map((project) => ({
       kind: 'project',
       project,
       lastActivity: projectLastActivity(project),
@@ -538,7 +529,7 @@ export default function SidebarV2({
     return items
       .sort((a, b) => b.lastActivity - a.lastActivity)
       .slice(0, 12);
-  }, [otherProjects, safeProjects]);
+  }, [orderedProjects, safeProjects]);
 
   const navToProject = useCallback(
     (name: string) => navigate(`/p/${encodeURIComponent(name)}`),
@@ -597,8 +588,8 @@ export default function SidebarV2({
   );
 
   const openProjectContextMenu = useCallback(
-    (event: MouseEvent, project: Project, isGeneral: boolean) => {
-      if (isGeneral || renamingProject === project.name) return;
+    (event: MouseEvent, project: Project) => {
+      if (renamingProject === project.name) return;
       event.preventDefault();
       event.stopPropagation();
       const position = contextMenuPosition(event);
@@ -611,6 +602,30 @@ export default function SidebarV2({
     },
     [renamingProject],
   );
+
+  // 触屏没有右键，置顶/改名/删除就全都没入口了，所以长按 0.5 秒补一个手势。
+  // 长按触发时紧跟着的那次 click 要吞掉，否则菜单刚打开就被「选中这行」关掉。
+  const longPressTimers = useRef(new Map<string, number>());
+  const swallowedClickRef = useRef(false);
+  const cancelLongPress = useCallback((key: string) => {
+    const timer = longPressTimers.current.get(key);
+    if (timer === undefined) return;
+    window.clearTimeout(timer);
+    longPressTimers.current.delete(key);
+  }, []);
+  const startLongPress = useCallback((
+    key: string,
+    event: React.PointerEvent,
+    open: (event: React.PointerEvent) => void,
+  ) => {
+    if (event.pointerType === 'mouse') return;
+    cancelLongPress(key);
+    longPressTimers.current.set(key, window.setTimeout(() => {
+      longPressTimers.current.delete(key);
+      swallowedClickRef.current = true;
+      open(event);
+    }, 500));
+  }, [cancelLongPress]);
 
   const openSessionContextMenu = useCallback(
     (event: MouseEvent, project: Project, session: ProjectSession) => {
@@ -668,6 +683,27 @@ export default function SidebarV2({
     }
   }, [beginRenameProject, beginRenameSession, contextMenu]);
 
+  // 置顶只写本地：后端的项目/会话 id 和磁盘路径一个都不动，
+  // 换台设备打开看到的还是原来的顺序。
+  const handleContextPinToggle = useCallback(() => {
+    if (!contextMenu) return;
+    if (contextMenu.kind === 'project') {
+      toggleProjectPin(contextMenu.project.name);
+    } else {
+      toggleSessionPin(contextMenu.project.name, contextMenu.session.id);
+    }
+    setContextMenu(null);
+  }, [contextMenu]);
+
+  const contextMenuProjectIsGeneral = contextMenu?.kind === 'project'
+    && (contextMenu.project.name === 'general' || contextMenu.project.displayName === 'general');
+
+  const contextMenuPinActive = contextMenu
+    ? contextMenu.kind === 'project'
+      ? pinnedProjects.has(contextMenu.project.name)
+      : pinnedSessions.has(sessionPinKey(contextMenu.project.name, contextMenu.session.id))
+    : false;
+
   const handleContextDelete = useCallback(() => {
     if (!contextMenu) return;
     if (contextMenu.kind === 'project') {
@@ -676,6 +712,22 @@ export default function SidebarV2({
       requestDeleteSession(contextMenu.project, contextMenu.session);
     }
   }, [contextMenu, requestDeleteProject, requestDeleteSession]);
+
+  // 看板和资料要项目级的探索能力；记忆、常驻、改动、技能、定时任务在
+  // General 这类项目下也得留着入口，否则它们就完全没有入口了。
+  const exploreEnabled = selectedProject?.capabilities?.explore !== false;
+  const visibleExploreEntries = EXPLORE_ENTRIES.filter(
+    entry => exploreEnabled || (entry.key !== 'dashboard' && entry.key !== 'weknora'),
+  );
+
+  const openExploreEntry = useCallback((key: ExploreEntry['key']) => {
+    // 改动不是 tab：它打开当前对话里的评审面板，由主区监听这个事件。
+    if (key === 'changes') {
+      window.dispatchEvent(new Event('pilotdeck:open-changes'));
+      return;
+    }
+    onSelectTab?.(key);
+  }, [onSelectTab]);
 
   const commitProjectRename = useCallback(() => {
     if (!renamingProject) return;
@@ -720,9 +772,20 @@ export default function SidebarV2({
   ) => {
     const COLLAPSED_SESSION_LIMIT = 5;
     const allSessions = collectSessionsForProject(project).slice(0, 500);
+    // 置顶的对话排在本项目最上面；同样是置顶/未置顶时保持最近活动顺序。
+    const isPinnedSession = (sessionId: string) =>
+      pinnedSessions.has(sessionPinKey(project.name, sessionId));
     const isCollapsed = collapsedSessionProjects.has(project.name);
-    const sessions = isCollapsed ? allSessions.slice(0, COLLAPSED_SESSION_LIMIT) : allSessions;
-    const hiddenLoadedCount = isCollapsed ? Math.max(0, allSessions.length - COLLAPSED_SESSION_LIMIT) : 0;
+    // 折叠时前 N 条之外的会被 "Show more" 藏起来，但有成果的对话不能跟着一起藏：
+    // 成果全落在折叠区时，侧栏看起来就像成果丢了。置顶顺序保持不变，只按原顺序补位。
+    const artifactSessions = allSessions.filter(({ sessionId }) => artifactCountFor(artifactCounts, sessionId) > 0);
+    const sessions = isCollapsed
+      ? Array.from(new Map(
+        [...allSessions.slice(0, COLLAPSED_SESSION_LIMIT), ...artifactSessions]
+          .map(item => [item.sessionId, item]),
+      ).values())
+      : allSessions;
+    const hiddenLoadedCount = isCollapsed ? Math.max(0, allSessions.length - sessions.length) : 0;
     // If `useProjectsState.bumpSessionActivity` has prepended an optimistic
     // `new-session-*` placeholder for this project, suppress the legacy
     // "+ New Session — not saved yet" draft button so we don't show two
@@ -747,7 +810,7 @@ export default function SidebarV2({
     // top-level list (no folder ancestor), so the usual ml-6 indent would
     // leave a weird empty gutter on the left.
     const containerClass = options.flat ? 'tree-list chat-tree-list' : 'project-children';
-    const sessionTree = buildSessionTree(sessions);
+    const sessionTree = buildSessionTree(sessions, isPinnedSession);
     const sessionTitleById = new Map(
       allSessions.map(({ sessionId, session }) => [sessionId, sessionDisplayTitle(session)]),
     );
@@ -763,6 +826,7 @@ export default function SidebarV2({
         selectedSession?.id === sessionId &&
         activeTab === 'chat';
       const isSessionRenaming = renamingSession === sessionId;
+      const sessionArtifactCount = artifactCountFor(artifactCounts, sessionId);
       const isOptimisticRow =
         typeof sessionId === 'string' && sessionId.startsWith('new-session-');
       const indicatorStatus: SessionIndicatorStatus = isOptimisticRow
@@ -791,6 +855,14 @@ export default function SidebarV2({
             onContextMenu={(event) =>
               isOptimisticRow ? undefined : openSessionContextMenu(event, project, session)
             }
+            onPointerDown={(event) => {
+              if (isOptimisticRow) return;
+              const key = `session:${project.name}::${sessionId}`;
+              startLongPress(key, event, (pressed) => openSessionContextMenu(pressed, project, session));
+            }}
+            onPointerUp={() => cancelLongPress(`session:${project.name}::${sessionId}`)}
+            onPointerLeave={() => cancelLongPress(`session:${project.name}::${sessionId}`)}
+            onPointerCancel={() => cancelLongPress(`session:${project.name}::${sessionId}`)}
             className="group/session relative w-full"
           >
             {isSessionRenaming ? (
@@ -843,6 +915,24 @@ export default function SidebarV2({
                       <GitBranch className="h-3 w-3 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} />
                     ) : null}
                     <span className="truncate">{sessionDisplayTitle(session)}</span>
+                    {pinnedSessions.has(sessionPinKey(project.name, session.id)) && (
+                      <Pin aria-hidden="true"
+                        className="h-3 w-3 shrink-0 fill-current text-blue-600 dark:text-blue-400"
+                        strokeWidth={1.75}
+                        data-testid={`pinned-session-${session.id}`} />
+                    )}
+                    {sessionArtifactCount > 0 && (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-emerald-600 px-1.5 text-[10px] font-semibold leading-4 text-white"
+                        title={`${sessionArtifactCount} 个成果`}
+                        data-testid={`artifact-count-${session.id}`}
+                      >
+                        <svg aria-hidden="true" viewBox="0 0 12 12" className="h-2 w-2 fill-current">
+                          <path d="M2.5 7.2 4.6 9.4 9.5 3.6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        {sessionArtifactCount}
+                      </span>
+                    )}
                   </div>
                   {isOptimisticRow || isForkChild ? (
                     <div className="text-[11px] text-neutral-500 dark:text-neutral-400">
@@ -950,8 +1040,9 @@ export default function SidebarV2({
     );
   };
 
-  const renderProjectGroup = (project: Project, options: { isGeneral?: boolean } = {}) => {
-    const isGeneral = Boolean(options.isGeneral);
+  const renderProjectGroup = (project: Project) => {
+    // general 现在和其它项目一样是树上的一个文件夹，只是名字仍然本地化显示。
+    const isGeneral = project.name === 'general' || project.displayName === 'general';
     const isSelected = project.name === selectedProject?.name;
     const isExpanded = expandedGroups.has(project.name);
     const isRenaming = renamingProject === project.name;
@@ -969,7 +1060,7 @@ export default function SidebarV2({
             onSelectProject(project);
             navToProject(project.name);
           }}
-          onContextMenu={(event) => openProjectContextMenu(event, project, isGeneral)}
+          onContextMenu={(event) => openProjectContextMenu(event, project)}
           className={cn('compact-project-entry', isSelected && 'active')}
         >
           <svg aria-hidden="true" className="icon" fill="none" height="20" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="20">
@@ -985,7 +1076,14 @@ export default function SidebarV2({
     return (
       <div key={project.name} className="project-tree-node">
         <div
-          onContextMenu={(event) => openProjectContextMenu(event, project, isGeneral)}
+          onContextMenu={(event) => openProjectContextMenu(event, project)}
+          onPointerDown={(event) => {
+            const key = `project:${project.name}`;
+            startLongPress(key, event, (pressed) => openProjectContextMenu(pressed, project));
+          }}
+          onPointerUp={() => cancelLongPress(`project:${project.name}`)}
+          onPointerLeave={() => cancelLongPress(`project:${project.name}`)}
+          onPointerCancel={() => cancelLongPress(`project:${project.name}`)}
           className={cn(
             'tree-row project-row group/project',
             isSelected && 'active',
@@ -1043,6 +1141,12 @@ export default function SidebarV2({
                 )}
               </svg>
               <span className="flex-1 truncate font-normal">{label}</span>
+              {pinnedProjects.has(project.name) && (
+                <Pin aria-hidden="true"
+                  className="h-3 w-3 shrink-0 fill-current text-blue-600 dark:text-blue-400"
+                  strokeWidth={1.75}
+                  data-testid={`pinned-project-${project.name}`} />
+              )}
             </button>
           )}
 
@@ -1079,11 +1183,50 @@ export default function SidebarV2({
     );
   };
 
+  // 「探索」现在就是侧栏底部的一个分区：标题行和「项目」共用 SectionHeading，
+  // 点箭头展开收起。展开后条目一次全列出来，不在里面再套一层滚动条，
+  // 侧栏不够高的话让「项目」那份列表先让位。
+  const renderExploreSection = () => (
+    <section className="explore-section tree-section">
+      <SectionHeading
+        title={t('sidebar:explore.title', { defaultValue: 'Explore' })}
+        expanded={exploreExpanded}
+        expandLabel={t('sidebar:explore.expand', { defaultValue: 'Expand explore' }) as string}
+        collapseLabel={t('sidebar:explore.collapse', { defaultValue: 'Collapse explore' }) as string}
+        onToggle={() => setExploreExpanded(previous => !previous)}
+      />
+      {exploreExpanded ? (
+        <div className="tree-list">
+          {visibleExploreEntries.map(entry => (
+            <button
+              key={entry.key}
+              type="button"
+              onClick={() => openExploreEntry(entry.key)}
+              aria-current={activeTab === entry.key ? 'page' : undefined}
+              className={cn('explore-row', activeTab === entry.key && 'active')}
+            >
+              <span className="explore-row-icon">{entry.icon}</span>
+              <span className="truncate">{t(entry.labelKey, { defaultValue: entry.labelDefault })}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+
   return (
     <>
       <aside
       ref={sidebarRootRef}
       data-sidebar-v2-root
+      onPointerDownCapture={() => { swallowedClickRef.current = false; }}
+      onClickCapture={(event) => {
+        // 长按已经把菜单打开了，这一下 click 只用来结束手势，别让它去选中并收起菜单。
+        if (!swallowedClickRef.current) return;
+        swallowedClickRef.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
       style={{ width: `${sidebarWidth}px` }}
       className={cn(
         // On mobile the parent wraps this aside in an overlay constrained
@@ -1096,68 +1239,26 @@ export default function SidebarV2({
         <button type="button" aria-label="展开设备选择" className="compact-brand" onClick={expandCompactSidebar}>设备</button>
       ) : (
         <div className="min-h-[62px] shrink-0 border-b border-neutral-200/80 dark:border-neutral-800">
-          <div className="flex min-h-[61px] items-center gap-2 pl-3"><span aria-label="PilotV" className="shrink-0 text-[17px] font-bold leading-none tracking-tight">Pilot<span className="text-blue-600 dark:text-blue-400">V</span></span><div className="min-w-0 flex-1"><DeviceSwitcher compact={false} /></div></div>
+          {/* logo 变成设置入口：侧栏底部原来那个独立设置按钮的位置让给「探索」，
+              三块内容（探索／项目／设置）就这样固定下来。 */}
+          <div className="flex min-h-[61px] items-center gap-2 pl-3"><button type="button" onClick={onShowSettings}
+            aria-label={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
+            title={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
+            className="shrink-0 rounded text-left"><PilotVLogo height={17} aria-hidden /><span className="sr-only">PilotV</span></button><div className="min-w-0 flex-1"><DeviceSwitcher compact={false} /></div><DeviceUrlSync /></div>
         </div>
       )}
       <nav
         className={isCompact ? 'compact-actions' : 'primary-actions'}
         aria-label={t('sidebar:quickActions.label', { defaultValue: 'Primary actions' }) as string}
       >
-        <button
-          className={cn('primary-action', isCompact && 'compact')}
-          type="button"
-          aria-label={t('sidebar:quickActions.newConversation', { defaultValue: '新对话' }) as string}
-          title={t('sidebar:quickActions.newConversation', { defaultValue: '新对话' }) as string}
-          onClick={() => onStartHomeNewConversation?.()}
-        >
-          <span className="primary-action-icon">
-            <svg aria-hidden="true" className="icon" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
-              <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
-            </svg>
-          </span>
-          <span className="truncate">
-            {t('sidebar:quickActions.newConversation', { defaultValue: '新对话' })}
-          </span>
-        </button>
-        <button
-          className={cn('primary-action', isCompact && 'compact', activeTab === 'skills' && 'active')}
-          type="button"
-          aria-pressed={activeTab === 'skills'}
-          onClick={() => onSelectTab?.('skills')}
-        >
-          <span className="primary-action-icon">
-            <svg aria-hidden="true" className="icon" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
-              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" />
-            </svg>
-          </span>
-          <span className="truncate">
-            {isCompact
-              ? t('sidebar:quickActions.skillsCompact', { defaultValue: 'Skill Tools' })
-              : t('sidebar:quickActions.skills', { defaultValue: 'Skills' })}
-          </span>
-        </button>
-        <button
-          className={cn('primary-action', isCompact && 'compact', activeTab === 'cron' && 'active')}
-          type="button"
-          aria-pressed={activeTab === 'cron'}
-          onClick={() => onSelectTab?.('cron')}
-        >
-          <span className="primary-action-icon">
-            <svg aria-hidden="true" className="icon" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
-              <path d="M16 14v2.2l1.6 1" />
-              <path d="M16 2v4" />
-              <path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5" />
-              <path d="M3 10h5" />
-              <path d="M8 2v4" />
-              <circle cx="16" cy="16" r="6" />
-            </svg>
-          </span>
-          <span className="truncate">{t('sidebar:quickActions.scheduledTasks', { defaultValue: 'Scheduled Tasks' })}</span>
-        </button>
+        {/* 新对话按钮撤掉了：没有选中对话时，在输入框写第一条就会建对话，
+            项目行右侧的「＋」也还在，这里再摆一个只是重复入口。
+            定时任务也撤掉了：它并进了底部的「探索」菜单。 */}
       </nav>
       {isCompact ? <span className="compact-divider" /> : null}
 
       {isCompact ? (
+        <>
         <nav
           className="recent-list"
           aria-label={t('sidebar:projects.recent', { defaultValue: 'Recently opened' }) as string}
@@ -1188,27 +1289,13 @@ export default function SidebarV2({
             );
           })}
         </nav>
+        {renderExploreSection()}
+        </>
       ) : (
       <div className="flex min-h-0 flex-1 flex-col">
-        <div
-          ref={projectsConversationsSplitRef}
-          className="flex min-h-0 flex-1 flex-col"
-        >
         <section
-          className="tree-section flex min-h-0 flex-col border-t border-neutral-200/80 dark:border-neutral-800"
-          style={
-            !projectsExpanded
-              ? { minHeight: 0, flex: '0 0 auto' }
-              : conversationsExpanded
-                ? {
-                  height: `calc(${projectsSplitRatio * 100}% - ${
-                    SIDEBAR_SPLITTER_HEIGHT * projectsSplitRatio
-                  }px)`,
-                  minHeight: SIDEBAR_SECTION_MIN_HEIGHT,
-                  flex: '0 0 auto',
-                }
-                : { minHeight: 0, flex: '1 1 0%' }
-          }
+          className="tree-section flex min-h-0 flex-col"
+          style={projectsExpanded ? { minHeight: 0, flex: '1 1 0%' } : { minHeight: 0, flex: '0 0 auto' }}
         >
           <SectionHeading
             title={t('sidebar:projects.title', { defaultValue: 'Projects' })}
@@ -1247,115 +1334,45 @@ export default function SidebarV2({
                   </button>
                 ) : null}
               </div>
-            ) : otherProjects.length === 0 ? (
+            ) : orderedProjects.length === 0 ? (
               <div className="px-3 py-1 text-[11px] text-neutral-500 dark:text-neutral-400">
                 {t('sidebar:projects.noProjects', { defaultValue: 'No projects found' })}
               </div>
             ) : (
               <div className="contents">
-                {otherProjects.map((project) => renderProjectGroup(project))}
+                {orderedProjects.map((project) => renderProjectGroup(project))}
               </div>
             )}
           </div>
           ) : null}
         </section>
-
-        {projectsExpanded && conversationsExpanded ? (
-          <div
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label={t('sidebar:tooltips.resizeProjectsConversations', {
-              defaultValue: 'Resize projects and conversations',
-            }) as string}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(projectsSplitRatio * 100)}
-            tabIndex={0}
-            onMouseDown={(event) => {
-              event.preventDefault();
-              setProjectsSplitResizing(true);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'ArrowUp') {
-                event.preventDefault();
-                setProjectsSplitRatio(clampProjectsSplitRatio(projectsSplitRatio - 0.05));
-              } else if (event.key === 'ArrowDown') {
-                event.preventDefault();
-                setProjectsSplitRatio(clampProjectsSplitRatio(projectsSplitRatio + 0.05));
-              } else if (event.key === 'Home') {
-                event.preventDefault();
-                setProjectsSplitRatio(clampProjectsSplitRatio(0));
-              } else if (event.key === 'End') {
-                event.preventDefault();
-                setProjectsSplitRatio(clampProjectsSplitRatio(1));
-              }
-            }}
-            className={cn('panel-splitter horizontal', projectsSplitResizing && 'active')}
-          />
-        ) : null}
-
-          <section
-            className={cn(
-              'tree-section conversations flex min-h-0 flex-col',
-              !conversationsExpanded && 'border-t border-neutral-200/80 dark:border-neutral-800',
-            )}
-            style={conversationsExpanded
-              ? { minHeight: SIDEBAR_SECTION_MIN_HEIGHT, flex: '1 1 0%' }
-              : { flex: '0 0 auto' }}
-          >
-          <SectionHeading
-            title={t('sidebar:conversations.title', { defaultValue: 'Conversations' })}
-            expanded={conversationsExpanded}
-            expandLabel={t('sidebar:conversations.expand', { defaultValue: 'Expand conversations' }) as string}
-            collapseLabel={t('sidebar:conversations.collapse', { defaultValue: 'Collapse conversations' }) as string}
-            actionLabel={generalProject
-              ? t('sidebar:tooltips.newGeneralChat', { defaultValue: 'Start a general conversation' }) as string
-              : undefined}
-            onAction={generalProject
-              ? () => handleNewSession(undefined, generalProject)
-              : undefined}
-            onToggle={() => setConversationsExpanded((previous) => !previous)}
-          />
-
-          {conversationsExpanded ? (
-            <div className="dock-panel-scrollbar min-h-0 flex-1 overflow-y-auto">
-              {generalProject ? (
-                renderSessionRows(generalProject, { flat: true })
-              ) : (
-                <div className="px-3 py-1 text-[11px] text-neutral-500 dark:text-neutral-400">
-                  {t('sidebar:general.missing', {
-                    defaultValue: 'No general workspace found',
-                  })}
-                </div>
-              )}
-            </div>
-          ) : null}
-          </section>
-        </div>
+        {renderExploreSection()}
       </div>
       )}
 
-      <div className={cn('settings-actions', isCompact && 'compact')}>
+      {/* 设置不再常驻一块：正常宽度下点顶栏 logo 进设置，侧栏底部留给
+          「探索」分区；只有收起成图标栏时才补回这个入口。 */}
+      {isCompact ? (
+      <div className="settings-actions compact">
         <button
           type="button"
           onClick={onShowSettings}
           aria-label={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
-          title={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
-          data-tooltip={isCompact ? t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string : undefined}
-          className={cn(
-            'primary-action settings-entry',
-            isCompact && 'tooltip tooltip-right compact-settings',
-          )}
+          data-tooltip={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
+          className="primary-action settings-entry tooltip tooltip-right compact-settings"
         >
           <span className="primary-action-icon">
             <svg aria-hidden="true" className="icon" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="18">
-              <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
-              <circle cx="12" cy="12" r="3" />
+              <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
             </svg>
           </span>
+          {/* 收成图标栏时这一行字由 CSS 藏掉；少了它，最后一个子元素就变成图标，
+              反而被 .compact-settings > span:last-child 一起藏掉。 */}
           <span className="truncate">{t('sidebar:actions.settings', { defaultValue: 'Settings' })}</span>
         </button>
       </div>
+      ) : null}
 
       {contextMenu ? (
         <div
@@ -1372,27 +1389,43 @@ export default function SidebarV2({
           <button
             type="button"
             role="menuitem"
-            onClick={handleContextRename}
+            onClick={handleContextPinToggle}
             className={cn(
               'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px]',
               'text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800',
             )}
           >
-            <Pencil className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
-            <span>{t('sidebar:actions.rename', { defaultValue: 'Rename' })}</span>
+            <Pin className={cn('h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400', contextMenuPinActive && 'fill-current text-blue-600 dark:text-blue-400')} strokeWidth={1.75} />
+            <span>{contextMenuPinActive
+              ? t('sidebar:actions.unpin', { defaultValue: 'Unpin' })
+              : t('sidebar:actions.pin', { defaultValue: 'Pin' })}</span>
           </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={handleContextDelete}
-            className={cn(
-              'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px]',
-              'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40',
-            )}
-          >
-            <Trash2 className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-            <span>{t('sidebar:actions.delete', { defaultValue: 'Delete' })}</span>
-          </button>
+          {!contextMenuProjectIsGeneral ? <>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={handleContextRename}
+              className={cn(
+                'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px]',
+                'text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800',
+              )}
+            >
+              <Pencil className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+              <span>{t('sidebar:actions.rename', { defaultValue: 'Rename' })}</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={handleContextDelete}
+              className={cn(
+                'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px]',
+                'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40',
+              )}
+            >
+              <Trash2 className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+              <span>{t('sidebar:actions.delete', { defaultValue: 'Delete' })}</span>
+            </button>
+          </> : null}
         </div>
       ) : null}
       </aside>

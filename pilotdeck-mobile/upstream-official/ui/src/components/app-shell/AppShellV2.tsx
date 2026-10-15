@@ -675,7 +675,6 @@ export default function AppShellV2() {
       onSelectProject={handleSelectProject}
       onSelectSession={handleSelectSession}
       onStartNewSession={handleStartNewSession}
-      onStartHomeNewConversation={handleHomeNewConversation}
       onCreateProject={handleOpenNewProject}
       pendingDraftProjectName={draftSessionProjectName}
 	      onRequestDeleteProject={handleRequestDeleteProject}

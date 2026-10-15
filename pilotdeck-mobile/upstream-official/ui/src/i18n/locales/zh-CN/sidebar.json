@@ -15,11 +15,11 @@
     "untitledSession": "未命名会话",
     "newSession": "新会话",
     "codexSession": "Codex 会话",
-    "fetchingProjects": "正在获取您的 PilotDeck 项目和会话",
+    "fetchingProjects": "正在获取您的 PilotV 项目和会话",
     "projects": "项目",
     "noMatchingProjects": "未找到匹配的项目",
     "tryDifferentSearch": "尝试调整您的搜索词",
-    "runPilotDeckCli": "在项目目录中运行 PilotDeck CLI 以开始使用",
+    "runPilotDeckCli": "在项目目录中运行 PilotV CLI 以开始使用",
     "collapseAll": "折叠全部项目",
     "expandAll": "展开全部项目",
     "collapse": "折叠项目",
@@ -36,6 +36,12 @@
     "collapse": "折叠对话",
     "expand": "展开对话"
   },
+  "explore": {
+    "title": "探索",
+    "collapse": "折叠探索",
+    "expand": "展开探索",
+    "scheduledTasks": "定时"
+  },
   "quickActions": {
     "label": "快捷操作",
     "newChat": "新建对话",
@@ -43,7 +49,8 @@
     "newProject": "新建项目",
     "skills": "技能",
     "skillsCompact": "技能工具",
-    "scheduledTasks": "定时任务"
+    "scheduledTasks": "定时任务",
+    "explore": "探索"
   },
   "sectionToggle": {
     "label": "侧边栏分区"
@@ -53,7 +60,7 @@
     "label": "操作菜单"
   },
   "app": {
-    "title": "PilotDeck",
+    "title": "PilotV",
     "subtitle": "AI 编程助手"
   },
   "sessions": {

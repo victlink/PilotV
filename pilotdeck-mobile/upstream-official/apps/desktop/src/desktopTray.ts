@@ -22,7 +22,7 @@ export function createDesktopTray(options: Options) {
     if (!available()) return;
     const zh = options.isChinese();
     const quittingLabel = zh ? '正在退出…' : 'Quitting…';
-    tray!.setToolTip(quitting ? `PilotDeck — ${quittingLabel}` : 'PilotDeck');
+    tray!.setToolTip(quitting ? `PilotV — ${quittingLabel}` : 'PilotV');
     tray!.setContextMenu(options.buildMenu([
       { label: zh ? '打开主界面' : 'Open main window', enabled: !quitting, click: () => invoke(options.open) },
       { type: 'separator' },

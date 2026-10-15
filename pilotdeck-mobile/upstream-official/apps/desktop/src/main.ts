@@ -125,7 +125,7 @@ class RuntimeManager {
     this.logStream = fs.createWriteStream(this.logPath, { flags: "a" });
     publishRuntimeStatus({
       phase: "starting",
-      message: "Preparing PilotDeck runtime...",
+      message: "Preparing PilotV runtime...",
       logPath: this.logPath,
     });
     this.log(`PilotDeck Desktop runtime starting from ${this.runtimeRoot}`);
@@ -236,7 +236,7 @@ class RuntimeManager {
     if (!this.configurationState || this.configurationState.state !== "ready") {
       publishRuntimeStatus({
         phase: "awaiting_configuration",
-        message: "PilotDeck is ready for model setup.",
+        message: "PilotV is ready for model setup.",
         logPath: this.logPath,
       });
     }
@@ -275,7 +275,7 @@ class RuntimeManager {
     this.gatewayState = { state: "stopped" };
     publishRuntimeStatus({
       phase: "stopped",
-      message: "PilotDeck runtime stopped.",
+      message: "PilotV runtime stopped.",
       logPath: this.logPath,
     });
   }
@@ -388,7 +388,7 @@ class RuntimeManager {
           phase: "awaiting_configuration",
           message: runtimeMessage.configuration.state === "invalid"
             ? "Model configuration needs attention."
-            : "PilotDeck is ready for model setup.",
+            : "PilotV is ready for model setup.",
           logPath: this.logPath,
         });
       }
@@ -457,7 +457,7 @@ class RuntimeManager {
       this.setGatewayState({ state: "ready" });
       publishRuntimeStatus({
         phase: "ready",
-        message: "PilotDeck is ready.",
+        message: "PilotV is ready.",
         logPath: this.logPath,
       });
     } catch (error) {
@@ -582,7 +582,7 @@ async function createOrShowWindow(): Promise<void> {
     height: 900,
     minWidth: 960,
     minHeight: 640,
-    title: "PilotDeck",
+    title: "PilotV",
     ...(icon ? { icon } : {}),
     // Windows and Linux show their application menus in the title-bar overlay.
     autoHideMenuBar: process.platform === "win32" || process.platform === "linux",
@@ -727,7 +727,7 @@ async function startRuntimeAndLoad(): Promise<void> {
     const detail = error instanceof Error ? error.stack ?? error.message : String(error);
     publishRuntimeStatus({
       phase: "error",
-      message: "PilotDeck failed to start.",
+      message: "PilotV failed to start.",
       logPath: runtime?.getLogPath(),
       error: detail,
     });
@@ -993,7 +993,7 @@ function getUpdateController() {
   const network = createUpdateNetwork(updater.netSession, () => {
     const configService = require(path.join(resolveRuntimeRoot(), "ui/server/services/pilotdeckConfig.js"));
     const record = configService.readPilotDeckConfigFile();
-    if (record.parseError) throw new Error("Invalid PilotDeck proxy configuration");
+    if (record.parseError) throw new Error("Invalid PilotV proxy configuration");
     return record.config.proxy;
   });
   updater.on("login", network.login);
@@ -1281,7 +1281,7 @@ const lifecycle = createDesktopLifecycle({
   },
   quit: () => app.quit(),
   reportError: error => console.error("PilotDeck lifecycle operation failed", error),
-  reportStopError: error => dialog.showErrorBox(startupText("PilotDeck could not stop", readAppearance().language), String(error)),
+  reportStopError: error => dialog.showErrorBox(startupText("PilotV could not stop", readAppearance().language), String(error)),
 });
 
 const ownsInstance = process.platform === "darwin" || app.requestSingleInstanceLock();
@@ -1302,15 +1302,15 @@ if (!ownsInstance) {
                 ? path.join(process.resourcesPath, "icons", "trayTemplate.png")
                 : path.resolve(__dirname, "..", "resources", "icons", "trayTemplate.png");
               const image = nativeImage.createFromPath(iconPath);
-              if (image.isEmpty()) throw new Error("PilotDeck menu bar icon is missing");
+              if (image.isEmpty()) throw new Error("PilotV menu bar icon is missing");
               image.setTemplateImage(true);
               return new Tray(image);
             }
             const iconPath = resolveAppIcon();
-            if (!iconPath) throw new Error("PilotDeck tray icon is missing");
+            if (!iconPath) throw new Error("PilotV tray icon is missing");
             if (process.platform === "linux") {
               const image = nativeImage.createFromPath(iconPath).resize({ width: 24, height: 24 });
-              if (image.isEmpty()) throw new Error("PilotDeck tray icon is invalid");
+              if (image.isEmpty()) throw new Error("PilotV tray icon is invalid");
               return new Tray(image);
             }
             return new Tray(iconPath);
@@ -1337,7 +1337,7 @@ if (!ownsInstance) {
       await runtime?.stop().catch(() => undefined);
       publishRuntimeStatus({
         phase: "error",
-        message: "PilotDeck failed to start.",
+        message: "PilotV failed to start.",
         logPath: runtime?.getLogPath(),
         error: detail,
       });

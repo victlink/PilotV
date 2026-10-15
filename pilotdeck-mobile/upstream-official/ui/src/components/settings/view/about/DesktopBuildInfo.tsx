@@ -33,8 +33,8 @@ export default function DesktopBuildInfo({ currentVersion }: { currentVersion: s
   };
   return <SettingsCard className="overflow-hidden">
     <div className="flex items-center gap-4 px-5 py-5">
-      <img src="/pilotdeck-p-mark-compact.png" alt="" className="h-12 w-12 rounded-xl" />
-      <div><h2 className="text-lg font-semibold">PilotDeck</h2><p className="text-sm text-muted-foreground">{t("settingsPage.about.description")}</p></div>
+      <img src="/brand/pilotv-mark.svg" alt="" className="h-12 w-12 rounded-xl" />
+      <div><h2 className="text-lg font-semibold">PilotV</h2><p className="text-sm text-muted-foreground">{t("settingsPage.about.description")}</p></div>
     </div>
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-3 border-t border-border px-5 py-4 text-sm">
       {rows.map(([label, value]) => <div key={label} className="contents"><dt className="text-muted-foreground">{label}</dt><dd className="min-w-0 break-words">{value}</dd></div>)}

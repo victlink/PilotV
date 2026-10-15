@@ -61,7 +61,7 @@ function ShortcutsTab(): React.ReactNode {
       <Row keys="/permissions" desc="View/edit permission rules" />
       <Row keys="/view [N]" desc="View tool output block" />
       <Row keys="/clear" desc="Clear transcript" />
-      <Row keys="/exit" desc="Quit PilotDeck" />
+      <Row keys="/exit" desc="Quit PilotV" />
 
       <Separator />
 
@@ -163,7 +163,7 @@ function SettingsTab({ mode, connection, sessionKey, model, cursor }: {
 function AboutTab(): React.ReactNode {
   return (
     <Box flexDirection="column">
-      <Text bold color={t.brand}>PilotDeck</Text>
+      <Text bold color={t.brand}>PilotV</Text>
       <Text> </Text>
       <Text color={t.text}>AI agent runtime with multi-session terminal interface.</Text>
       <Text> </Text>

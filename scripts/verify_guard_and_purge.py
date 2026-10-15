@@ -175,12 +175,15 @@ def test_purge() -> None:
         check([r[0] for r in rows] == ["a6"], "重复件只留最新一条 a6", str([r[0] for r in rows]))
 
         # 越界保护：stored_path 指向数据目录之外的文件，一律不删
-        outside = os.path.join(ROOT, "artifacts.js")
+        outside = os.path.join(ROOT, "keep-outside-data.js")
+        with open(outside, "w", encoding="utf-8") as handle:
+            handle.write("// 护栏用例：数据目录之外的普通文件，purge 不许删\n")
         con.execute("INSERT INTO artifacts VALUES ('a7','2026-01-07T00:00:00Z','verify-q','image','evil.png','p','{}',30,?,NULL)",
                     (outside,))
         con.commit()
         purge(["--include-tests", "--apply", "--yes"], db)
-        check(os.path.isfile(outside), "数据目录之外的路径没有被删（artifacts.js 还在）")
+        check(os.path.isfile(outside), "数据目录之外的路径没有被删（keep-outside-data.js 还在）")
+        os.remove(outside)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

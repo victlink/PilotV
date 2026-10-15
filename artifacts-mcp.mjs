@@ -178,7 +178,7 @@ const HANDLERS = {
       version: out.version,
       kind: out.kind,
       status: out.status,
-      review_url: out.review_url || `http://${API.replace(/^https?:\/\//, "")}/artifacts.html#${out.id}`,
+      review_url: out.review_url || `http://${API.replace(/^https?:\/\//, "")}/`,
       hint: "把它给用户看，并说明可以在成果台上框选标注。",
     });
   },
@@ -239,7 +239,7 @@ const HANDLERS = {
 // stateless 模式：每个 HTTP 请求一个独立 protocol 实例（见文件头坑 2）
 function createMcpServer() {
   const mcp = new Server(
-    { name: "pilotdeck-artifacts", version: "0.1.0" },
+    { name: "pilotdeck-artifacts", version: "1.0.0" },
     { capabilities: { tools: {} } },
   );
 

@@ -52,9 +52,17 @@ export function mergeDevices(current: Device[], incoming: Device[]): Device[] {
   return [...byOrigin.values()];
 }
 
+/** 重命名：只改显示名称，地址不变。名称为空或过长时抛出，不产生半成品列表。 */
+export function renameDevice(devices: Device[], origin: string, name: string): Device[] {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.length > 80) throw Error('设备名称需为 1–80 个字符');
+  return devices.map(device => (device.origin === origin ? { ...device, name: trimmed } : device));
+}
+
 /** 部署侧预置设备：随构建一起发布的 devices.json。
  *  作用是「换台机器打开也能看到同一批设备」，不再依赖每台浏览器手工录入。 */
-export const DEVICE_DEFAULTS_URL = 'devices.json';
+/** 必须是站点根路径：写成相对路径的话，停在 /p/xxx 这类深链上会去请求 /p/devices.json。 */
+export const DEVICE_DEFAULTS_URL = '/devices.json';
 export const DEVICE_HIDDEN_KEY = 'pilotdeck-device-directory-hidden-v1';
 
 export function decodeDeviceDefaults(raw: unknown): Device[] {
@@ -80,12 +88,22 @@ export function decodeHiddenOrigins(raw: string | null): string[] {
 }
 
 /** 合并规则：预置设备在前（保证各机器看到同一顺序），本机新增的追加在后；
- *  同 origin 以先出现者为准；hidden 里的预置设备不显示。 */
+ *  同 origin 只留一个，但**名称以本机为准**——用户改过的名字不会被
+ *  devices.json 的原始名称覆盖；hidden 里的预置设备不显示。 */
 export function mergeDeviceDefaults(stored: Device[], defaults: Device[], hidden: string[] = []): Device[] {
   const blocked = new Set(hidden);
-  const byOrigin = new Map<string, Device>();
-  for (const device of [...defaults.filter(d => !blocked.has(d.origin)), ...stored]) {
-    if (!byOrigin.has(device.origin)) byOrigin.set(device.origin, device);
+  const storedByOrigin = new Map(stored.map(device => [device.origin, device]));
+  const merged: Device[] = [];
+  const seen = new Set<string>();
+  for (const preset of defaults) {
+    if (blocked.has(preset.origin) || seen.has(preset.origin)) continue;
+    seen.add(preset.origin);
+    merged.push(storedByOrigin.get(preset.origin) ?? preset);
   }
-  return [...byOrigin.values()];
+  for (const device of stored) {
+    if (seen.has(device.origin)) continue;
+    seen.add(device.origin);
+    merged.push(device);
+  }
+  return merged;
 }

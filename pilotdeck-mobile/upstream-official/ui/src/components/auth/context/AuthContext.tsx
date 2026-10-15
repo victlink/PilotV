@@ -1,7 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { IS_PLATFORM, DISABLE_LOCAL_AUTH } from '../../../constants/config';
 import { api } from '../../../utils/api';
-import { AUTH_ERROR_MESSAGES, AUTH_TOKEN_STORAGE_KEY } from '../constants';
+import { AUTH_ERROR_MESSAGES } from '../constants';
+import { clearTokenFor, readTokenFor, writeTokenFor } from '../deviceTokens';
+import { activeBackendOrigin } from '../../app-shell/pilotvRuntime';
 import type {
   AuthContextValue,
   AuthProviderProps,
@@ -18,14 +20,16 @@ import { parseJsonSafely, resolveApiErrorMessage } from '../utils';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const readStoredToken = (): string | null => localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+// PilotV 会把多台设备的后端挂在同一个页面来源下，因此令牌按后端 origin 分开存放。
+// 官方 UI 原本只用一个 auth-token，那样切换设备后必然要重新登录。
+const readStoredToken = (): string | null => readTokenFor(activeBackendOrigin());
 
 const persistToken = (token: string) => {
-  localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+  writeTokenFor(activeBackendOrigin(), token);
 };
 
 const clearStoredToken = () => {
-  localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  clearTokenFor(activeBackendOrigin());
 };
 
 export function useAuth(): AuthContextValue {
@@ -64,9 +68,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const response = await api.user.onboardingStatus();
       const payload = await parseJsonSafely<OnboardingStatusPayload>(response);
       if (!response.ok) {
+        // 401 Unauthorized or auth error means the token is invalid or missing for this backend.
+        // Clear the user session to trigger re-authentication instead of showing
+        // a confusing "model unavailable" error.
+        const errorMsg = payload?.error || '';
+        const isAuthError = response.status === 401 ||
+          (typeof errorMsg === 'string' && (
+            errorMsg.includes('Access denied') ||
+            errorMsg.includes('No token') ||
+            errorMsg.includes('Invalid token')
+          ));
+        if (isAuthError) {
+          console.warn('[Auth] Auth error on onboarding status - clearing session for re-auth:', errorMsg);
+          clearSession();
+          setModelConfiguration({
+            state: 'status_error',
+            error: 'Authentication required. Please log in.',
+          });
+          return;
+        }
         setModelConfiguration({
           state: 'status_error',
-          error: payload?.error || 'Failed to check model configuration',
+          error: errorMsg || 'Failed to check model configuration',
         });
         return;
       }
@@ -206,6 +229,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [checkOnboardingStatus, clearSession, token]);
 
+  // Re-read token when backend origin changes (e.g., device switch in PilotV).
+  // Each remote device has its own token stored in deviceTokens.
+  const prevBackendRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentBackend = activeBackendOrigin();
+    if (prevBackendRef.current === currentBackend) return;
+    prevBackendRef.current = currentBackend;
+
+    const newToken = readStoredToken();
+    if (newToken !== token) {
+      setToken(newToken);
+      if (newToken) {
+        // Token found for this backend - check auth status
+        if (!IS_PLATFORM && !DISABLE_LOCAL_AUTH) {
+          void checkAuthStatus();
+        } else {
+          setIsLoading(true);
+          checkOnboardingStatus().finally(() => setIsLoading(false));
+        }
+      } else if (token !== null) {
+        // No token for this device - clear session to trigger re-authentication
+        clearSession();
+      }
+    }
+  }, [checkOnboardingStatus, checkAuthStatus, clearSession, token]);
+
+  // Initial auth setup - only runs on mount (empty deps).
+  // Device switches are handled by the prevBackendRef effect above.
   useEffect(() => {
     if (IS_PLATFORM || DISABLE_LOCAL_AUTH) {
       setUser({ username: DISABLE_LOCAL_AUTH ? 'local-user' : 'platform-user' });
@@ -216,7 +267,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     void checkAuthStatus();
-  }, [checkAuthStatus, checkOnboardingStatus]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = useCallback<AuthContextValue['login']>(
     async (username, password) => {
