@@ -102,7 +102,7 @@ say "4. 装依赖 + 构建前端"
 run <<EOF
 set -e
 cd "$DEV_DIR/$UI"
-export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
+export PATH="/opt/homebrew/bin:/usr/local/bin:\$HOME/.local/bin:\$PATH"
 # 上游 .gitignore 把 package-lock.json 排除了，所以这里多半没有 lockfile，
 # npm ci 会直接报 EUSAGE。有 lockfile 才用 ci（可复现），没有就退回 install。
 if [ -d node_modules ]; then
