@@ -80,7 +80,8 @@ set -e
 if [ -d "$DEV_DIR/.git" ]; then
   echo "  开发目录已存在，先同步远端"
   git -C "$DEV_DIR" fetch /tmp/pilotv.bundle main
-  git -C "$DEV_DIR" reset --hard FETCH_HEAD
+  # reset --hard 会触发 checkout，LFS 对象拿不到时同样会炸；同样跳过 smudge
+  GIT_LFS_SKIP_SMUDGE=1 git -C "$DEV_DIR" reset --hard FETCH_HEAD
   git -C "$DEV_DIR" checkout main 2>/dev/null || true
 else
   mkdir -p "\$(dirname "$DEV_DIR")"
