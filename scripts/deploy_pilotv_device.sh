@@ -33,10 +33,15 @@ fi
 echo "  网关端口：$PORT   成果台端口：$ART_PORT"
 
 # 在远端执行一条命令。给命令则远端跑，给空串则本机跑。
+#
+# PATH 必须补 ~/.local/bin：npm 这类工具不少是用户级装的，
+# 非交互式 ssh 的 PATH 里没有它（只在 login shell 里有），会误判成「缺 npm」。
 run() {
   if [[ -n "$REMOTE" ]]; then
-    ssh -o BatchMode=yes "$REMOTE" bash -s
+    ssh -o BatchMode=yes "$REMOTE" \
+      'export PATH="$HOME/.local/bin:$HOME/bin:$PATH"; bash -s'
   else
+    export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
     bash -s
   fi
 }
