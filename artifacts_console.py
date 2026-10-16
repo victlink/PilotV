@@ -312,8 +312,19 @@ class Materializer:
                         "bytes": os.path.getsize(stored)}
                 if ext in (".dxf", ".dwg"):
                     meta["render_hint"] = "CAD 原生格式需要转换器；导出 PDF/SVG 再发布可直接显示"
-                elif ext in (".step", ".stp", ".iges", ".igs"):
-                    meta["render_hint"] = "STEP/IGES 需要先转成 glb/obj；导出 glb 再发布可直接显示"
+                elif ext in (".step", ".stp", ".iges", ".igs", ".stl", ".obj", ".ply"):
+                    # 这几个能转：页面打 /viewer，现转成 glb 给 model-viewer。
+                    # 转换器装没装上不影响登记，所以这里只说事实，不承诺一定能显示。
+                    try:
+                        import artifacts_cad
+                        meta["cad"] = artifacts_cad.converter_status()
+                        meta["render_hint"] = "STEP/IGES/STL/OBJ/PLY 打开时转成 glb 预览"
+                    except Exception as exc:
+                        meta["render_hint"] = f"三维转换器不可用：{exc}"[:120]
+                elif ext in (".3ds", ".dae", ".3mf"):
+                    # 这几个本机没有转换器。与其让 model-viewer 静默画一块空白，
+                    # 不如登记时就说明只能下载原文件。
+                    meta["render_hint"] = "这个三维格式浏览器不能直接显示，先下载原文件"
             elif kind == "page":
                 url = self._measure_url(art)
                 if url:
@@ -1077,6 +1088,12 @@ async def api_create(request):
         body["meta"] = {**(payload.get("meta") or {}), "parts": parts_meta}
     if parts_warn:
         body["meta"] = {**(body.get("meta") or {}), "parts_warn": parts_warn}
+    # 多结果对比声明：写同一个 compare_group 的几份成果会整组保留在成果列表里
+    # （默认每轮只留最后一份，对比组是刻意的例外 —— 收成一份等于把对比抹掉）。
+    # MCP/CLI 传过来可能是数字或 list，统一 str()，别让 .strip() 抛 500。
+    compare_group = str(payload.get("compare_group") or "").strip()
+    if compare_group:
+        body["meta"] = {**(body.get("meta") or {}), "compare_group": compare_group[:80]}
     if not (body.get("project") or "").strip():
         body["project"] = _project_of(src_path, payload)
     try:
@@ -2305,8 +2322,45 @@ async def api_raw(request):
     })
 
 
-_BASE_TAG_RE = re.compile(r"<base\b", re.I)
+@_guard
+async def api_viewer(request):
+    """GET /api/artifacts/<id>/viewer —— 给 model-viewer 用的 glTF。
 
+    STEP/IGES/STL/OBJ/PLY 这类格式 model-viewer 根本认不出来，喂进去是一块空白。
+    这里现转成 GLB 再回给页面，转好的按源文件摘要缓存：同一份成果反复打开只转
+    一次，返工发了新版本（内容变了、摘要也变）自动吃新的，不会拿到旧网格。
+
+    其他成果原样回传，这样调用方可以把 /viewer 当成「一定能显示的那一份」
+    直接喂给三维渲染器，不必自己在前端按扩展名分叉。
+    """
+    import artifacts_cad
+    aid = request.match_info["aid"]
+    path = _stored_path(aid)
+    if not path or not os.path.isfile(path):
+        return _err("file not found", 404)
+    if not artifacts_cad.needs_conversion(path):
+        mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        return web.FileResponse(path, headers={"Content-Type": mime, "Accept-Ranges": "bytes"})
+
+    loop = asyncio.get_running_loop()
+    try:
+        out = await loop.run_in_executor(None, artifacts_cad.convert, path)
+    except artifacts_cad.CadUnavailable as exc:
+        # 这台机器没装转换器：如实说，别返回空白 GLB 让人以为模型是空的。
+        return _err(str(exc), 503,
+                    hint="在这台机器上装一次即可："
+                         "python3 -m venv .artifacts-data/venvs/cad && "
+                         ".artifacts-data/venvs/cad/bin/pip install cadquery-ocp vtk")
+    except artifacts_cad.CadError as exc:
+        return _err(str(exc), 422, hint="可以先用 CAD 软件导出 glb/stl 再发布，或下载原文件")
+    return web.FileResponse(out["path"], headers={
+        "Content-Type": "model/gltf-binary",
+        # 缓存文件名带源文件内容摘要，内容不变就是同一个文件，可以放心长缓存。
+        "Cache-Control": "public, max-age=86400, immutable",
+    })
+
+
+_BASE_TAG_RE = re.compile(r"<base\b", re.I)
 
 def _html_with_base(aid: str, path: str):
     """给 HTML 成果的正文注入 base，好让 iframe 里的相对素材能取到。
@@ -2797,5 +2851,6 @@ def mount(app, console_root=None):
     r.add_get("/api/artifacts/{aid}/audit", api_audit)
     r.add_get("/api/artifacts/{aid}/thumb", api_thumb)
     r.add_get("/api/artifacts/{aid}/raw", api_raw)
+    r.add_get("/api/artifacts/{aid}/viewer", api_viewer)
     r.add_get("/api/artifacts/{aid}/file/{relpath:.*}", api_sibling_file)
     return app

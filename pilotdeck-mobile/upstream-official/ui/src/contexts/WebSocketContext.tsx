@@ -29,6 +29,15 @@ type WebSocketContextType = {
   subscribe: (handler: WSSubscriber) => () => void;
 };
 
+const DISCONNECTED_SNAPSHOT: WebSocketContextType = {
+  ws: null,
+  sendMessage: () => false,
+  latestMessage: null,
+  isConnected: false,
+  reconnectInfo: { attempt: 0, nextRetryMs: 0, status: 'disconnected' },
+  subscribe: () => () => {},
+};
+
 const WebSocketContext = createContext<WebSocketContextType | null>(null);
 
 export const useWebSocket = () => {
@@ -38,6 +47,15 @@ export const useWebSocket = () => {
   }
   return context;
 };
+
+/**
+ * Same context, but tolerates a missing provider and hands back inert handles.
+ * Ambient monitors (the task panel) must keep rendering where no socket is
+ * mounted, so they cannot use the throwing hook.
+ */
+export const useOptionalWebSocket = (): WebSocketContextType =>
+  useContext(WebSocketContext) ?? DISCONNECTED_SNAPSHOT;
+
 
 const buildWebSocketUrl = (token: string | null) => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

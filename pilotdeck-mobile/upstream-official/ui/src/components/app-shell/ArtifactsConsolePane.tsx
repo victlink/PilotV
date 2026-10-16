@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadSessionArtifacts, type Artifact } from './artifactsMedia';
+import { finalArtifacts } from './artifactRounds';
 import {
   createAnnotation,
   deleteAnnotation,
@@ -73,7 +74,8 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
     setError('');
     void loadSessionArtifacts(sessionId, controller.signal).then(items => {
       if (controller.signal.aborted) return;
-      setArtifacts(items);
+      // 一轮里发了好几份的，只给看最后一份；声明了对比组的整组留着。
+      setArtifacts(finalArtifacts(items));
       setStatus('ready');
     }).catch(cause => {
       if (controller.signal.aborted) return;
@@ -82,6 +84,11 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
     });
     return () => controller.abort();
   }, [sessionId, refresh]);
+
+  // 刷新后列表可能变短（新一轮的中间过程被收起来了），别停在空位上。
+  useEffect(() => {
+    setIndex(current => Math.min(current, Math.max(artifacts.length - 1, 0)));
+  }, [artifacts.length]);
 
   const selected = artifacts[index];
 

@@ -116,6 +116,14 @@ const TOOLS = [
             + "means \"I know it's an aux, collect it anyway\". Wrong guesses cost the user a "
             + "deliverable they never see, so prefer publishing over staying silent.",
         },
+        compare_group: {
+          type: "string",
+          description:
+            "Declare that these files are meant to be compared side by side: publish every member "
+            + "with the SAME group name. The console keeps the whole group visible — by default it "
+            + "shows only the last result of each publishing round. Omit it unless you really "
+            + "produced alternatives (e.g. three logo directions).",
+        },
       },
       required: ["kind", "title", "path"],
     },

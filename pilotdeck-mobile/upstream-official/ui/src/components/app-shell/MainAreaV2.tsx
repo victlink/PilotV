@@ -1,5 +1,6 @@
 import ArtifactsConsolePane from './ArtifactsConsolePane';
-import SessionMultiPreview from './SessionMultiPreview';
+import TaskMonitorPanel from './TaskMonitorPanel';
+import { usePendingConfirmations } from './usePendingConfirmations';
 import { FileConversationContext } from '../main-content-v2/fileConversationContext';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -184,7 +185,8 @@ function MainAreaV2Content(props: MainAreaV2Props) {
   const [alwaysOnSubTab, setAlwaysOnSubTab] = useState<AlwaysOnSubTab>('dashboard');
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [pageTabsOpen, setPageTabsOpen] = useState(readPageTabsOpen);
-  const [multiPreviewOpen, setMultiPreviewOpen] = useState(false);
+  const [taskMonitorOpen, setTaskMonitorOpen] = useState(false);
+  const pendingConfirmations = usePendingConfirmations();
   const [reviewOpenRequest, setReviewOpenRequest] = useState<MainContentProps['reviewOpenRequest']>();
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [sessionTitleDraft, setSessionTitleDraft] = useState('');
@@ -357,34 +359,35 @@ function MainAreaV2Content(props: MainAreaV2Props) {
           </div>
           <button
             type="button"
-            onClick={() => setMultiPreviewOpen(value => !value)}
-            aria-expanded={multiPreviewOpen}
-            aria-label={t('sidebar:multiPreview.toggle')}
-            title={t('sidebar:multiPreview.toggle')}
+            onClick={() => setTaskMonitorOpen(value => !value)}
+            aria-expanded={taskMonitorOpen}
+            aria-label={t('sidebar:tasks.toggle')}
+            title={t('sidebar:tasks.toggle')}
             className={`ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors ${
-              multiPreviewOpen
+              taskMonitorOpen
                 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-200'
                 : 'border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800'
             }`}
           >
             <PanelsTopLeft className="h-4 w-4" aria-hidden />
-            {t('sidebar:multiPreview.toggle')}
+            {t('sidebar:tasks.toggle')}
           </button>
         </div>
       </header>
 
-      {multiPreviewOpen ? (
-        <SessionMultiPreview
+      {taskMonitorOpen ? (
+        <TaskMonitorPanel
           projects={props.projects}
           processingSessions={props.processingSessions}
           unreadSessionIds={props.unreadSessionIds}
+          pendingConfirmations={pendingConfirmations}
           selectedSessionId={selectedSession?.id}
           onOpenSession={entry => {
-            setMultiPreviewOpen(false);
+            setTaskMonitorOpen(false);
             if (props.onNavigateToSession) props.onNavigateToSession(entry.session.id);
             else props.onSelectSession?.(entry.project, entry.session.id);
           }}
-          onClose={() => setMultiPreviewOpen(false)}
+          onClose={() => setTaskMonitorOpen(false)}
         />
       ) : null}
 

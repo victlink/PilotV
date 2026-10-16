@@ -61,6 +61,13 @@ scripts/.deploy_running_fixes_state.json
 
 # ── 品牌动画 QA 截图（qa-*.py 随时可重新生成）────────────────────
 design/logo/animated-frames/qa-*.png
+# 拼出来的长图同理：跑一次 strip 脚本就能再造一份。
+design/logo/animated-frames/frames.png
+design/logo/frame-strip.png
+
+# ── 组件截图探针的临时产物（verify_brand_component.py 每次重跑覆盖）──
+.brand-verify/
+.brand-verify-probe/
 
 # ── 个人素材，不入库 ─────────────────────────────────────────────
 /常用资料/

@@ -177,4 +177,39 @@ it('zooms with ctrl + wheel and pans with a plain wheel once enlarged', async ()
     // 换一份就回到适应屏幕，否则新内容会停在上一份的倍率上，看起来像没加载。
     await waitFor(() => expect(zoomLabel.textContent).toBe('1×'));
   });
+
+  it('opens every artifact in browse mode, and goes back to it after switching', async () => {
+    render(<Harness />);
+
+    // 看成果是只读动作：一进来就带着一支随时会落下的笔不是好默认。
+    expect(screen.getByRole('button', { name: '浏览' }).getAttribute('aria-pressed')).toBe('true');
+
+    // 手选过框选之后换一份成果，必须回到浏览 —— 否则「换一份还带着笔」
+    // 会让人以为新成果上已经有一处标注了。
+    fireEvent.click(screen.getByRole('button', { name: '框选' }));
+    expect(screen.getByRole('button', { name: '框选' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: '换一份' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '浏览' }).getAttribute('aria-pressed')).toBe('true'));
+  });
+
+  it('opens the empty sheet in ink mode, because that sheet is for drawing', () => {
+    render(
+      <ArtifactStage
+        artifact={null}
+        annotations={[]}
+        draft={null}
+        activeNoteId={null}
+        draftBody=""
+        draftError=""
+        onDraft={() => {}}
+        onDraftBody={() => {}}
+        onSaveDraft={() => {}}
+        onCancelDraft={() => {}}
+        onPickNote={() => {}}
+        onSendInk={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '手绘' }).getAttribute('aria-pressed')).toBe('true');
+  });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { artifactRawUrl, mediaType, type Artifact } from './artifactsMedia';
+import { artifactRawUrl, artifactViewerUrl, isCadArtifact, isUnconvertible3d, mediaType, type Artifact } from './artifactsMedia';
 import {
   annotationRect,
   annotationStrokes,
@@ -110,12 +110,15 @@ export default function ArtifactStage({
   const mediaRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const inkCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const modelRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<{ fromX: number; fromY: number } | null>(null);
   const [viewerError, setViewerError] = useState('');
   const [videoTime, setVideoTime] = useState(0);
   const [videoLength, setVideoLength] = useState(0);
   const [videoPlaying, setVideoPlaying] = useState(false);
-  const [tool, setTool] = useState<Tool>('box');
+  // 默认就是浏览。看成果是只读动作，不该一进来就带着一支随时会落下的笔；
+  // 要标注的人自己点「框选」或「手绘」。
+  const [tool, setTool] = useState<Tool>('browse');
   const [inkColor, setInkColor] = useState(INK_COLOR);
   const [sending, setSending] = useState(false);
   // 画面缩放和平移。只有图片／视频走这套：iframe 和三维模型自带手势，
@@ -128,11 +131,14 @@ export default function ArtifactStage({
   const blank = !artifact;
   const type = artifact ? mediaType(artifact) : 'image';
   const rawUrl = artifact ? artifactRawUrl(artifact) : '';
+  // CAD（STEP/IGES）model-viewer 不认，得走成果台的转换口拿 glb。
+  const model3dUrl = artifact ? artifactViewerUrl(artifact) : '';
+  const cadModel = Boolean(artifact && isCadArtifact(artifact));
   const label = artifact ? (artifact.title || artifact.file_name || artifact.id) : '空白手绘页';
   const fill = !blank && (type === 'iframe' || type === 'model3d' || type === 'audio'
     || type === 'drawing' || type === 'unsupported');
-  // 双指捏合在所有工具下都该能用：默认工具是框选，要求先切到浏览才能放大
-  // 太反直觉，而且用户看成果时的第一反应就是「放大看细节」。
+  // 双指捏合在所有工具下都该能用：要求先切到浏览才能放大太反直觉，而且
+  // 用户看成果时的第一反应就是「放大看细节」。
   const pinchable = !fill;
   // 单指平移只在浏览工具下接管，否则会和框选、手绘抢同一块触屏。
   const pannable = !fill && tool === 'browse';
@@ -153,14 +159,9 @@ export default function ArtifactStage({
     // 换一份成果就回到「适应屏幕」：上一份的倍率对这份没有意义，
     // 而且倍率留在那儿会让新内容被推到屏幕外，看起来像没加载出来。
     setViewport({ zoom: MIN_ZOOM, panX: 0, panY: 0 });
-    // Model viewers and embedded documents keep their own gestures, so they open
-    // in browse mode; blank paper exists to be drawn on, so it opens in ink
-    // mode; everything else opens ready to annotate.
-    setTool(blank
-      ? 'ink'
-      : artifact && (mediaType(artifact) === 'model3d' || mediaType(artifact) === 'iframe')
-        ? 'browse'
-        : 'box');
+    // 看成果默认就是浏览：一看就带着一支随时会落下的笔不是好默认，要标注的人
+    // 自己点「框选」或「手绘」。唯一例外是空纸 —— 那张纸本来就是用来画的。
+    setTool(blank ? 'ink' : 'browse');
     onDraft(null);
   }, [blank, artifact?.id, onDraft]);
 
@@ -194,12 +195,34 @@ export default function ArtifactStage({
     return () => observer.disconnect();
   }, [artifact?.id, fill, videoLength, viewport.zoom]);
 
+  // 三维成果默认就是浏览模式，所以渲染器必须**无条件**加载：早先这里跟着
+  // tool 走，切到浏览反而不加载，<model-viewer> 永远不升级成真元素，页面
+  // 上就是一块空白。渲染跟当前拿的是哪支笔无关。
   useEffect(() => {
-    if (type !== 'model3d' || tool === 'browse') return;
+    if (type !== 'model3d') return;
     let alive = true;
     void loadModelViewer().catch(() => { if (alive) setViewerError('三维渲染器没能加载'); });
     return () => { alive = false; };
-  }, [type, tool]);
+  }, [type]);
+
+  // model-viewer 不发 React 事件，只能按 DOM 事件接加载失败（CAD 没转成 glb、
+  // 转换器没装、文件损坏）：说人话，别留一块灰让人以为模型本来就是空的。
+  useEffect(() => {
+    if (type !== 'model3d') return;
+    // 3ds/dae/3mf/blend 这类本机没有转换器：不是加载失败，是压根没打算渲染，
+    // 直接给下载链接，别让人对着空白反复刷新。
+    if (artifact && isUnconvertible3d(artifact)) {
+      setViewerError('浏览器不能直接显示这种三维格式，请用上方「下载原文件」');
+      return;
+    }
+    const el = modelRef.current;
+    if (!el) return;
+    const onError = () => setViewerError(cadModel
+      ? '这份三维没转成可显示的网格（多半是这台机器没装转换器），可以先下载原文件'
+      : '三维模型加载失败');
+    el.addEventListener('error', onError);
+    return () => { el.removeEventListener('error', onError); };
+  }, [type, artifact?.id, model3dUrl, cadModel]);
 
   const pointerPosition = (event: React.PointerEvent) => {
     const box = stageRef.current?.getBoundingClientRect();
@@ -464,7 +487,14 @@ export default function ArtifactStage({
           sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads" />}
         {/* model-viewer 是自定义元素：className 传不进去（DOM 上没有 class 属性），
             只能用行内样式撑满，缺了它元素就停在 300x150 的默认尺寸。 */}
-        {!blank && type === 'model3d' && <model-viewer src={rawUrl} alt={label} camera-controls disable-zoom={false}
+        {/* CAD 与网格（STEP/IGES/STL/OBJ/PLY）走 model3dUrl（成果台转好的 glb），
+            glTF 直接就是原文件。
+            camera-controls 自带轨道旋转 + 滚轮/捏合缩放，标注层在浏览模式下
+            pointer-events-none，所以两种手势不会互相抢。 */}
+        {/* shadow-intensity/softness：没有落地阴影的话零件像浮在白纸上，
+            转个角度更难判断哪个面朝前。有环境光时两者都会被 model-viewer 用上。 */}
+        {!blank && type === 'model3d' && <model-viewer ref={modelRef} src={model3dUrl} alt={label} camera-controls disable-zoom={false}
+          shadow-intensity="0.9" shadow-softness="0.7"
           style={{ display: 'block', width: '100%', height: '100%', minHeight: 420 }} />}
         {!blank && (type === 'drawing' || type === 'unsupported') && <p className="p-4 text-sm text-muted-foreground">
           这个格式（{artifact.file_name || artifact.kind || '未知'}）暂时无法在页面里预览，可用上方「下载原文件」查看。

@@ -69,7 +69,60 @@ def find_chrome() -> str:
     return found
 
 
-def render(chrome: str, svg_path: Path, out_path: Path, size: int, view_w: int, view_h: int) -> None:
+_SCRATCH_ROOT: dict[str, Path] = {}
+
+
+def _can_load(chrome: str, directory: Path) -> bool:
+    """实测这个 chromium 能不能读该目录：写个 canary 页面再 --dump-dom 看回显。"""
+    canary = directory / "canary.html"
+    canary.write_text(
+        "<!doctype html><title>pilotv-canary-ok</title>probe", encoding="utf-8"
+    )
+    try:
+        proc = subprocess.run(
+            [chrome, "--headless", "--disable-gpu", "--no-sandbox", "--dump-dom", canary.as_uri()],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return False
+    return "pilotv-canary-ok" in (proc.stdout or "")
+
+
+def scratch_root(chrome: str) -> Path:
+    """探测出这个 chromium 真正能读写的目录（同一进程内只探一次）。
+
+    两种 chromium 的临时目录要求完全不同：Debian 包能读 /tmp；Snap 版受
+    confinement 限制，/tmp 是 ERR_FILE_NOT_FOUND、$HOME 下是 ERR_ACCESS_DENIED，
+    只有 ~/snap/chromium/common/ 能用 —— 而且两种情况它都 exit 0，只表现为
+    「截图文件没生成」。
+
+    不能靠 chrome 的路径字符串判断：/usr/bin/chromium-browser 只是个 exec
+    /snap/bin/chromium 的 shell wrapper，路径里根本没有 /snap。所以实测。
+    """
+    if chrome in _SCRATCH_ROOT:
+        return _SCRATCH_ROOT[chrome]
+
+    candidates: list[Path] = []
+    snap_common = Path("~/snap/chromium/common/pilotv-brand-icons").expanduser()
+    if Path("/snap/bin/chromium").exists():
+        candidates.append(snap_common)
+    candidates.append(Path(tempfile.gettempdir()) / "pilotv-brand-icons")
+
+    for root in candidates:
+        root.mkdir(parents=True, exist_ok=True)
+        if _can_load(chrome, root):
+            _SCRATCH_ROOT[chrome] = root
+            return root
+
+    raise SystemExit(
+        "ERROR  chromium 读不到任何候选临时目录："
+        + ", ".join(str(c) for c in candidates)
+    )
+
+
+def render(chrome: str, svg_path: Path, out_path: Path, size: int) -> None:
     svg_text = svg_path.read_text(encoding="utf-8")
     # Strip width/height from the ROOT <svg> tag only. A blanket string replace
     # would also hit <rect width="512" height="512"> and silently drop the dark
@@ -86,18 +139,25 @@ def render(chrome: str, svg_path: Path, out_path: Path, size: int, view_w: int, 
         svg_text,
         count=1,
     )
-    # Lockups keep their aspect ratio; the mark fills the square.
-    if view_w != view_h:
-        width, height = size, max(1, round(size * 220 / 1120))
+    # 宽高比从源 SVG 的 viewBox 读，不写死方形：方形图标铺满，横向锁定版
+    # 按自身比例出图，不会被 letterbox 塞进一个 1120x1120 的空画布。
+    vb = re.search(r"<svg\b[^>]*?viewBox=\"([-\d.\s]+)\"", svg_text)
+    if not vb:
+        raise SystemExit(f"ERROR  {svg_path} 的 <svg> 上没有 viewBox")
+    parts = vb.group(1).split()
+    vb_w, vb_h = float(parts[2]), float(parts[3])
+    if vb_w == vb_h:
+        width, height = size, size
     else:
-        width = height = size
+        width = size
+        height = max(1, round(size * vb_h / vb_w))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(dir=scratch_root(chrome)) as tmp:
         page = Path(tmp) / "page.html"
         shot = Path(tmp) / "shot.png"
         page.write_text(WRAPPER.format(svg=svg_text, w=width, h=height), encoding="utf-8")
-        subprocess.run(
+        proc = subprocess.run(
             [
                 chrome,
                 "--headless",
@@ -109,9 +169,16 @@ def render(chrome: str, svg_path: Path, out_path: Path, size: int, view_w: int, 
                 f"--window-size={width},{height}",
                 page.as_uri(),
             ],
-            check=True,
             capture_output=True,
+            text=True,
         )
+        if not shot.exists():
+            # chromium 在 confinement 拒绝时会 exit 0，必须自己判断产物。
+            raise SystemExit(
+                f"ERROR  chromium 没有生成截图：{chrome}\n"
+                f"       临时页面：{page}\n"
+                f"       stderr：{proc.stderr.strip() or '(空)'}"
+            )
         shutil.copyfile(shot, out_path)
 
 
@@ -134,7 +201,7 @@ def main() -> int:
             status = "present" if out_path.exists() else "absent"
             print(f"{status:>8}  {rel} ({size}px from {svg_rel})")
             continue
-        render(chrome, svg_path, out_path, size, 512, 512)
+        render(chrome, svg_path, out_path, size)
         print(f"{'rendered':>8}  {rel}  ({out_path.stat().st_size} bytes)")
 
     if not args.check:

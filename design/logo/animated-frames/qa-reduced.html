@@ -1,0 +1,289 @@
+<!doctype html><html lang="zh-CN"><meta charset="UTF-8">
+<style>
+*{box-sizing:border-box}
+body{margin:0;width:1180px;padding:40px 48px;background:#F4F2EB;
+font-family:"Noto Sans CJK SC",system-ui,sans-serif}
+h2{font-size:13px;letter-spacing:1.6px;color:#77817a;font-weight:500;margin:0 0 14px}
+section{margin-bottom:30px}
+.reduced{display:flex;align-items:center;gap:34px;flex-wrap:wrap}
+figure{margin:0;background:#fff;border:1px solid #D8DCD3;border-radius:12px;padding:16px;
+display:flex;flex-direction:column;gap:10px}
+figure.onblack{background:#0A0A0A;border-color:#0A0A0A}
+.art{display:flex;align-items:center;justify-content:center;height:96px}
+.art svg{display:block;height:84px}
+figcaption{font-size:11px;color:#77817a}
+</style>
+<section><h2>prefers-reduced-motion: reduce · 应停在完整静止字标</h2>
+<div class="reduced">
+<figure><div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 279.9 100.9" width="280" height="101" role="img" aria-label="PilotV">
+<style>
+
+@keyframes flip{
+  0%   { transform: scaleX(1); animation-timing-function: cubic-bezier(.45,.05,.35,1); }
+  50%  { transform: scaleX(-1); animation-timing-function: cubic-bezier(.45,.05,.35,1); }
+  100% { transform: scaleX(1); }
+}
+.fliprL{transform-box:fill-box;transform-origin:50% 50%;animation:flip 4.2s ease-in-out infinite}
+
+@keyframes fly-i{
+    0.00% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:0;fill:#2F5FE0 }
+    5.00% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:0;fill:#2F5FE0 }
+    7.00% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:1;fill:#2F5FE0 }
+    9.00% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.62,.02,.83,.4) }
+   13.00% { transform:translate(72.92px,15.18px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   17.40% { transform:translate(-3.00px,4.95px) rotate(-1.32deg) scale(.97,0.880);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   18.20% { transform:translate(-2.2px,0) scale(1.05,1);opacity:1;fill:#0A0A0A;animation-timing-function:cubic-bezier(.32,1.32,.52,1) }
+   19.00% { transform:translate(0,0) scale(1,1);opacity:1;fill:#0A0A0A }
+   86.50% { transform:translate(0,0) scale(1,1);opacity:1;fill:#0A0A0A;animation-timing-function:cubic-bezier(.66,0,.83,.3) }
+   89.30% { transform:translate(0,0) scale(1.05,0.120);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.3,.7,.42,1) }
+   93.14% { transform:translate(72.92px,15.18px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#2F5FE0 }
+   95.50% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:1;fill:#2F5FE0 }
+   96.70% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:0;fill:#2F5FE0 }
+  100.00% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:0;fill:#2F5FE0 }
+}
+.fly-irL{transform-box:fill-box;transform-origin:50% 100%;fill:#0A0A0A;animation:fly-i 8.4s linear infinite}
+
+@keyframes fly-l{
+    0.00% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:0;fill:#2F5FE0 }
+   15.50% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:0;fill:#2F5FE0 }
+   17.50% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:1;fill:#2F5FE0 }
+   19.50% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.62,.02,.83,.4) }
+   23.50% { transform:translate(68.86px,15.18px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   27.90% { transform:translate(-3.00px,4.95px) rotate(-1.32deg) scale(.97,0.880);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   28.70% { transform:translate(-2.2px,0) scale(1.05,1);opacity:1;fill:#0A0A0A;animation-timing-function:cubic-bezier(.32,1.32,.52,1) }
+   29.50% { transform:translate(0,0) scale(1,1);opacity:1;fill:#0A0A0A }
+   79.00% { transform:translate(0,0) scale(1,1);opacity:1;fill:#0A0A0A;animation-timing-function:cubic-bezier(.66,0,.83,.3) }
+   81.80% { transform:translate(0,0) scale(1.05,0.120);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.3,.7,.42,1) }
+   85.64% { transform:translate(68.86px,15.18px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#2F5FE0 }
+   88.00% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:1;fill:#2F5FE0 }
+   89.20% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:0;fill:#2F5FE0 }
+  100.00% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:0;fill:#2F5FE0 }
+}
+.fly-lrL{transform-box:fill-box;transform-origin:50% 100%;fill:#0A0A0A;animation:fly-l 8.4s linear infinite}
+
+@keyframes fly-o{
+    0.00% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:0;fill:#2F5FE0 }
+   26.00% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:0;fill:#2F5FE0 }
+   28.00% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:1;fill:#2F5FE0 }
+   30.00% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.62,.02,.83,.4) }
+   34.00% { transform:translate(28.11px,14.44px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   38.40% { transform:translate(-3.00px,4.71px) rotate(-1.32deg) scale(.97,0.880);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   39.20% { transform:translate(-2.2px,0) scale(1.05,1);opacity:1;fill:#0A0A0A;animation-timing-function:cubic-bezier(.32,1.32,.52,1) }
+   40.00% { transform:translate(0,0) scale(1,1);opacity:1;fill:#0A0A0A }
+   71.50% { transform:translate(0,0) scale(1,1);opacity:1;fill:#0A0A0A;animation-timing-function:cubic-bezier(.66,0,.83,.3) }
+   74.30% { transform:translate(0,0) scale(1.05,0.139);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.3,.7,.42,1) }
+   78.14% { transform:translate(28.11px,14.44px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#2F5FE0 }
+   80.50% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:1;fill:#2F5FE0 }
+   81.70% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:0;fill:#2F5FE0 }
+  100.00% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:0;fill:#2F5FE0 }
+}
+.fly-orL{transform-box:fill-box;transform-origin:50% 100%;fill:#0A0A0A;animation:fly-o 8.4s linear infinite}
+
+@keyframes fly-t{
+    0.00% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:0;fill:#2F5FE0 }
+   36.50% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:0;fill:#2F5FE0 }
+   38.50% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:1;fill:#2F5FE0 }
+   40.50% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.62,.02,.83,.4) }
+   44.50% { transform:translate(-8.82px,14.44px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   48.90% { transform:translate(-3.00px,4.71px) rotate(-1.32deg) scale(.97,0.880);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   49.70% { transform:translate(-2.2px,0) scale(1.05,1);opacity:1;fill:#0A0A0A;animation-timing-function:cubic-bezier(.32,1.32,.52,1) }
+   50.50% { transform:translate(0,0) scale(1,1);opacity:1;fill:#0A0A0A }
+   64.00% { transform:translate(0,0) scale(1,1);opacity:1;fill:#0A0A0A;animation-timing-function:cubic-bezier(.66,0,.83,.3) }
+   66.80% { transform:translate(0,0) scale(1.05,0.120);opacity:1;fill:#2F5FE0;animation-timing-function:cubic-bezier(.3,.7,.42,1) }
+   70.64% { transform:translate(-8.82px,14.44px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#2F5FE0 }
+   73.00% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:1;fill:#2F5FE0 }
+   74.20% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:0;fill:#2F5FE0 }
+  100.00% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:0;fill:#2F5FE0 }
+}
+.fly-trL{transform-box:fill-box;transform-origin:50% 100%;fill:#0A0A0A;animation:fly-t 8.4s linear infinite}
+
+@keyframes bar{
+  0% { transform:scaleY(1);opacity:1 }
+  7.50% { transform:scaleY(1);opacity:1 }
+  8.50% { transform:scaleY(.58);opacity:.72 }
+  11.50% { transform:scaleY(1);opacity:1 }
+  18.00% { transform:scaleY(1);opacity:1 }
+  19.00% { transform:scaleY(.58);opacity:.72 }
+  22.00% { transform:scaleY(1);opacity:1 }
+  28.50% { transform:scaleY(1);opacity:1 }
+  29.50% { transform:scaleY(.58);opacity:.72 }
+  32.50% { transform:scaleY(1);opacity:1 }
+  39.00% { transform:scaleY(1);opacity:1 }
+  40.00% { transform:scaleY(.58);opacity:.72 }
+  43.00% { transform:scaleY(1);opacity:1 }
+  70.76% { transform:scaleY(1);opacity:1 }
+  71.76% { transform:scaleY(1.34);opacity:1 }
+  74.76% { transform:scaleY(1);opacity:1 }
+  78.26% { transform:scaleY(1);opacity:1 }
+  79.26% { transform:scaleY(1.34);opacity:1 }
+  82.26% { transform:scaleY(1);opacity:1 }
+  85.76% { transform:scaleY(1);opacity:1 }
+  86.76% { transform:scaleY(1.34);opacity:1 }
+  89.76% { transform:scaleY(1);opacity:1 }
+  93.26% { transform:scaleY(1);opacity:1 }
+  94.26% { transform:scaleY(1.34);opacity:1 }
+  97.26% { transform:scaleY(1);opacity:1 }
+  100% { transform:scaleY(1);opacity:1 }
+}
+.barrL{transform-box:fill-box;transform-origin:50% 50%;fill:#2F5FE0;animation:bar 8.4s cubic-bezier(.45,.05,.35,1) infinite}
+@media (prefers-reduced-motion:reduce){.fliprL,.fly-irL,.fly-lrL,.fly-orL,.fly-trL,.barrL{animation:none}}
+</style>
+<g class="trackrL"><g transform="translate(8.00 80.85) scale(0.050 -0.050)"><path d="M655 742Q787 742 845.0 805.0Q903 868 903 981Q903 1031 888.0 1072.0Q873 1113 842.5 1142.5Q812 1172 765.5 1188.0Q719 1204 655 1204H479V742ZM655 1457Q809 1457 919.5 1420.5Q1030 1384 1101.5 1320.0Q1173 1256 1207.0 1169.0Q1241 1082 1241 981Q1241 872 1206.0 781.0Q1171 690 1099.0 625.0Q1027 560 916.5 523.5Q806 487 655 487H479V0H141V1457Z" fill="#0A0A0A"/></g><g class="fly-irL" data-station="213.53" data-foot="80.95"><g transform="translate(67.60 80.85) scale(0.050 -0.050)"><path d="M422 1037V0H112V1037ZM454 1321Q454 1284 439.0 1251.5Q424 1219 398.0 1194.5Q372 1170 337.5 1155.5Q303 1141 264 1141Q226 1141 193.0 1155.5Q160 1170 134.5 1194.5Q109 1219 94.5 1251.5Q80 1284 80 1321Q80 1359 94.5 1392.0Q109 1425 134.5 1450.0Q160 1475 193.0 1489.0Q226 1503 264 1503Q303 1503 337.5 1489.0Q372 1475 398.0 1450.0Q424 1425 439.0 1392.0Q454 1359 454 1321Z"/></g></g><g class="fly-lrL" data-station="228.51" data-foot="103.30"><g transform="translate(90.30 80.85) scale(0.050 -0.050)"><path d="M415 1497V0H105V1497Z"/></g></g><g class="fly-orL" data-station="239.91" data-foot="141.35"><g transform="translate(112.30 80.85) scale(0.050 -0.050)"><path d="M583 1053Q701 1053 798.0 1016.0Q895 979 964.5 910.0Q1034 841 1072.5 742.5Q1111 644 1111 521Q1111 397 1072.5 297.5Q1034 198 964.5 128.5Q895 59 798.0 21.5Q701 -16 583 -16Q464 -16 366.5 21.5Q269 59 198.5 128.5Q128 198 89.5 297.5Q51 397 51 521Q51 644 89.5 742.5Q128 841 198.5 910.0Q269 979 366.5 1016.0Q464 1053 583 1053ZM583 214Q690 214 740.5 289.5Q791 365 791 519Q791 673 740.5 748.0Q690 823 583 823Q473 823 422.0 748.0Q371 673 371 519Q371 365 422.0 289.5Q473 214 583 214Z"/></g></g><g class="fly-trL" data-station="252.04" data-foot="186.20"><g transform="translate(166.40 80.85) scale(0.050 -0.050)"><path d="M476 -16Q402 -16 345.5 5.5Q289 27 250.5 66.5Q212 106 192.0 162.0Q172 218 172 287V823H84Q60 823 43.0 838.5Q26 854 26 884V1005L191 1037L252 1290Q264 1338 320 1338H482V1035H739V823H482V308Q482 272 499.5 248.5Q517 225 550 225Q567 225 578.5 228.5Q590 232 598.5 236.5Q607 241 614.5 244.5Q622 248 632 248Q646 248 654.5 241.5Q663 235 672 221L766 74Q706 29 631.0 6.5Q556 -16 476 -16Z"/></g></g><g class="fliprL"><g transform="translate(200.80 80.85) scale(0.050 -0.050)"><path d="M1448 1457 864 0H558L-26 1457H246Q290 1457 317.0 1436.5Q344 1416 358 1384L640 604Q660 553 679.0 492.5Q698 432 715 366Q729 432 746.5 492.5Q764 553 784 604L1064 1384Q1075 1412 1103.5 1434.5Q1132 1457 1174 1457Z" fill="#2F5FE0" stroke="#2F5FE0" stroke-width="32" paint-order="stroke"/></g></g><rect class="barrL" x="200.70" y="91.85" width="71.30" height="5.5" rx="2.75"/></g></svg></div><figcaption>浅色字标</figcaption></figure>
+<figure class="onblack"><div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 279.9 100.9" width="280" height="101" role="img" aria-label="PilotV">
+<style>
+
+@keyframes flip{
+  0%   { transform: scaleX(1); animation-timing-function: cubic-bezier(.45,.05,.35,1); }
+  50%  { transform: scaleX(-1); animation-timing-function: cubic-bezier(.45,.05,.35,1); }
+  100% { transform: scaleX(1); }
+}
+.fliprD{transform-box:fill-box;transform-origin:50% 50%;animation:flip 4.2s ease-in-out infinite}
+
+@keyframes fly-i{
+    0.00% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:0;fill:#4F7DFF }
+    5.00% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:0;fill:#4F7DFF }
+    7.00% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:1;fill:#4F7DFF }
+    9.00% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.62,.02,.83,.4) }
+   13.00% { transform:translate(72.92px,15.18px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   17.40% { transform:translate(-3.00px,4.95px) rotate(-1.32deg) scale(.97,0.880);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   18.20% { transform:translate(-2.2px,0) scale(1.05,1);opacity:1;fill:#FAFAFA;animation-timing-function:cubic-bezier(.32,1.32,.52,1) }
+   19.00% { transform:translate(0,0) scale(1,1);opacity:1;fill:#FAFAFA }
+   86.50% { transform:translate(0,0) scale(1,1);opacity:1;fill:#FAFAFA;animation-timing-function:cubic-bezier(.66,0,.83,.3) }
+   89.30% { transform:translate(0,0) scale(1.05,0.120);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.3,.7,.42,1) }
+   93.14% { transform:translate(72.92px,15.18px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#4F7DFF }
+   95.50% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:1;fill:#4F7DFF }
+   96.70% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:0;fill:#4F7DFF }
+  100.00% { transform:translate(132.58px,16.50px) scale(1,0.073);opacity:0;fill:#4F7DFF }
+}
+.fly-irD{transform-box:fill-box;transform-origin:50% 100%;fill:#FAFAFA;animation:fly-i 8.4s linear infinite}
+
+@keyframes fly-l{
+    0.00% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:0;fill:#4F7DFF }
+   15.50% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:0;fill:#4F7DFF }
+   17.50% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:1;fill:#4F7DFF }
+   19.50% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.62,.02,.83,.4) }
+   23.50% { transform:translate(68.86px,15.18px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   27.90% { transform:translate(-3.00px,4.95px) rotate(-1.32deg) scale(.97,0.880);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   28.70% { transform:translate(-2.2px,0) scale(1.05,1);opacity:1;fill:#FAFAFA;animation-timing-function:cubic-bezier(.32,1.32,.52,1) }
+   29.50% { transform:translate(0,0) scale(1,1);opacity:1;fill:#FAFAFA }
+   79.00% { transform:translate(0,0) scale(1,1);opacity:1;fill:#FAFAFA;animation-timing-function:cubic-bezier(.66,0,.83,.3) }
+   81.80% { transform:translate(0,0) scale(1.05,0.120);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.3,.7,.42,1) }
+   85.64% { transform:translate(68.86px,15.18px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#4F7DFF }
+   88.00% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:1;fill:#4F7DFF }
+   89.20% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:0;fill:#4F7DFF }
+  100.00% { transform:translate(125.21px,16.50px) scale(1,0.073);opacity:0;fill:#4F7DFF }
+}
+.fly-lrD{transform-box:fill-box;transform-origin:50% 100%;fill:#FAFAFA;animation:fly-l 8.4s linear infinite}
+
+@keyframes fly-o{
+    0.00% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:0;fill:#4F7DFF }
+   26.00% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:0;fill:#4F7DFF }
+   28.00% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:1;fill:#4F7DFF }
+   30.00% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.62,.02,.83,.4) }
+   34.00% { transform:translate(28.11px,14.44px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   38.40% { transform:translate(-3.00px,4.71px) rotate(-1.32deg) scale(.97,0.880);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   39.20% { transform:translate(-2.2px,0) scale(1.05,1);opacity:1;fill:#FAFAFA;animation-timing-function:cubic-bezier(.32,1.32,.52,1) }
+   40.00% { transform:translate(0,0) scale(1,1);opacity:1;fill:#FAFAFA }
+   71.50% { transform:translate(0,0) scale(1,1);opacity:1;fill:#FAFAFA;animation-timing-function:cubic-bezier(.66,0,.83,.3) }
+   74.30% { transform:translate(0,0) scale(1.05,0.139);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.3,.7,.42,1) }
+   78.14% { transform:translate(28.11px,14.44px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#4F7DFF }
+   80.50% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:1;fill:#4F7DFF }
+   81.70% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:0;fill:#4F7DFF }
+  100.00% { transform:translate(98.56px,15.70px) scale(1,0.103);opacity:0;fill:#4F7DFF }
+}
+.fly-orD{transform-box:fill-box;transform-origin:50% 100%;fill:#FAFAFA;animation:fly-o 8.4s linear infinite}
+
+@keyframes fly-t{
+    0.00% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:0;fill:#4F7DFF }
+   36.50% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:0;fill:#4F7DFF }
+   38.50% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:1;fill:#4F7DFF }
+   40.50% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.62,.02,.83,.4) }
+   44.50% { transform:translate(-8.82px,14.44px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   48.90% { transform:translate(-3.00px,4.71px) rotate(-1.32deg) scale(.97,0.880);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.12,.6,.3,1) }
+   49.70% { transform:translate(-2.2px,0) scale(1.05,1);opacity:1;fill:#FAFAFA;animation-timing-function:cubic-bezier(.32,1.32,.52,1) }
+   50.50% { transform:translate(0,0) scale(1,1);opacity:1;fill:#FAFAFA }
+   64.00% { transform:translate(0,0) scale(1,1);opacity:1;fill:#FAFAFA;animation-timing-function:cubic-bezier(.66,0,.83,.3) }
+   66.80% { transform:translate(0,0) scale(1.05,0.120);opacity:1;fill:#4F7DFF;animation-timing-function:cubic-bezier(.3,.7,.42,1) }
+   70.64% { transform:translate(-8.82px,14.44px) rotate(-2.2deg) scale(0.995,0.088);opacity:1;fill:#4F7DFF }
+   73.00% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:1;fill:#4F7DFF }
+   74.20% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:0;fill:#4F7DFF }
+  100.00% { transform:translate(65.84px,15.70px) scale(1,0.081);opacity:0;fill:#4F7DFF }
+}
+.fly-trD{transform-box:fill-box;transform-origin:50% 100%;fill:#FAFAFA;animation:fly-t 8.4s linear infinite}
+
+@keyframes bar{
+  0% { transform:scaleY(1);opacity:1 }
+  7.50% { transform:scaleY(1);opacity:1 }
+  8.50% { transform:scaleY(.58);opacity:.72 }
+  11.50% { transform:scaleY(1);opacity:1 }
+  18.00% { transform:scaleY(1);opacity:1 }
+  19.00% { transform:scaleY(.58);opacity:.72 }
+  22.00% { transform:scaleY(1);opacity:1 }
+  28.50% { transform:scaleY(1);opacity:1 }
+  29.50% { transform:scaleY(.58);opacity:.72 }
+  32.50% { transform:scaleY(1);opacity:1 }
+  39.00% { transform:scaleY(1);opacity:1 }
+  40.00% { transform:scaleY(.58);opacity:.72 }
+  43.00% { transform:scaleY(1);opacity:1 }
+  70.76% { transform:scaleY(1);opacity:1 }
+  71.76% { transform:scaleY(1.34);opacity:1 }
+  74.76% { transform:scaleY(1);opacity:1 }
+  78.26% { transform:scaleY(1);opacity:1 }
+  79.26% { transform:scaleY(1.34);opacity:1 }
+  82.26% { transform:scaleY(1);opacity:1 }
+  85.76% { transform:scaleY(1);opacity:1 }
+  86.76% { transform:scaleY(1.34);opacity:1 }
+  89.76% { transform:scaleY(1);opacity:1 }
+  93.26% { transform:scaleY(1);opacity:1 }
+  94.26% { transform:scaleY(1.34);opacity:1 }
+  97.26% { transform:scaleY(1);opacity:1 }
+  100% { transform:scaleY(1);opacity:1 }
+}
+.barrD{transform-box:fill-box;transform-origin:50% 50%;fill:#4F7DFF;animation:bar 8.4s cubic-bezier(.45,.05,.35,1) infinite}
+@media (prefers-reduced-motion:reduce){.fliprD,.fly-irD,.fly-lrD,.fly-orD,.fly-trD,.barrD{animation:none}}
+</style>
+<g class="trackrD"><g transform="translate(8.00 80.85) scale(0.050 -0.050)"><path d="M655 742Q787 742 845.0 805.0Q903 868 903 981Q903 1031 888.0 1072.0Q873 1113 842.5 1142.5Q812 1172 765.5 1188.0Q719 1204 655 1204H479V742ZM655 1457Q809 1457 919.5 1420.5Q1030 1384 1101.5 1320.0Q1173 1256 1207.0 1169.0Q1241 1082 1241 981Q1241 872 1206.0 781.0Q1171 690 1099.0 625.0Q1027 560 916.5 523.5Q806 487 655 487H479V0H141V1457Z" fill="#FAFAFA"/></g><g class="fly-irD" data-station="213.53" data-foot="80.95"><g transform="translate(67.60 80.85) scale(0.050 -0.050)"><path d="M422 1037V0H112V1037ZM454 1321Q454 1284 439.0 1251.5Q424 1219 398.0 1194.5Q372 1170 337.5 1155.5Q303 1141 264 1141Q226 1141 193.0 1155.5Q160 1170 134.5 1194.5Q109 1219 94.5 1251.5Q80 1284 80 1321Q80 1359 94.5 1392.0Q109 1425 134.5 1450.0Q160 1475 193.0 1489.0Q226 1503 264 1503Q303 1503 337.5 1489.0Q372 1475 398.0 1450.0Q424 1425 439.0 1392.0Q454 1359 454 1321Z"/></g></g><g class="fly-lrD" data-station="228.51" data-foot="103.30"><g transform="translate(90.30 80.85) scale(0.050 -0.050)"><path d="M415 1497V0H105V1497Z"/></g></g><g class="fly-orD" data-station="239.91" data-foot="141.35"><g transform="translate(112.30 80.85) scale(0.050 -0.050)"><path d="M583 1053Q701 1053 798.0 1016.0Q895 979 964.5 910.0Q1034 841 1072.5 742.5Q1111 644 1111 521Q1111 397 1072.5 297.5Q1034 198 964.5 128.5Q895 59 798.0 21.5Q701 -16 583 -16Q464 -16 366.5 21.5Q269 59 198.5 128.5Q128 198 89.5 297.5Q51 397 51 521Q51 644 89.5 742.5Q128 841 198.5 910.0Q269 979 366.5 1016.0Q464 1053 583 1053ZM583 214Q690 214 740.5 289.5Q791 365 791 519Q791 673 740.5 748.0Q690 823 583 823Q473 823 422.0 748.0Q371 673 371 519Q371 365 422.0 289.5Q473 214 583 214Z"/></g></g><g class="fly-trD" data-station="252.04" data-foot="186.20"><g transform="translate(166.40 80.85) scale(0.050 -0.050)"><path d="M476 -16Q402 -16 345.5 5.5Q289 27 250.5 66.5Q212 106 192.0 162.0Q172 218 172 287V823H84Q60 823 43.0 838.5Q26 854 26 884V1005L191 1037L252 1290Q264 1338 320 1338H482V1035H739V823H482V308Q482 272 499.5 248.5Q517 225 550 225Q567 225 578.5 228.5Q590 232 598.5 236.5Q607 241 614.5 244.5Q622 248 632 248Q646 248 654.5 241.5Q663 235 672 221L766 74Q706 29 631.0 6.5Q556 -16 476 -16Z"/></g></g><g class="fliprD"><g transform="translate(200.80 80.85) scale(0.050 -0.050)"><path d="M1448 1457 864 0H558L-26 1457H246Q290 1457 317.0 1436.5Q344 1416 358 1384L640 604Q660 553 679.0 492.5Q698 432 715 366Q729 432 746.5 492.5Q764 553 784 604L1064 1384Q1075 1412 1103.5 1434.5Q1132 1457 1174 1457Z" fill="#4F7DFF" stroke="#4F7DFF" stroke-width="32" paint-order="stroke"/></g></g><rect class="barrD" x="200.70" y="91.85" width="71.30" height="5.5" rx="2.75"/></g></svg></div><figcaption>深色字标</figcaption></figure>
+<figure class="onblack"><div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" role="img" aria-label="PilotV">
+<style>
+
+@keyframes flip{
+  0%   { transform: scaleX(1); animation-timing-function: cubic-bezier(.45,.05,.35,1); }
+  50%  { transform: scaleX(-1); animation-timing-function: cubic-bezier(.45,.05,.35,1); }
+  100% { transform: scaleX(1); }
+}
+.fliprI{transform-box:fill-box;transform-origin:50% 50%;animation:flip 4.2s ease-in-out infinite}
+
+@keyframes bar{
+  0%,66%,100% { transform: scaleX(.42); opacity: .45; }
+  22%,56%     { transform: scaleX(1);   opacity: 1;   }
+}
+.barrI{transform-box:fill-box;transform-origin:50% 50%;animation:bar 8.4s cubic-bezier(.45,.05,.35,1) infinite}
+@media (prefers-reduced-motion:reduce){.fliprI,.barrI{animation:none}}
+</style>
+<rect width="240" height="240" rx="52" fill="#0A0A0A"/>
+<g transform="translate(53.15 130.85) scale(0.050 -0.050)"><path d="M655 742Q787 742 845.0 805.0Q903 868 903 981Q903 1031 888.0 1072.0Q873 1113 842.5 1142.5Q812 1172 765.5 1188.0Q719 1204 655 1204H479V742ZM655 1457Q809 1457 919.5 1420.5Q1030 1384 1101.5 1320.0Q1173 1256 1207.0 1169.0Q1241 1082 1241 981Q1241 872 1206.0 781.0Q1171 690 1099.0 625.0Q1027 560 916.5 523.5Q806 487 655 487H479V0H141V1457Z" fill="#FAFAFA"/></g><g class="fliprI"><g transform="translate(115.75 130.85) scale(0.050 -0.050)"><path d="M1448 1457 864 0H558L-26 1457H246Q290 1457 317.0 1436.5Q344 1416 358 1384L640 604Q660 553 679.0 492.5Q698 432 715 366Q729 432 746.5 492.5Q764 553 784 604L1064 1384Q1075 1412 1103.5 1434.5Q1132 1457 1174 1457Z" fill="#4F7DFF" stroke="#4F7DFF" stroke-width="32" paint-order="stroke"/></g></g>
+<rect class="barrI" x="53.1" y="168.9" width="133.7" height="14" rx="7" fill="#4F7DFF"/>
+</svg></div><figcaption>紧凑图标</figcaption></figure>
+<figure><div class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" role="img" aria-label="PilotV">
+<style>
+
+@keyframes flip{
+  0%   { transform: scaleX(1); animation-timing-function: cubic-bezier(.45,.05,.35,1); }
+  50%  { transform: scaleX(-1); animation-timing-function: cubic-bezier(.45,.05,.35,1); }
+  100% { transform: scaleX(1); }
+}
+.fliprP{transform-box:fill-box;transform-origin:50% 50%;animation:flip 4.2s ease-in-out infinite}
+
+@keyframes bar{
+  0%,66%,100% { transform: scaleX(.42); opacity: .45; }
+  22%,56%     { transform: scaleX(1);   opacity: 1;   }
+}
+.barrP{transform-box:fill-box;transform-origin:50% 50%;animation:bar 8.4s cubic-bezier(.45,.05,.35,1) infinite}
+@media (prefers-reduced-motion:reduce){.fliprP,.barrP{animation:none}}
+</style>
+<rect width="240" height="240" rx="52" fill="none"/>
+<g transform="translate(53.15 130.85) scale(0.050 -0.050)"><path d="M655 742Q787 742 845.0 805.0Q903 868 903 981Q903 1031 888.0 1072.0Q873 1113 842.5 1142.5Q812 1172 765.5 1188.0Q719 1204 655 1204H479V742ZM655 1457Q809 1457 919.5 1420.5Q1030 1384 1101.5 1320.0Q1173 1256 1207.0 1169.0Q1241 1082 1241 981Q1241 872 1206.0 781.0Q1171 690 1099.0 625.0Q1027 560 916.5 523.5Q806 487 655 487H479V0H141V1457Z" fill="#0A0A0A"/></g><g class="fliprP"><g transform="translate(115.75 130.85) scale(0.050 -0.050)"><path d="M1448 1457 864 0H558L-26 1457H246Q290 1457 317.0 1436.5Q344 1416 358 1384L640 604Q660 553 679.0 492.5Q698 432 715 366Q729 432 746.5 492.5Q764 553 784 604L1064 1384Q1075 1412 1103.5 1434.5Q1132 1457 1174 1457Z" fill="#2F5FE0" stroke="#2F5FE0" stroke-width="32" paint-order="stroke"/></g></g>
+<rect class="barrP" x="53.1" y="168.9" width="133.7" height="14" rx="7" fill="#2F5FE0"/>
+</svg></div><figcaption>无底图标</figcaption></figure>
+</div></section>
+</html>

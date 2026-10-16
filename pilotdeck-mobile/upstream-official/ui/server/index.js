@@ -139,6 +139,7 @@ import pluginsRoutes from './routes/plugins.js';
 import messagesRoutes from './routes/messages.js';
 import { closeMemoryServices, startMemoryScheduler, stopMemoryScheduler } from './services/memoryService.js';
 import { createNormalizedMessage, createOptimisticUserFrames } from './pilotdeck-message.js';
+import { handlePendingPermissionsMessage, trackPermissionFrames } from './pending-permissions.js';
 import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
 import { initializeDatabase, sessionNamesDb, applyCustomSessionNames, userDb } from './database/db.js';
 import { configureWebPush } from './services/vapid-keys.js';
@@ -2554,6 +2555,7 @@ function handleChatConnection(ws, request) {
                             reason: data.message,
                         },
                     );
+                    trackPermissionFrames([{ kind: 'permission_cancelled', requestId: data.requestId }], data.sessionId);
                     const resolvedSessionId = normalizeSessionId(data.sessionId);
                     if (resolvedSessionId) {
                         broadcastToSessionWatchers(
@@ -2581,6 +2583,7 @@ function handleChatConnection(ws, request) {
             } else if (data.type === 'elicitation-response') {
                 if (data.requestId) {
                     await elicitationRespondViaGateway(data.requestId, data.answer);
+                    trackPermissionFrames([{ kind: 'permission_cancelled', requestId: data.requestId }], data.sessionId);
                     const resolvedSessionId = normalizeSessionId(data.sessionId);
                     if (resolvedSessionId) {
                         broadcastToSessionWatchers(
@@ -2622,15 +2625,8 @@ function handleChatConnection(ws, request) {
                     activeTurnMessages: includeActiveTurnMessages ? activity.activeTurnMessages : [],
                     tokenBudget: getSessionTokenBudget(sessionId),
                 });
-            } else if (data.type === 'get-pending-permissions') {
-                // Pending-permission introspection is gateway-internal. The
-                // permission_request event already contains everything the
-                // UI needs, so the response is now an empty stub.
-                writer.send({
-                    type: 'pending-permissions-response',
-                    sessionId: data.sessionId,
-                    data: [],
-                });
+            } else if (data.type === 'get-pending-permissions' || data.type === 'get-all-pending-permissions') {
+                handlePendingPermissionsMessage(data, writer);
             } else if (data.type === 'get-active-sessions') {
                 const ids = getActiveSessionIdsViaGateway();
                 // Keep the four-provider keys so the legacy UI store does

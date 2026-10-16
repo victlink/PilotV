@@ -19,9 +19,48 @@ export type Artifact = {
   kind?: string | null;
   mime?: string | null;
   status?: string | null;
-  entry?: { url?: string | null; thumb_url?: string | null } | null;
+  // ts / agent / entry.meta are what the「只留每轮最终结果」过滤要用的事实：
+  // 什么时候发的、谁发的、有没有声明自己是多结果对比。
+  ts?: string | null;
+  agent?: string | null;
+  version?: number | null;
+  parent_id?: string | null;
+  entry?: { url?: string | null; thumb_url?: string | null; meta?: Record<string, unknown> | null } | null;
   open_notes?: number | null;
 };
+
+/**
+ * model-viewer 只认 glTF，别的三维格式喂进去是一块空白。成果台在 /viewer 上
+ * 现转成 glb（转不了时接口会明说原因），这里只管「哪些要走转换口」。
+ */
+const CONVERTIBLE_EXT = ['.step', '.stp', '.iges', '.igs', '.stl', '.obj', '.ply'];
+/** 本机没有转换器的三维格式：模型区得先说清楚，不能只留一块灰。 */
+const UNCONVERTIBLE_3D_EXT = ['.3ds', '.dae', '.3mf', '.blend'];
+
+function artifactExt(artifact: Artifact): string {
+  return (artifact.file_name || artifact.source_path || '').split(/[?#]/, 1)[0]
+    .toLowerCase().match(/\.[^.\/]+$/)?.[0] || '';
+}
+
+export function isCadArtifact(artifact: Artifact): boolean {
+  return CONVERTIBLE_EXT.includes(artifactExt(artifact));
+}
+
+/** 喂给三维渲染器的地址：要转换的走 /viewer，其余就是成果台存下来的原文件。 */
+export function artifactViewerUrl(artifact: Artifact): string {
+  return isCadArtifact(artifact) ? `/api/artifacts/${encodeURIComponent(artifact.id)}/viewer` : artifactRawUrl(artifact);
+}
+
+/** 浏览器渲染不了的模型格式（3ds/dae/3mf/blend）：提示下载原文件。 */
+export function isUnconvertible3d(artifact: Artifact): boolean {
+  return UNCONVERTIBLE_3D_EXT.includes(artifactExt(artifact));
+}
+
+/** 发布时声明的「这几份是对比，要一起看」。没声明就按普通成果收。 */
+export function compareGroup(artifact: Artifact): string {
+  const value = artifact.entry?.meta?.compare_group;
+  return typeof value === 'string' ? value.trim() : '';
+}
 
 export type MediaType = 'image' | 'audio' | 'video' | 'iframe' | 'model3d' | 'drawing' | 'unsupported';
 
@@ -29,7 +68,10 @@ export function mediaType(artifact: Artifact): MediaType {
   const mime = (artifact.mime || '').split(';', 1)[0].trim().toLowerCase();
   const ext = (artifact.file_name || artifact.source_path || '').split(/[?#]/, 1)[0].toLowerCase().match(/\.[^.\/]+$/)?.[0] || '';
   // A declared complex format must not be mistaken for a simple image or document.
-  if (artifact.kind === 'model3d' || ['.glb', '.gltf', '.obj', '.stl'].includes(ext)) return 'model3d';
+  // 3ds/dae/3mf/blend 也算三维：渲染不了也要给「下载原文件」这条路，
+  // 落到 unsupported 只会让人以为成果台没收到这个文件。
+  if (artifact.kind === 'model3d' || ext === '.glb' || ext === '.gltf'
+      || CONVERTIBLE_EXT.includes(ext) || UNCONVERTIBLE_3D_EXT.includes(ext)) return 'model3d';
   if (artifact.kind === 'drawing' && ext !== '.pdf' && ext !== '.svg' && mime !== 'application/pdf' && mime !== 'image/svg+xml') return 'drawing';
   if (mime === 'application/pdf' || ext === '.pdf' || mime === 'text/html' || ext === '.html' || ext === '.htm') return 'iframe';
   if (mime.startsWith('image/') || ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.avif'].includes(ext)) return 'image';
