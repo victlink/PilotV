@@ -41,11 +41,17 @@ python3 scripts/render_brand_icons.py     # PNG 图标 / PWA / favicon
 |---|---|
 | `pilotv-mark.svg` | 方形小标，favicon / 设置页 / 关于页 |
 | `pilotv-lockup.svg` / `-light` | 锁版小尺寸静态字标 |
-| `pilotv-logo-static-{light,dark}.svg` | 静态完整字标，`prefers-reduced-motion` 降级用 |
+| `pilotv-logo-static-{dark,light}.svg` | 静态完整字标，`prefers-reduced-motion` 降级用 |
 | `pilotv-logo-animated{,-light,-dark}.svg` | 独立动画字标，文档页 / 邮件 / 启动画面 |
 | `pilotv-icon-animated{,-plain}.svg` | 动画方标兼容名（实为字标，保留旧文件名） |
 
-`-light` = 深色背景上的浅色字；`-dark` = 浅色背景上的深色字。
+后缀指的是**放在什么背景上**，不是字母本身什么颜色：
+
+| 后缀 | 适用背景 | 字母 |
+|---|---|---|
+| 不带 / `-dark` | 深色底 | 浅色 `#FAFAFA` |
+| `-light` | 浅色底 | 深色 `#0A0A0A` |
+
 三个 animated 字标字节相同，只是文件名区分用途。
 
 ## React 组件
