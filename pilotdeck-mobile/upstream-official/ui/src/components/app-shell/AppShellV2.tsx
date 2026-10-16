@@ -56,7 +56,7 @@ type DeleteSessionTarget = {
   session: ProjectSession;
 };
 
-const SettingsComponent = Settings as unknown as (props: TypedSettingsProps) => JSX.Element;
+const SettingsComponent = Settings as unknown as (props: TypedSettingsProps) => React.JSX.Element;
 
 // V2 shell. Reuses the same data hooks as legacy AppContent so chat, discovery,
 // auth, and project plumbing keep working unchanged — V2 just reorganizes the
@@ -765,8 +765,13 @@ export default function AppShellV2() {
           unreadSessionIds={unreadSessionIds}
           onReplaceTemporarySession={handleReplaceTemporarySession}
           onNavigateToSession={(sid: string) => {
-            setSelectedSession((prev) => prev?.id === sid ? prev : { id: sid } as ProjectSession);
-            navigate(`/session/${sid}`);
+            const project = sidebarSharedProps.projects.find(item => item.sessions?.some(session => session.id === sid));
+            if (project) {
+              handleSelectSession(project, sid);
+            } else {
+              setSelectedSession((prev) => prev?.id === sid ? prev : { id: sid } as ProjectSession);
+              navigate(`/session/${sid}`);
+            }
           }}
           onStartNewSession={handleStartNewSession}
           onCreateProject={handleOpenNewProject}

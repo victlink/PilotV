@@ -106,6 +106,16 @@ const TOOLS = [
         project: { type: "string", description: "Project slug, to group artifacts from several tasks." },
         notes: { type: "string", description: "Free-form note stored in source.notes." },
         agent: { type: "string", description: "Producing agent name (default: pilotdeck)." },
+        deliverable: {
+          type: "string",
+          enum: ["final", "aux"],
+          description:
+            "Usually omit this — the console judges. Pass \"aux\" to FORCE-COLLECT a file the "
+            + "heuristic would reject as a web from-asset (element screenshot, thumbnail, slice, "
+            + "a file sitting in a public/ or assets/ dir). The name reads backwards: \"aux\" here "
+            + "means \"I know it's an aux, collect it anyway\". Wrong guesses cost the user a "
+            + "deliverable they never see, so prefer publishing over staying silent.",
+        },
       },
       required: ["kind", "title", "path"],
     },
@@ -176,7 +186,8 @@ const HANDLERS = {
     return ok({
       artifact_id: out.id,
       version: out.version,
-      kind: out.kind,
+      // kind 嵌在 artifact 里，顶层没有 —— 照旧读 out.kind 会得到 undefined。
+      kind: (out.artifact && out.artifact.kind) || out.kind,
       status: out.status,
       review_url: out.review_url || `http://${API.replace(/^https?:\/\//, "")}/`,
       hint: "把它给用户看，并说明可以在成果台上框选标注。",

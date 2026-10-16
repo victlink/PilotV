@@ -45,7 +45,7 @@ export function ChatReviewProvider({ project: initialProject, session, openGit =
   const [loading, setLoading] = useState(false), [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<RestorePlan | null>(null), [restoring, setRestoring] = useState(false);
   const generation = useRef(0), gitGeneration = useRef(0);
-  const handledOpenRequest = useRef<ReviewOpenRequest>();
+  const handledOpenRequest = useRef<ReviewOpenRequest | undefined>(undefined);
   const bindingKey = `${project?.fullPath || project?.path || project?.name || ''}\0${sessionId || ''}`;
   const activeKey = useRef(bindingKey);
   activeKey.current = bindingKey;

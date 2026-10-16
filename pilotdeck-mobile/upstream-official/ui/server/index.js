@@ -1364,6 +1364,9 @@ function getSafeZipFilename(projectName) {
 app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
     try {
         const { path: dirPath } = req.query;
+        if (dirPath !== undefined && (typeof dirPath !== 'string' || dirPath.includes('\0'))) {
+            return res.status(400).json({ error: 'Invalid directory path' });
+        }
 
         console.log('[API] Browse filesystem request for path:', dirPath);
         console.log('[API] WORKSPACES_ROOT is:', WORKSPACES_ROOT);
@@ -1375,6 +1378,7 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
             return res.json({
                 path: '/',
                 suggestions,
+                ...(req.query.includeFiles === 'true' ? { entries: suggestions } : {}),
                 rootsPath: '/',
             });
         }
@@ -1403,7 +1407,8 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
             return res.status(404).json({ error: 'Directory not accessible' });
         }
 
-        const directories = await browseDirectories(resolvedPath, req.query.showHidden === 'true');
+        const entries = await browseDirectories(resolvedPath, req.query.showHidden === 'true', req.query.includeFiles === 'true');
+        const directories = entries.filter(entry => entry.type === 'directory');
 
         // Add common directories if browsing home directory
         const suggestions = [];
@@ -1426,6 +1431,7 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
         res.json({
             path: resolvedPath,
             suggestions: suggestions,
+            ...(req.query.includeFiles === 'true' ? { entries } : {}),
             ...(process.platform === 'win32' ? { rootsPath: '/' } : {}),
         });
 

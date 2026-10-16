@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { postFormDataWithProgress } from './uploadFormData';
+import { readTokenFor } from '../components/auth/deviceTokens';
+import { activeBackendOrigin } from '../components/app-shell/pilotvRuntime';
 vi.mock('../constants/config', () => ({ IS_PLATFORM: false }));
 class FakeXhr {
   static latest: FakeXhr;
@@ -33,7 +35,7 @@ describe('shared upload transport', () => {
     await Promise.resolve(); expect(complete).not.toHaveBeenCalled();
     xhr.onload();
     expect(await result).toMatchObject({ ok: true, status: 200 });
-    expect(localStorage.getItem('auth-token')).toBe('new-token');
+    expect(readTokenFor(activeBackendOrigin())).toBe('new-token');
     controller.abort(); expect(xhr.abort).not.toHaveBeenCalled();
   });
   it('rejects an already cancelled upload without starting a request', async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, CirclePlus, Menu, Send, Square, Settings2, Wifi, WifiOff, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, CirclePlus, Menu, Send, Square, Settings2, Wifi, WifiOff, X } from 'lucide-react';
 import { createScope, loadConfigs, parseConfig, saveConfigs, selectedId, setSelectedId, type Config, type ConfigInput, type Scope } from './core';
 import { Gateway, object, rows, text, type RecordValue, type StreamEvent } from './gateway';
 import NativePanel from './native/NativePanel';
@@ -26,6 +26,7 @@ export default function App() {
   const [editor, setEditor] = useState<ConfigInput | null>(null);
   const [editingId, setEditingId] = useState('');
   const [drawer, setDrawer] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [tab, setTab] = useState<Tab>('chat');
   const [businessChannel, setBusinessChannel] = useState<'ws' | 'rest'>('ws');
   const [gatewayState, setGatewayState] = useState<{ identity: string; gateway: Gateway } | null>(null);
@@ -127,8 +128,8 @@ export default function App() {
     } catch (e) { setNotice(errorMessage(e)); }
   }
   return <div className="app">
-    <header className="top"><button className="icon mobile" aria-label="打开导航" onClick={() => setDrawer(true)}><Menu size={21}/></button><div className="brand"><img className="mark" src="/pilotv-mark.svg" alt=""/><div><strong>PilotV</strong><small>MOBILE CONSOLE</small></div></div><div className="top-right"><span className={'status ' + (status === '已连接' ? 'online' : '')}>{status === '已连接' ? <Wifi size={14}/> : <WifiOff size={14}/>} {status}</span><button className="icon" aria-label="实例设置" onClick={() => setDrawer(true)}><Settings2 size={20}/></button></div></header>
-    <div className="layout"><aside className={'sidebar ' + (drawer ? 'open' : '')}><div className="side-head"><span>工作空间</span><button className="icon mobile" aria-label="关闭导航" onClick={() => setDrawer(false)}><X size={19}/></button></div>
+    <header className="top"><button className="icon mobile" aria-label="打开导航" onClick={() => setDrawer(true)}><Menu size={21}/></button><div className="brand"><img className="mark" src="/pilotv-mark.svg" alt=""/><div><strong>PilotV</strong><small>MOBILE CONSOLE</small></div><button className="icon sidebar-toggle" aria-label={sidebarCollapsed ? '展开左侧栏' : '折叠左侧栏'} title={sidebarCollapsed ? '展开左侧栏' : '折叠左侧栏'} onClick={() => setSidebarCollapsed(value => !value)}>{sidebarCollapsed ? <ChevronRight size={18}/> : <ChevronLeft size={18}/>}</button></div><div className="top-right"><span className={'status ' + (status === '已连接' ? 'online' : '')}>{status === '已连接' ? <Wifi size={14}/> : <WifiOff size={14}/>} {status}</span><button className="icon" aria-label="实例设置" onClick={() => setDrawer(true)}><Settings2 size={20}/></button></div></header>
+    <div className={'layout ' + (sidebarCollapsed ? 'sidebar-collapsed' : '')}><aside className={'sidebar ' + (drawer ? 'open' : '')}><div className="side-head"><span>工作空间</span><button className="icon mobile" aria-label="关闭导航" onClick={() => setDrawer(false)}><X size={19}/></button></div>
       <div className="side-scroll"><div className="section-title">连接实例 <button className="mini" onClick={() => { setEditingId(''); setEditor(blank); }}>＋ 新建</button></div><select aria-label="选择实例" value={id} onChange={e => { if (e.target.value !== id) { scopeRef.current?.dispose(); selectionRef.current++; setGatewayState(null); setInput(''); setBusy(false); } setId(e.target.value); setDrawer(false); }}><option value="">选择实例</option>{configs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
       {config && <div className="instance-tools"><button onClick={() => { setEditingId(config.id); setEditor(config); }}>编辑配置</button><button onClick={() => remove(config)}>删除</button></div>}
       <button className="import" onClick={importConfig}>导入实例 JSON</button>

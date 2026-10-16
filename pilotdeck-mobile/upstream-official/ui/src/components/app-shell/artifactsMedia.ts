@@ -4,8 +4,10 @@
 // everything attributed by path, which is why a session could look empty.
 export function ownsSession(runId: unknown, sessionId: string): boolean {
   if (typeof runId !== 'string' || !sessionId) return false;
-  const segment = runId.includes(':') ? runId.slice(runId.lastIndexOf(':') + 1) : runId;
-  return segment === sessionId || runId === sessionId;
+  if (runId === sessionId) return true;
+  // Only relax an unqualified side; two explicit channels are distinct owners.
+  if (runId.includes(':') && sessionId.includes(':')) return false;
+  return runId.split(':').pop() === sessionId.split(':').pop();
 }
 
 export type Artifact = {

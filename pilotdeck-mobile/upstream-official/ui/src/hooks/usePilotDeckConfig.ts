@@ -180,7 +180,7 @@ function usePilotDeckConfigState() {
     return true;
   }, [updateRaw]);
 
-  const refreshRef = useRef<() => Promise<void>>();
+  const refreshRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   const refresh = useCallback(async () => {
     setLoading(true);

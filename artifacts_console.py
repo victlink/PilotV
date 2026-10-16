@@ -41,6 +41,7 @@ MATER_WORKERS = int(os.environ.get("ARTIFACTS_MATERIALIZE_WORKERS", "2"))
 _store = None
 _mat = None
 _watcher = None
+_ingester = None
 
 
 # --------------------------------------------------------------------- 基础工具
@@ -549,6 +550,18 @@ def html_title(path: str) -> str:
     return ""
 
 
+def _env_flag(name: str, default: bool = True) -> bool:
+    """读布尔开关型环境变量。没设置就用默认值。
+
+    刻意不认「空字符串为真」：部署脚本里 `FOO=` 拼出来很容易，
+    结果用户以为关掉了其实还开着，这种坑比少个开关难查得多。
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 def sha1_of(path: str) -> str:
     h = hashlib.sha1()
     try:
@@ -622,9 +635,17 @@ class Watcher:
                 yield full, st
 
     def _prime(self, root):
-        """首次登记目录：存量文件直接标成「见过」，不回灌历史产物。"""
+        """首次登记目录：存量文件标成「这份内容已经处理过」，不回灌历史。
+
+        这里必须打第 4 个标记（settled=True），不能拿「稳定计数=2」代替：
+        计数=2 的话，下一轮 scan_once 只会把计数再加一次（→3），照样 >= 2
+        就把文件发出去。实测把项目目录自动挂上以后，这一行直接把
+        VICTLINK-AI / CAD 两个老项目的 5600 多个历史产物一次性倒灌进成果台，
+        顺带把启动卡到健康检查超时。settled 的语义是「这份内容已经处理过了
+        （登记时就在，或刚发过），除非它再变，否则别再动它」。
+        """
         for full, st in self._iter_files(root):
-            self.seen[full] = [st.st_mtime, st.st_size, 2]
+            self.seen[full] = [st.st_mtime, st.st_size, 0, True]
 
     async def start(self):
         if self._task is None and self.dirs:
@@ -656,17 +677,17 @@ class Watcher:
             for full, st in self._iter_files(root):
                 stamp = (st.st_mtime, st.st_size)
                 prev = self.seen.get(full)
-                if prev is None:
-                    # 第一次看见：先记下，不急着发（可能正写到一半）
-                    self.seen[full] = [stamp[0], stamp[1], 0]
+                if prev is None or (prev[0], prev[1]) != stamp:
+                    # 第一次看见 / 内容变了：先记下，不急着发（可能正写到一半）
+                    self.seen[full] = [stamp[0], stamp[1], 0, False]
                     continue
-                if (prev[0], prev[1]) != stamp:
-                    self.seen[full] = [stamp[0], stamp[1], 0]   # 变了，重新计稳定
-                    continue
+                if prev[3]:
+                    continue            # 这份内容已经处理过了，不重复发
                 prev[2] += 1
                 if prev[2] < 2:
                     continue            # 连续两轮没变才发
                 self.seen[full][2] = 2
+                self.seen[full][3] = True
                 aid = self.ingest(full)
                 if aid:
                     out.append(aid)
@@ -683,7 +704,7 @@ class Watcher:
         parent = prev["artifact_id"] if prev else None
         name = os.path.basename(path)
         ext = os.path.splitext(name)[1].lower()
-        kind = KIND_BY_EXT.get(ext, "doc")
+        kind = _kind_for(path, ext)
         # watcher 原来直接 POST /api/artifacts，那条路有判定、这条路没有 ——
         # 结果一次目录导入就把项目里所有 png/svg/pdf 都发成成果（真实实例上
         # 735 条里绝大多数是这么灌进来的）。这里补上判定，让 watcher 和
@@ -742,6 +763,262 @@ class Watcher:
         return art["id"]
 
 
+class SessionIngester:
+    """读会话 transcript，把 agent 做出来的文件自动登记成成果。
+
+    为什么需要它（这是「成果没显示」的头号原因）：
+        agent 经常把东西做完了却没登记 —— 要么它不知道有成果台，要么压根
+        没调用 publish_artifact。但运行时本身**已经把这份记录写在会话里
+        了**：`file_artifacts` 行逐条记着本轮动了哪些文件（名字、路径、
+        操作、大小、sha256）。这份记录就躺在手边，不用重扫文件系统。
+
+    与 Watcher 的分工（两者都留着，缺一不可）：
+        Watcher      盯目录，靠「文件变了」发现问题。它能兜住远程工具
+                     直接往磁盘写、运行时压根没跟踪到的文件（Blender 走
+                     ssh 渲染就是这个典型），但前提是把项目目录挂上去，
+                     且归属靠猜「哪个会话正在改」。
+        SessionIngester 读会话自己的记录，归属**精确到 run_id**，不猜。
+                     但它只认运行时跟踪过的文件。
+
+    两边共用 store.watch_sources 去重，所以同一个文件不会被发两次。
+
+    为什么不全交给「扫项目目录里新出现的文件」：
+        一个会话顺手改个 README、建个截图、导个中间文件，都会命中目录扫描；
+        而 file_artifacts 是运行时明确认定的「这轮产出」，信噪比高得多。
+        宁可漏收，也不要把成果台灌成垃圾 —— 灌满了人就不看了。
+    """
+
+    # transcript 只读增量，所以这里记每个文件读到哪了
+    _state: dict[str, list]
+
+    def __init__(self, store, submit, *, interval=20.0, min_bytes=512,
+                 max_files=400, max_age_days=14):
+        self.store = store
+        self._submit = submit
+        self.interval = interval
+        self.min_bytes = min_bytes
+        self.max_files = max_files
+        # 只有回灌历史时才生效（live 收录的东西刚生成，必然是新的）。
+        # 见 start()：回灌默认关，开也要限龄，不然会把几个月前的构建产物
+        # 一次性倒灌进来，把用户真正在做的成果淹掉。
+        self.max_age_days = max_age_days
+        self._age_limit = 0
+        self._seen: dict[str, tuple] = {}   # abs_path -> (mtime, size, sha1)，避免每轮重算哈希
+        self._state = {}                    # transcript 路径 -> [已读字节数]
+        self._task = None
+        self.published = 0
+        self.skipped = 0
+        self.projects_root = os.environ.get("PILOTDECK_HOME") or os.path.join(
+            os.path.expanduser("~"), ".pilotdeck")
+
+    # ---------- transcript 侧 ----------
+
+    def _iter_transcripts(self):
+        """产出 (transcript 路径, 会话 id, 会话 cwd)。"""
+        root = os.path.join(self.projects_root, "projects")
+        try:
+            projects = sorted(os.listdir(root))
+        except OSError:
+            return
+        for proj in projects:
+            pdir = os.path.join(root, proj)
+            try:
+                with open(os.path.join(pdir, ".cwd"), "r", encoding="utf-8") as fh:
+                    cwd = fh.read().strip()
+            except OSError:
+                continue          # 没有 .cwd 的不是 PilotDeck 认的项目，跳过
+            if not cwd:
+                continue
+            chat_dir = os.path.join(pdir, "chats")
+            try:
+                names = sorted(os.listdir(chat_dir))
+            except OSError:
+                continue
+            for name in names:
+                if not name.endswith(".jsonl"):
+                    continue
+                sid = name[:-len(".jsonl")]
+                if re.match(r"^always-on-(discovery|workspace|report)[:\-]", sid):
+                    continue      # 内部会话，不是人看的对话
+                yield os.path.join(chat_dir, name), sid, cwd
+
+    def _read_new_rows(self, path: str):
+        """增量读 transcript，返回新出现的 file_artifacts 行。
+
+        增量是必须的：这些 jsonl 有几十 MB，每轮全读一遍光 IO 就把进程拖死了。
+        只认读到 '\n' 的完整行 —— 文件尾巴那行可能正写到一半。
+        """
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            return []
+        off = self._state.get(path, [0])[0]
+        if size < off:
+            # 截断了（轮转/重建）→ 从头再来。
+            # 注意是 < 不是 <=：size == off 是「这轮没有新内容」的最常见情况，
+            # 用 <= 会把它误判成截断，于是每轮都从头重读几十 MB 的 transcript。
+            off = 0
+            self._state[path] = [0]
+        if size == off:
+            return []
+        rows = []
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(off)
+                buf = fh.read(size - off)
+        except OSError:
+            return []
+        cut = buf.rfind(b"\n")
+        if cut < 0:
+            return []            # 只有半行，等下一轮
+        self._state[path] = [off + cut + 1]
+        for line in buf[:cut].split(b"\n"):
+            line = line.strip()
+            if not line or b'"file_artifacts"' not in line:
+                continue          # 快筛：绝大多数行都不是它，省一次 json 解析
+            try:
+                row = json.loads(line.decode("utf-8", "replace"))
+            except Exception:
+                continue
+            if row.get("type") == "file_artifacts" and row.get("artifacts"):
+                rows.append(row)
+        return rows
+
+    # ---------- 产出侧 ----------
+
+    async def scan_once(self) -> list:
+        """扫一轮，返回本次新发布的成果 id 列表（测试直接调它，不等 interval）。"""
+        out = []
+        for path, sid, cwd in self._iter_transcripts():
+            for row in self._read_new_rows(path):
+                for entry in row.get("artifacts") or []:
+                    aid = self.ingest(entry, sid, cwd)
+                    if aid:
+                        out.append(aid)
+        return out
+
+    def ingest(self, entry: dict, session_id: str, cwd: str) -> str:
+        """把 transcript 里记的一条文件产出发成成果（已发过就跳过）。"""
+        name = entry.get("name") or ""
+        rel = entry.get("path") or name
+        op = (entry.get("operation") or "").lower()
+        if op == "deleted":
+            return ""
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in KIND_BY_EXT:
+            return ""            # 源码/配置/临时文件，本来就不是成果
+        # 扩展名级别的从属资源（.ico/.ttf/.map…）交给 _classify 统一判，
+        # 别在这儿再抄一份规则 —— 抄一份就多一处会漂移的判据。
+
+        src = rel if os.path.isabs(rel) else os.path.join(cwd, rel)
+        src = os.path.abspath(src)
+        try:
+            st = os.stat(src)
+        except OSError:
+            return ""            # 运行时记了但文件已不在（临时文件），不追
+        if st.st_size < self.min_bytes:
+            return ""
+        if self._age_limit and (time.time() - st.st_mtime) > self._age_limit:
+            # 回灌时才可能触发：太老的历史产物不要倒灌进来。
+            self.skipped += 1
+            return ""
+
+        kind = KIND_BY_EXT[ext]
+        verdict, _why = _classify(kind, src)
+        if verdict != "final":
+            return ""            # 从属资源/中间产物，成果台不收
+
+        # 内容没变就别重发。会话里同一个文件可能被反复记到。
+        prev = self._seen.get(src)
+        if prev and prev[0] == st.st_mtime and prev[1] == st.st_size:
+            return ""
+        digest = sha1_of(src)
+        if not digest:
+            return ""
+
+        parent = None
+        seen = self.store.watch_lookup(src)
+        if seen and seen.get("sha1") == digest:
+            self._seen[src] = (st.st_mtime, st.st_size, digest)
+            return ""            # 已发过，且内容没变
+
+        import artifacts_store
+        aid = artifacts_store.new_artifact_id()
+        payload = {
+            "id": aid,
+            "kind": kind,
+            "title": html_title(src) or name,
+            "tool": "session_ingester",
+            "path": src,
+            "run_id": session_id,
+            "agent": "pilotdeck",
+            "project": _project_of(src, {}),
+        }
+        if seen and seen.get("artifact_id"):
+            payload["parent_id"] = seen["artifact_id"]
+        staged = _stage_file(src, aid)
+        payload.update(staged)
+        payload["status"] = "pending" if staged["stored_path"] else "ready"
+        try:
+            art = self.store.create(payload)
+        except ValueError as exc:
+            print(f"[artifacts] 会话收录失败 {name}: {exc}", flush=True)
+            return ""
+        self.store.watch_remember(src, digest, art["id"])
+        self._seen[src] = (st.st_mtime, st.st_size, digest)
+        try:
+            self._submit(art["id"])
+        except Exception:
+            pass
+        self.published += 1
+        pilotdeck_workspace_invalidate()
+        print(f"[artifacts] 会话收录 {name} → {art['id']}（{session_id}）", flush=True)
+        return art["id"]
+
+    # ---------- 生命周期 ----------
+
+    async def _loop(self):
+        while True:
+            try:
+                await self.scan_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(f"[artifacts] 会话收录出错: {type(exc).__name__}: {exc}", flush=True)
+            await asyncio.sleep(self.interval)
+
+    async def start(self, *, backfill: bool = True):
+        if self._task is not None:
+            return
+        if not backfill:
+            # 只看新增：把已有 transcript 标成「读到末尾」，不回灌历史。
+            # 首屏就倒灌几百条历史成果，比不收还糟 —— 实测这台机器的历史
+            # 里有 2452 个文件可收，但 p50 年龄 83 天、p90 618 天，多半是
+            # VICTLINK-AI / CAD 两个老项目的构建产物。收进来就是噪声。
+            for path, _sid, _cwd in self._iter_transcripts():
+                try:
+                    self._state[path] = [os.path.getsize(path)]
+                except OSError:
+                    pass
+            self._age_limit = 0
+        else:
+            self._age_limit = self.max_age_days * 86400
+        self._task = asyncio.create_task(self._loop())
+
+    async def stop(self):
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._task = None
+
+    def stats(self) -> dict:
+        return {"published": self.published, "skipped": self.skipped,
+                "tracked_transcripts": len(self._state)}
+
+
 # --------------------------------------------------------------------- REST
 
 
@@ -770,7 +1047,16 @@ async def api_create(request):
         if verdict == "aux":
             return _err("这不是一份独立最终成果", 409,
                         verdict="aux", reason=why, path=src_path or "",
-                        hint='确实要收就加 deliverable="aux"，或改用 deliverable="final" 强制收')
+                        hint='确实要收就加 deliverable="final" 声明它是一份独立成果；'
+                             'deliverable="aux" 则是直接跳过判定')
+
+    # 发布方通常照着扩展名把 .svg 报成 drawing（CAD 图纸那一类），而 logo 的
+    # svg 到了成果页就会落进「图纸」，正是用户反馈「只看到手绘界面」的样子。
+    # 只在这一种情况下纠正 —— 其余一律尊重发布方声明的 kind。
+    if kind == "drawing" and os.path.splitext(src_path or "")[1].lower() == ".svg":
+        remapped = _kind_for(src_path, ".svg")
+        if remapped != kind:
+            kind = remapped
 
     import artifacts_store
     # 先占 id，文件名带 id 前缀 —— 便于 _stored_path 直接定位，避免并发重名
@@ -797,6 +1083,16 @@ async def api_create(request):
         art = store.create(body)
     except ValueError as exc:
         return _err(str(exc))
+    # 登记进 watch_sources：这张表是「哪个源文件已经发成哪个成果」的总账，
+    # 自动收录（SessionIngester / Watcher）靠它去重。不记的话，同一个文件
+    # 会先被人手动 publish 一次、又被自动收录再发一次，左栏出现两条一样的。
+    if stored_path and os.path.isfile(src_path):
+        digest = sha1_of(src_path)
+        if digest:
+            try:
+                store.watch_remember(src_path, digest, art["id"])
+            except Exception:
+                pass
     # 目录树（GET /api/artifacts/workspace）带 15s 缓存。不在这里失效的话，
     # 刚发布的成果在列表接口里已经有了，左栏树里却要等十几秒才冒出来 ——
     # 需求 1 改的就是「树上该显示什么」，这条缓存直接决定用户第一眼看到什么。
@@ -814,6 +1110,21 @@ def _classify(kind: str, src_path: str, explicit=None):
     """需求 1 的判定入口。规则全在 artifacts_deliver.classify，这里只做转发。"""
     import artifacts_deliver
     return artifacts_deliver.classify(kind, src_path, explicit)
+
+
+def _kind_for(path: str, ext: str) -> str:
+    """扩展名决定类型，但品牌/标识类的 SVG 是设计稿，不是图纸。
+
+    .svg 同时被当成图纸（CAD 导出）和设计稿（logo）两种东西，光看扩展名分不开。
+    沿用 classify 的那套品牌判定：logo 落到成果页后应该出现在图片里，
+    而不是被归进「图纸」—— 后者正是用户反馈「只看到手绘界面」的原因。
+    """
+    kind = KIND_BY_EXT.get(ext, "doc")
+    if kind == "drawing" and ext == ".svg":
+        import artifacts_deliver
+        if artifacts_deliver.is_brand_deliverable(path):
+            return "image"
+    return kind
 
 
 def _stage_parts(aid: str, src_path: str, inline_parts=None):
@@ -916,7 +1227,8 @@ async def api_import(request):
         for path, kind in _iter_import_files(directory, bool(payload.get("recursive", True))):
             candidates.append({"path": path, "kind": kind,
                                "title": html_title(path) or os.path.splitext(os.path.basename(path))[0],
-                               "agent": agent})
+                               "agent": agent, "run_id": payload.get("run_id"),
+                               "project": payload.get("project")})
     for item in (payload.get("items") or []):
         if not isinstance(item, dict):
             continue
@@ -930,7 +1242,9 @@ async def api_import(request):
         candidates.append({"path": src, "kind": kind,
                            "title": (item.get("title") or "").strip()
                                      or html_title(src) or os.path.splitext(os.path.basename(src))[0],
-                           "agent": item.get("agent") or agent})
+                           "agent": item.get("agent") or agent,
+                           "run_id": item.get("run_id", payload.get("run_id")),
+                           "project": item.get("project", payload.get("project"))})
     candidates = candidates[:limit]
 
     # 2) 去重 + 冲突判定：sha1 相同 = 同一份东西；标题相同内容不同 = 冲突
@@ -992,7 +1306,8 @@ async def api_import(request):
                 "stored_path": staged["stored_path"], "file_name": staged["file_name"],
                 "mime": staged["mime"], "size": staged["size"],
                 "status": "pending" if staged["stored_path"] else "ready",
-                "path": cand["path"], "tool": "import", "meta": meta}
+                "path": cand["path"], "tool": "import", "meta": meta,
+                "run_id": cand.get("run_id"), "project": cand.get("project")}
         if cand.get("parent_id"):
             body["parent_id"] = cand["parent_id"]
         try:
@@ -1155,13 +1470,14 @@ async def api_workspace(request):
 
     store = _store_of(request)
     q = request.query
-    session_limit = _int_arg(q.get("sessions"), 20, 0, 200)
+    session_limit = _int_arg(q.get("sessions"), 0, 0, 200)
     artifact_limit = _int_arg(q.get("limit"), 400, 1, 2000)
 
     tree = ws.scan_projects(session_limit=session_limit)
     artifacts = store.list(limit=artifact_limit)
 
     owner: dict = {}
+    aliases: dict = {}
     project_sessions: dict = {}
     by_project: dict = {}
     for project in tree["projects"]:
@@ -1171,6 +1487,7 @@ async def api_workspace(request):
         for session in project["sessions"]:
             session["artifacts"] = []
             owner[session["id"]] = session
+            aliases.setdefault(session["id"].rsplit(":", 1)[-1], []).append(session)
             bucket.append(session)
         project_sessions[project["name"]] = bucket
 
@@ -1194,7 +1511,12 @@ async def api_workspace(request):
         run_id = art.get("run_id") or ""
         if run_id and run_id in owner:
             target = owner[run_id]
-        if target is None:
+        if target is None and run_id and ":" not in run_id:
+            matches = aliases.get(run_id, [])
+            if len(matches) == 1:
+                target = matches[0]
+        # An explicit owner must never drift to whichever conversation is live.
+        if target is None and not run_id:
             src = (art.get("source") or {}).get("path") or art.get("stored_path") or ""
             project = ws.find_project_for_path(src) if src else None
             if project:
@@ -2323,7 +2645,7 @@ async def _serve_static(request):
 
 
 def mount(app, console_root=None):
-    global _store, _mat, _watcher
+    global _store, _mat, _watcher, _ingester
     if console_root:
         os.environ.setdefault("CONSOLE_ROOT", console_root)
     if HERE not in sys.path:
@@ -2335,11 +2657,18 @@ def mount(app, console_root=None):
         _watch = Watcher(_store, _mat.submit,
                          interval=float(os.environ.get("ARTIFACTS_WATCH_INTERVAL", "15")))
         _watcher = _watch
+        _ing = SessionIngester(
+            _store, _mat.submit,
+            interval=float(os.environ.get("ARTIFACTS_SESSION_INTERVAL", "20")),
+            max_age_days=float(os.environ.get("ARTIFACTS_SESSION_MAX_AGE_DAYS", "14")))
+        _ingester = _ing
     else:
         _watch = _watcher
+        _ing = _ingester
     app["artifacts_store"] = _store
     app["artifacts_materializer"] = _mat
     app["artifacts_watcher"] = _watch
+    app["artifacts_session_ingester"] = _ing
     import artifacts_notify
     _notifier = artifacts_notify.Notifier(store=_store, base_url=os.environ.get(
         "ARTIFACTS_NOTIFY_BASE_URL", "http://127.0.0.1:8799")).start()
@@ -2366,12 +2695,62 @@ def mount(app, console_root=None):
                     _watch.add_dir(d)
                 except ValueError:
                     print(f"[artifacts] 跳过无效监控目录: {d}", flush=True)
+            # 自动挂上每个项目的工作目录。
+            # 为什么必须自动：远程工具（Blender 走 ssh、MCP server 跑在别的
+            # 机器）会把产物直接写进磁盘，运行时压根没跟踪到，transcript 里
+            # 也没有 file_artifacts —— SessionIngester 抓不到这种文件。
+            # 目录 watcher 正好补这个洞。add_dir 首次登记只把存量文件标成
+            # 「见过」不回灌，所以挂上去不会把历史文件倒灌进成果台，只收
+            # 挂载之后新写/新改的。
+            if _env_flag("ARTIFACTS_AUTOWATCH_PROJECTS", True):
+                try:
+                    # 直接读 projects/*/.cwd，不走 scan_projects()：
+                    # 只需要目录路径，而 scan_projects() 会往它自己的
+                    # _tree_cache 里塞一份 session_limit=1 的树 —— 线上那份
+                    # pilotdeck_workspace.py 的缓存键没带 session_limit，
+                    # 之后成果页要 session_limit=20/50 的全树时会拿到这份
+                    # 被我们改窄的缓存，页面上的会话列表会莫名少一大截。
+                    # 归属是发布时用 scan_projects(20) 重新算的，这里不参与。
+                    root = os.environ.get("PILOTDECK_HOME") or os.path.join(
+                        os.path.expanduser("~"), ".pilotdeck")
+                    pdir = os.path.join(root, "projects")
+                    added = 0
+                    for name in sorted(os.listdir(pdir)):
+                        try:
+                            with open(os.path.join(pdir, name, ".cwd"), encoding="utf-8") as fh:
+                                cwd = fh.read().strip()
+                        except OSError:
+                            continue          # 没有 .cwd / 读不了
+                        if not cwd or not os.path.isdir(cwd):
+                            continue
+                        try:
+                            _watch.add_dir(cwd)
+                            added += 1
+                        except ValueError:
+                            pass               # 目录没了/不可读，跳过
+                    print(f"[artifacts] 自动挂载 {added} 个项目目录为监控目录", flush=True)
+                except Exception as exc:
+                    print(f"[artifacts] 项目目录自动挂载未完成（忽略）: {exc}", flush=True)
             await _watch.start()
             if _watch.dirs:
-                print(f"[artifacts] 目录 watcher 已启动：{_watch.dirs}", flush=True)
+                print(f"[artifacts] 目录 watcher 已启动：{len(_watch.dirs)} 个目录", flush=True)
+        _ingest = a.get("artifacts_session_ingester")
+        if _ingest is not None:
+            # 回灌历史默认关。理由见 SessionIngester.start()：这台机器上
+            # 可回灌的历史有 2452 条，中位年龄 83 天，绝大多数是无关老项目的
+            # 构建产物。要回灌就显式 ARTIFACTS_SESSION_BACKFILL=1，
+            # 并用 ARTIFACTS_SESSION_MAX_AGE_DAYS 限定只收近期的。
+            backfill = _env_flag("ARTIFACTS_SESSION_BACKFILL", False)
+            await _ingest.start(backfill=backfill)
+            print(f"[artifacts] 会话自动收录已启动"
+                  f"（回灌历史={backfill}"
+                  + (f"，限龄={_ingest.max_age_days}天）" if backfill else "）"), flush=True)
         print(f"[artifacts] 成果台就绪：数据目录 {DATA_DIR}", flush=True)
 
     async def _cleanup(a):
+        _ingest = a.get("artifacts_session_ingester")
+        if _ingest is not None:
+            await _ingest.stop()
         _watch = a.get("artifacts_watcher")
         if _watch is not None:
             await _watch.stop()

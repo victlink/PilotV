@@ -1,4 +1,6 @@
 import { api } from '../../../utils/api';
+import { readTokenFor } from '../../auth/deviceTokens';
+import { activeBackendOrigin } from '../../app-shell/pilotvRuntime';
 import type {
   BrowseFilesystemResponse,
   CloneProgressEvent,
@@ -113,7 +115,7 @@ const buildCloneProgressQuery = ({
   }
 
   // EventSource cannot send custom headers, so the auth token is passed as query.
-  const authToken = localStorage.getItem('auth-token');
+  const authToken = readTokenFor(activeBackendOrigin());
   if (authToken) {
     query.set('token', authToken);
   }

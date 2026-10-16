@@ -166,6 +166,18 @@ fi
 [ -n "\$NODE" ] && [ -x "\$NODE" ] || { echo "  ✗ 找不到可执行的 node"; exit 1; }
 echo "  node 路径：\$NODE"
 
+# HTTPS：证书在才把两项写进服务配置（空值 = 网关继续走 http）。
+# 安卓 Chrome 装桌面应用需要安全上下文，没有证书这一步就是装不上的根因。
+TLS_CERT="\${PILOTV_TLS_CERT:-\$HOME/.pilotdeck/tls/pilotv-fullchain.pem}"
+TLS_KEY="\${PILOTV_TLS_KEY:-\$HOME/.pilotdeck/tls/pilotv-key.pem}"
+if [ -f "\$TLS_CERT" ] && [ -f "\$TLS_KEY" ]; then
+  echo "  HTTPS 证书：\$TLS_CERT"
+else
+  echo "  HTTPS 证书缺失 —— 安卓浏览器会装不上桌面应用。"
+  echo "    先跑一次：bash scripts/make_tls_cert.sh"
+  TLS_CERT=""; TLS_KEY=""
+fi
+
 if [ "\$OS" = "Darwin" ]; then
   # macOS 没有 systemd，用 launchd。plist 放 ~/Library/LaunchAgents，
   # KeepAlive 让它崩溃后自动重启。
@@ -188,6 +200,8 @@ if [ "\$OS" = "Darwin" ]; then
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:\$HOME/.local/bin:/usr/bin:/bin</string>
     <key>UI_PORT</key><string>$PORT</string>
     <key>PILOTV_BIND</key><string>0.0.0.0</string>
+    <key>PILOTV_TLS_CERT</key><string>\$TLS_CERT</string>
+    <key>PILOTV_TLS_KEY</key><string>\$TLS_KEY</string>
     <key>PILOTDECK_BACKEND</key><string>127.0.0.1:3001</string>
     <key>PILOTV_DIST</key><string>$DEV_DIR/pilotdeck-mobile/upstream-official/ui/dist</string>
     <key>PILOTV_DEVICES</key><string>$DEV_DIR/pilotdeck-mobile/upstream-official/ui/public/devices.json</string>
@@ -228,6 +242,8 @@ else
        -e "s#__GROUP__#\$(id -gn)#g" \\
        -e "s#__NODE__#\$NODE#g" \\
        -e "s#__PORT__#$PORT#g" \\
+       -e "s#__TLS_CERT__#\$TLS_CERT#g" \\
+       -e "s#__TLS_KEY__#\$TLS_KEY#g" \\
        -e "s#__ARTIFACTS_PORT__#$ART_PORT#g" \\
        service/pilotv-gateway.service)
 UNIT
@@ -241,9 +257,24 @@ EOF
 say "8. 验证"
 run <<EOF
 set -e
-code=\$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 http://127.0.0.1:$PORT/ || true)
-echo "  网关首页 http://127.0.0.1:$PORT/ -> \$code"
+# 启用了 HTTPS 就用 https 自检，否则这个 curl 会因为证书/TLS 直接失败，
+# 看起来像「网关没起来」，实际是协议不对。
+SCHEME="http"
+if [ -n "\$TLS_CERT" ] && [ -n "\$TLS_KEY" ]; then SCHEME="https"; fi
+# 自签证书本机也不认，自检时必须放开；真实访问仍需手机信任这个 CA。
+CURLOPT="--connect-timeout 8"
+[ "\$SCHEME" = "https" ] && CURLOPT="\$CURLOPT -k"
+code=\$(curl -s -o /dev/null -w '%{http_code}' \$CURLOPT \$SCHEME://127.0.0.1:$PORT/ || true)
+echo "  网关首页 \$SCHEME://127.0.0.1:$PORT/ -> \$code"
 [ "\$code" = "200" ] || { echo "  ✗ 网关没起来"; LOG="sudo -n journalctl -u pilotv-gateway -n 20 --no-pager"; [ "\$(uname -s)" = "Darwin" ] && LOG="tail -20 ~/.pilotdeck/logs/pilotv-gateway.log"; eval "\$LOG"; exit 1; }
+if [ "\$SCHEME" = "https" ]; then
+  # manifest 与 Service Worker 必须真的能取到，否则安卓还是装不上。
+  for p in /manifest.json /sw.js; do
+    c=\$(curl -s -o /dev/null -w '%{http_code}' \$CURLOPT \$SCHEME://127.0.0.1:$PORT\$p || true)
+    echo "  \$SCHEME://127.0.0.1:$PORT\$p -> \$c"
+    [ "\$c" = "200" ] || { echo "  ✗ \$p 取不到，安卓会装不上（没有 SW 就不是安全上下文里的 PWA）"; exit 1; }
+  done
+fi
 if [ "\$(uname -s)" = "Darwin" ]; then
   tail -50 ~/.pilotdeck/logs/pilotv-gateway.log 2>/dev/null | grep -iE 'traceback|uncaught|fatal' | head -5 \
     || echo "  启动日志无报错 ✓"
@@ -256,8 +287,13 @@ IP=\$(hostname -I 2>/dev/null | awk '{print \$1}' | head -1)
 [ -n "\$IP" ] || IP=\$(ipconfig getifaddr en0 2>/dev/null || ifconfig 2>/dev/null | awk '/inet /{print \$2}' | grep -v '^127\.' | head -1)
 echo
 echo "  ── 这台设备的 PilotV 访问地址 ──"
-echo "    http://\$IP:$PORT/"
-echo "    http://127.0.0.1:$PORT/  （本机自测）"
+echo "    \$SCHEME://\$IP:$PORT/"
+echo "    \$SCHEME://127.0.0.1:$PORT/  （本机自测）"
+if [ "\$SCHEME" = "http" ]; then
+  echo
+  echo "  ⚠ 当前是 http。安卓 Chrome 只在安全上下文里允许安装桌面应用，"
+  echo "    这个地址装不上是预期内的。跑 bash scripts/make_tls_cert.sh 后重新部署。"
+fi
 EOF
 
 say "完成"

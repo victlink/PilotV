@@ -186,5 +186,17 @@
     "sessionCount_other": "This project contains {{count}} conversations.",
     "allConversationsDeleted": "All conversations will be permanently deleted.",
     "cannotUndo": "This action cannot be undone."
+  },
+  "multiPreview": {
+    "title": "Session monitor",
+    "toggle": "Multi-screen",
+    "close": "Close",
+    "empty": "No running or recently finished sessions",
+    "untitled": "Untitled session",
+    "summary": "{{running}} running · {{total}} shown",
+    "statusRunning": "Running",
+    "statusFailed": "Failed",
+    "statusDone": "Completed",
+    "elapsed": "Running {{time}}"
   }
 }

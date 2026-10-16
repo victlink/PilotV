@@ -1206,9 +1206,10 @@
   }
 
   /* 页面标签从两条变成三条，矮屏（横屏手机、开着侧栏的窗口）放不下 84px×3，
-     矮屏整体压矮，标签栏自己也留了 overflow-y:auto 兜底。 */
+     矮屏整体压矮，标签栏自己也留了 overflow-y:auto 兜底。
+     收起按钮是固定小方块，不跟着压矮，所以排除掉。 */
   @media (max-height: 640px) {
-    .right-rail button {
+    .right-rail button:not(.pd-page-drawer-toggle) {
       min-height: 58px;
       padding: 6px 0;
       font-size: 11px;
@@ -1234,6 +1235,119 @@
     box-shadow:
       0 0 0 2px rgba(var(--pd-accent-rgb, 105, 94, 241), 0.102),
       0 7px 16px rgba(var(--pd-accent-rgb, 75, 66, 164), 0.141);
+  }
+
+  /* ── 悬浮抽屉式页面标签 ────────────────────────────────────────────
+     三个页面各自整窗显示，标签条就不该占主区宽度。整层 absolute 贴在主区
+     右缘，靠圆角 + 投影 + 半透明底读作「浮在主窗口上面的一层」，而不是一条
+     吃掉 40px 的右边栏。收起后只剩右缘一枚小把手，点把手再展开。 */
+  .pd-page-drawer {
+    position: absolute;
+    top: 12px;
+    right: 10px;
+    bottom: 12px;
+    z-index: 40;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    /* 只有标签自己吃点击，抽屉周围的空白透传给主区。 */
+    pointer-events: none;
+  }
+
+  .pd-page-drawer > * {
+    pointer-events: auto;
+  }
+
+  .pd-page-drawer-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    max-height: 100%;
+    overflow-y: auto;
+    padding: 10px 6px;
+    border: 1px solid var(--line, #e4e5ee);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 12px 32px rgba(31, 27, 66, 0.16);
+    animation: pd-page-drawer-in 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+
+  .dark .pd-page-drawer-panel {
+    border-color: var(--line, #262626);
+    background: rgba(10, 10, 10, 0.72);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  }
+
+  @keyframes pd-page-drawer-in {
+    from {
+      opacity: 0;
+      transform: translateX(14px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  .pd-page-drawer-divider {
+    width: 16px;
+    height: 1px;
+    flex-shrink: 0;
+    background: var(--line, #e4e5ee);
+  }
+
+  /* 收起按钮放在最后一条，不跟着矮屏压矮。 */
+  .right-rail button.pd-page-drawer-toggle {
+    width: 28px;
+    min-height: 0;
+    padding: 4px 0;
+    color: #8b8ea0;
+  }
+
+  .right-rail button.pd-page-drawer-toggle:hover {
+    border-color: #3f4250;
+    background: #fffc;
+    color: #3f4250;
+  }
+
+  .pd-page-drawer-handle {
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line, #e4e5ee);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.82);
+    color: #6b6e80;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 20px rgba(31, 27, 66, 0.14);
+    transition: color 140ms ease, border-color 140ms ease;
+  }
+
+  .pd-page-drawer-handle:hover {
+    border-color: var(--pd-accent, #7167ff);
+    color: var(--pd-accent-strong, #453bd7);
+  }
+
+  .dark .pd-page-drawer-handle {
+    border-color: var(--line, #262626);
+    background: rgba(10, 10, 10, 0.72);
+    color: #a1a1aa;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  }
+
+  .dark .pd-page-drawer-handle:hover {
+    color: var(--pd-accent, #7167ff);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pd-page-drawer-panel {
+      animation: none;
+    }
   }
 
   .app-shell {

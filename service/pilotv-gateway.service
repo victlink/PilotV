@@ -18,6 +18,12 @@ Environment=LANG=en_US.UTF-8
 # --- 监听 ---
 Environment=UI_PORT=__PORT__
 Environment=PILOTV_BIND=0.0.0.0
+# --- HTTPS（安卓浏览器安装桌面应用的前提）---
+# 安卓 Chrome 只在安全上下文里注册 Service Worker、才给安装入口。
+# 两项都非空才启用；只给一半网关会拒绝启动，不会半 TLS 半明文地跑。
+# 证书由 scripts/make_tls_cert.sh 生成。没有证书时这两行为空，网关走 http。
+Environment=PILOTV_TLS_CERT=__TLS_CERT__
+Environment=PILOTV_TLS_KEY=__TLS_KEY__
 # --- 默认后端（本机 3001 由本机 PilotDeck 提供，这里只做反向代理，不强依赖）---
 Environment=PILOTDECK_BACKEND=127.0.0.1:3001
 # --- 前端构建产物与预置设备清单 ---

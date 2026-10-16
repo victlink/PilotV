@@ -1,4 +1,5 @@
 import path from 'path'
+import { createRequire } from 'node:module'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'url'
@@ -26,8 +27,9 @@ export default defineConfig(({ mode }) => {
   const proxyHost = env.PROXY_HOST || getConnectableHost(configuredHost)
   // TODO: Remove support for legacy PORT variables in all locations in a future major release, leaving only SERVER_PORT.
   const serverPort = env.SERVER_PORT || env.PORT || 3001
-  const localNodeModules = (...segments) =>
-    path.resolve(process.cwd(), 'node_modules', ...segments)
+  // Resolve through the package manager: npm may hoist React to the workspace
+  // root while pnpm exposes it locally. Never assume a physical node_modules path.
+  const require = createRequire(import.meta.url)
   // Keep this list to direct dependencies: pnpm does not expose transitive
   // packages at the root used by resolve.dedupe and optimizeDeps.include.
   const codeMirrorDependencies = [
@@ -80,12 +82,12 @@ export default defineConfig(({ mode }) => {
       // Extensions and the React wrapper must share the same CodeMirror state
       // instance, including after dependency updates or a Vite cache rebuild.
       dedupe: ['react', 'react-dom', ...codeMirrorDependencies],
-      alias: {
-        react: localNodeModules('react'),
-        'react-dom': localNodeModules('react-dom'),
-        'react/jsx-runtime': localNodeModules('react', 'jsx-runtime.js'),
-        'react/jsx-dev-runtime': localNodeModules('react', 'jsx-dev-runtime.js'),
-      }
+      alias: [
+        { find: /^react$/, replacement: require.resolve('react') },
+        { find: /^react-dom$/, replacement: require.resolve('react-dom') },
+        { find: /^react\/jsx-runtime$/, replacement: require.resolve('react/jsx-runtime') },
+        { find: /^react\/jsx-dev-runtime$/, replacement: require.resolve('react/jsx-dev-runtime') },
+      ]
     },
     optimizeDeps: {
       // Pre-bundle the wrapper and extensions together to avoid mixing

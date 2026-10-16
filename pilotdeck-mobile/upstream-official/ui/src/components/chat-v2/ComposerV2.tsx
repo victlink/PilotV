@@ -92,8 +92,8 @@ type ComposerSkill = {
 export type ComposerV2Props = {
   input: string;
   placeholder: string;
-  textareaRef: RefObject<HTMLTextAreaElement>;
-  inputHighlightRef: RefObject<HTMLDivElement>;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  inputHighlightRef: RefObject<HTMLDivElement | null>;
   renderInputWithMentions: (text: string) => ReactNode;
   onInputChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onTextareaClick: (event: MouseEvent<HTMLTextAreaElement>) => void;

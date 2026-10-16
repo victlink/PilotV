@@ -9,6 +9,7 @@
 // 因此这不是一个开放代理。
 
 import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -486,6 +487,44 @@ function handleRegistryApi(request, response, url, config, registry) {
   return send(405, { error: '不支持的请求方法' });
 }
 
+/**
+ * 读 TLS 证书。两项必须同时存在才启用 HTTPS —— 只给一半就当没配，
+ * 不能让网关在半 TLS 半明文的中间态上跑起来，那比干脆不加密更难排查。
+ */
+export function readTlsOptions(env = process.env) {
+  const cert = (env.PILOTV_TLS_CERT || '').trim();
+  const key = (env.PILOTV_TLS_KEY || '').trim();
+  if (!cert || !key) {
+    if (cert || key) {
+      throw new Error('PILOTV_TLS_CERT 与 PILOTV_TLS_KEY 必须同时设置，只给一半不会启用 HTTPS');
+    }
+    return null;
+  }
+  if (!fs.existsSync(cert)) throw new Error(`PILOTV_TLS_CERT 不存在: ${cert}`);
+  if (!fs.existsSync(key)) throw new Error(`PILOTV_TLS_KEY 不存在: ${key}`);
+  return { cert: fs.readFileSync(cert), key: fs.readFileSync(key) };
+}
+
+/**
+ * 按有没有证书选 https / http。
+ *
+ * 为什么必须真的上 TLS：安卓 Chrome 只在「安全上下文」里允许注册 Service Worker
+ * 和安装 PWA，局域网 http://192.168.x.x:5186 不是安全上下文 —— Service Worker
+ * 直接注册失败，浏览器也永远不给安装入口，manifest 写得再对都没用。
+ * WebSocket 会跟着页面自动升级成 wss://，升级事件在两种 server 上同名，
+ * 所以下面那段隧道逻辑不用改。
+ */
+export function createGatewayServer(config, listener) {
+  const tls = config.tls;
+  if (!tls) return http.createServer(listener);
+  // HSTS 只在 HTTPS 下才有意义：告诉浏览器一年内别再把这个源降级回 http，
+  // 否则用户手输 http:// 打不开，会以为服务挂了。
+  return https.createServer({ cert: tls.cert, key: tls.key }, (request, response) => {
+    response.setHeader('strict-transport-security', 'max-age=31536000');
+    listener(request, response);
+  });
+}
+
 export function createGateway(config) {
   const distDir = config.distDir;
   const indexPath = path.join(distDir, 'index.html');
@@ -498,8 +537,12 @@ export function createGateway(config) {
     return fsp.readFile(indexPath, 'utf-8').then(html => {
       const cookies = [];
       // 只有通过 ?d= 明确切换时才刷新 Cookie，普通刷新不会覆盖别人的选择。
+      // 刻意用会话 Cookie（不设 Max-Age）：设备选择只活在当前浏览器会话里，
+      // 关掉浏览器再打开就回到本机默认。之前挂 1 年会让一次误点永久生效，
+      // 而且设备换了之后请求会被转发到一台没有本机 token 的机器上，
+      // 前端一收到 401 就清 token 刷新 —— 表现就是「登录后又弹回登录页」。
       if (backend.source === 'query') {
-        cookies.push(`${DEVICE_COOKIE}=${encodeURIComponent(backend.origin)}; Path=/; Max-Age=31536000; SameSite=Lax`);
+        cookies.push(`${DEVICE_COOKIE}=${encodeURIComponent(backend.origin)}; Path=/; SameSite=Lax`);
       }
       // 浏览器打开首页才算「从 PilotV 页面进入」，这个会话 Cookie 就是设备
       // 写操作的凭据。裸 curl / 跨站脚本拿不到它。
@@ -518,7 +561,7 @@ export function createGateway(config) {
     }).catch(() => { response.writeHead(404); response.end('dist/index.html 不存在，请先构建前端'); });
   };
 
-  const server = http.createServer((request, response) => {
+  const handleRequest = (request, response) => {
     const url = new URL(request.url, 'http://pilotv.local');
 
     if (registry && url.pathname.startsWith(PILOTV_API_PREFIX)) {
@@ -553,7 +596,9 @@ export function createGateway(config) {
       if (path.extname(file)) { response.writeHead(404); response.end('not found'); return; }
       serveIndex(request, response);
     });
-  });
+  };
+
+  const server = createGatewayServer(config, handleRequest);
 
   server.on('upgrade', (request, socket, head) => {
     const pathname = new URL(request.url, 'http://pilotv.local').pathname;
@@ -616,6 +661,7 @@ export function loadConfigFromEnv(env = process.env) {
     weknoraUrl: env.PILOTV_WEKNORA_URL || '',
     port: Number(env.UI_PORT || 5186),
     bind: env.PILOTV_BIND || '0.0.0.0',
+    tls: readTlsOptions(env),
   };
 }
 
@@ -677,7 +723,13 @@ if (invokedDirectly) {
   }
   const server = createGateway(config);
   server.listen(config.port, config.bind, () => {
-    console.log(`PilotV 网关已启动：http://${config.bind}:${config.port}/`);
+    // 没证书时是 http：安卓 Chrome 不会给安装入口，Service Worker 也注册不了，
+    // 启动行必须让人一眼看出来，否则只能对着手机猜为什么装不上。
+    console.log(`PilotV 网关已启动：${config.tls ? 'https' : 'http'}://${config.bind}:${config.port}/`);
+    if (!config.tls) {
+      console.log('  提示：未配置 PILOTV_TLS_CERT/PILOTV_TLS_KEY。安卓浏览器安装桌面应用需要 HTTPS，');
+      console.log('       跑 scripts/make_tls_cert.sh 生成证书后再配进本服务。');
+    }
     console.log(`  默认后端 ${config.defaultBackend}`);
     console.log(`  可选设备 ${config.registry.devices().map(device => `${device.name}(${device.origin})`).join('  ')}`);
     console.log(`  设备清单 ${config.registryFile}（写操作${config.allowRegistryWrites ? '已开启' : '已关闭'}）`);

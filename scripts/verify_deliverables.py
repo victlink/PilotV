@@ -108,6 +108,49 @@ def main():
             "agent": "verify-deliver", "deliverable": "final"})
         check(st == 200, "发布方显式声明 final 可以放行（逃生舱）", f"HTTP {st} {r.get('error', '')}")
 
+        # 品牌/标识类交付物曾经整批被误杀：文件名带 "icon" 的按网页小图标丢掉，
+        # 落在 public/ 里的按从属资源丢掉，而 logo 定稿恰恰要拷进 ui/public/brand/
+        # 才生效。整批丢失用户根本看不出来 —— 成果页只是「少了东西」。
+        brand_dir = os.path.join(src, "ui", "public", "brand")
+        os.makedirs(brand_dir, exist_ok=True)
+        svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="8" height="8"/></svg>'
+        for name, label in [("animated-icon.svg", "brand/ 里的动画图标"),
+                            ("lockup.svg", "brand/ 里的组合锁定"),
+                            ("pilotv-mark.svg", "brand/ 里的标记图形")]:
+            p = os.path.join(brand_dir, name)
+            open(p, "w").write(svg)
+            st, r = req(api, "/api/artifacts", "POST", {
+                "kind": "drawing", "title": "logo 成果 " + name, "path": p,
+                "agent": "verify-deliver"})
+            check(st == 200, f"{label}不被误判成附属产物", f"HTTP {st} {r.get('error', '')}")
+            check((r.get("artifact") or {}).get("kind") == "image",
+                  f"{label}归到图片而不是图纸",
+                  f"kind={(r.get('artifact') or {}).get('kind')}")
+
+        # 反例：判定的本意不能被破坏 —— 真的中间产物、真的资源目录还得照拦。
+        # 放在 brand/ 里也不行：brand-logo-preview.png 仍然是渲染过程中的中间帧。
+        for name, token in [("brand-logo-preview.png", "中间产物"),
+                            ("brand-logo-thumbnail.png", "中间产物")]:
+            p = os.path.join(brand_dir, name)
+            open(p, "wb").write(b"\x89PNG\r\n\x1a\n")
+            st, r = req(api, "/api/artifacts", "POST", {
+                "kind": "image", "title": "应该被拦 " + name, "path": p,
+                "agent": "verify-deliver"})
+            check(st == 409 and token in str(r.get("reason", "")),
+                  f"brand 目录里的 {name} 仍按中间产物拦下",
+                  f"HTTP {st} {str(r.get('reason', ''))[:60]}")
+        # 「icon」退出词表后靠目录兜底：public/ 下的小图标仍是从属资源
+        plain_dir = os.path.join(src, "ui", "public")
+        for name in ("icon.svg", "icon-180.png"):
+            p = os.path.join(plain_dir, name)
+            open(p, "wb").write(svg.encode() if name.endswith(".svg") else b"\x89PNG\r\n\x1a\n")
+            st, r = req(api, "/api/artifacts", "POST", {
+                "kind": "image" if name.endswith(".png") else "drawing",
+                "title": "应该被拦 " + name, "path": p, "agent": "verify-deliver"})
+            check(st == 409 and "从属资源" in str(r.get("reason", "")),
+                  f"public/ 里的 {name} 仍按从属资源拦下",
+                  f"HTTP {st} {str(r.get('reason', ''))[:60]}")
+
         # ---------------------------------------------------------- 需求 2
         section("2 部件树：图纸/三维能拆成独立部件")
         mdir = os.path.join(src, "asm")

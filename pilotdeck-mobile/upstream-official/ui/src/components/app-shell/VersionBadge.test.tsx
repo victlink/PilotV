@@ -11,6 +11,10 @@ vi.mock("../../utils/restartUi", () => ({
   restartAndReload: vi.fn(),
 }));
 
+// jsdom has no layout engine, so the log tail scroll has to be stubbed like in
+// the other pane tests before the badge mounts its update log.
+Element.prototype.scrollIntoView = vi.fn();
+
 vi.mock("../../hooks/useGitVersion", () => ({
   useGitVersion: () => ({
     info: {

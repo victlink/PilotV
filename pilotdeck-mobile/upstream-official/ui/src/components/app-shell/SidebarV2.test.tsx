@@ -28,6 +28,7 @@ vi.mock('lucide-react', () => ({
   BookOpen: () => null,
   Sparkles: () => null,
   CalendarClock: () => null,
+  PanelLeftClose: () => null,
 }));
 
 const general: Project = {

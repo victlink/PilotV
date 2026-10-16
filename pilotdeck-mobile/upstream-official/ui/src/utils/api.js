@@ -1,5 +1,7 @@
 import { postFormDataWithProgress } from './uploadFormData';
 import { IS_PLATFORM } from "../constants/config";
+import { readTokenFor, writeTokenFor } from '../components/auth/deviceTokens';
+import { activeBackendOrigin } from '../components/app-shell/pilotvRuntime';
 
 const normalizePathForUrl = (value) => String(value || '').replace(/\\/g, '/');
 
@@ -26,7 +28,7 @@ const encodePathSegments = (relativePath) =>
     .join('/');
 
 const appendAuthToken = (url) => {
-  const token = localStorage.getItem('auth-token');
+  const token = readTokenFor(activeBackendOrigin());
   if (!token) return url;
   const separator = url.includes('?') ? '&' : '?';
   return `${url}${separator}token=${encodeURIComponent(token)}`;
@@ -34,7 +36,7 @@ const appendAuthToken = (url) => {
 
 // Utility function for authenticated API calls
 export const authenticatedFetch = (url, options = {}) => {
-  const token = localStorage.getItem('auth-token');
+  const token = readTokenFor(activeBackendOrigin());
   const {
     suppressServerErrorToast = false,
     ...fetchOptions
@@ -60,7 +62,7 @@ export const authenticatedFetch = (url, options = {}) => {
   }).then((response) => {
     const refreshedToken = response.headers.get('X-Refreshed-Token');
     if (refreshedToken) {
-      localStorage.setItem('auth-token', refreshedToken);
+      writeTokenFor(activeBackendOrigin(), refreshedToken);
     }
     if (!suppressServerErrorToast && response.status >= 500) {
       window.dispatchEvent(new CustomEvent('pilotdeck:toast', {
@@ -261,7 +263,7 @@ export const api = {
       method: 'DELETE',
     }),
   searchConversationsUrl: (query, limit = 50) => {
-    const token = localStorage.getItem('auth-token');
+    const token = readTokenFor(activeBackendOrigin());
     const params = new URLSearchParams({ q: query, limit: String(limit) });
     if (token) params.set('token', token);
     return `/api/search/conversations?${params.toString()}`;

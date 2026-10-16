@@ -1,4 +1,6 @@
 import ArtifactsConsolePane from './ArtifactsConsolePane';
+import SessionMultiPreview from './SessionMultiPreview';
+import { FileConversationContext } from '../main-content-v2/fileConversationContext';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -6,7 +8,10 @@ import {
   Database,
   Folder,
   Library,
+  PanelsTopLeft,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Radio,
   type LucideIcon,
 } from 'lucide-react';
@@ -150,7 +155,20 @@ type MainAreaV2Props = MainContentProps & {
   activeTab: AppTab;
   isSidebarCollapsed?: boolean;
   onOpenSidebar?: () => void;
+  onNavigateToSession?: (sessionId: string) => void;
 };
+
+// 页面标签抽屉的展开／收起状态存 localStorage：收起后重新打开仍然是收起的。
+// 只影响标签把手本身，三个页面照旧各自整窗显示。
+const PAGE_TABS_STORAGE_KEY = 'pilotdeck:pageTabsOpen';
+
+function readPageTabsOpen() {
+  try {
+    return localStorage.getItem(PAGE_TABS_STORAGE_KEY) !== 'collapsed';
+  } catch {
+    return true;
+  }
+}
 
 function MainAreaV2Content(props: MainAreaV2Props) {
   const { t } = useTranslation();
@@ -165,10 +183,19 @@ function MainAreaV2Content(props: MainAreaV2Props) {
   } = props;
   const [alwaysOnSubTab, setAlwaysOnSubTab] = useState<AlwaysOnSubTab>('dashboard');
   const [showArtifacts, setShowArtifacts] = useState(false);
+  const [pageTabsOpen, setPageTabsOpen] = useState(readPageTabsOpen);
+  const [multiPreviewOpen, setMultiPreviewOpen] = useState(false);
   const [reviewOpenRequest, setReviewOpenRequest] = useState<MainContentProps['reviewOpenRequest']>();
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [sessionTitleDraft, setSessionTitleDraft] = useState('');
   const sessionTitleInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    try {
+      localStorage.setItem(PAGE_TABS_STORAGE_KEY, pageTabsOpen ? 'expanded' : 'collapsed');
+    } catch {
+      // Silently ignore storage errors
+    }
+  }, [pageTabsOpen]);
   const generalConversation = Boolean(selectedProject && isGeneralProject(selectedProject));
   const projectFilesEnabled = Boolean(
     selectedProject
@@ -328,13 +355,44 @@ function MainAreaV2Content(props: MainAreaV2Props) {
             </h1>
           ) : null}
           </div>
+          <button
+            type="button"
+            onClick={() => setMultiPreviewOpen(value => !value)}
+            aria-expanded={multiPreviewOpen}
+            aria-label={t('sidebar:multiPreview.toggle')}
+            title={t('sidebar:multiPreview.toggle')}
+            className={`ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors ${
+              multiPreviewOpen
+                ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-200'
+                : 'border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800'
+            }`}
+          >
+            <PanelsTopLeft className="h-4 w-4" aria-hidden />
+            {t('sidebar:multiPreview.toggle')}
+          </button>
         </div>
       </header>
+
+      {multiPreviewOpen ? (
+        <SessionMultiPreview
+          projects={props.projects}
+          processingSessions={props.processingSessions}
+          unreadSessionIds={props.unreadSessionIds}
+          selectedSessionId={selectedSession?.id}
+          onOpenSession={entry => {
+            setMultiPreviewOpen(false);
+            if (props.onNavigateToSession) props.onNavigateToSession(entry.session.id);
+            else props.onSelectSession?.(entry.project, entry.session.id);
+          }}
+          onClose={() => setMultiPreviewOpen(false)}
+        />
+      ) : null}
 
       <div className="relative z-0 flex min-h-0 flex-1 overflow-hidden">
         {showArtifacts && <div className="min-h-0 flex-1 overflow-hidden"><ArtifactsConsolePane sessionId={selectedSession?.id} onStartNewConversation={startConversationFromInk} /></div>}
         {/* Keep chat mounted so switching views does not discard the composer. */}
         <div hidden={showArtifacts} className={showArtifacts ? 'hidden' : 'relative min-h-0 flex-1 overflow-hidden'}>
+          <FileConversationContext.Provider value={{ id: selectedSession?.id, cwd: typeof selectedSession?.cwd === 'string' ? selectedSession.cwd : undefined }}>
           <MainContent
             {...props}
             activeTab={displayActiveTab}
@@ -342,45 +400,68 @@ function MainAreaV2Content(props: MainAreaV2Props) {
             alwaysOnSubTab={alwaysOnSubTab}
             onAlwaysOnSubTabChange={setAlwaysOnSubTab}
           />
+          </FileConversationContext.Provider>
         </div>
-        {/* 悬浮标签栏。原来的「文件目录／智能对话」两条已经删掉，这里换成
-            「对话／文件／成果」三个页面标签，竖排贴在主区右缘，样式沿用
-            同一套 .right-rail 规则（竖排文字 + 选中态描边）。
-            三个页面各自整窗显示，不再把窗口分成两半。 */}
-        <nav
-          aria-label="页面切换"
-          className="right-rail flex w-[40px] flex-shrink-0 flex-col items-center gap-2 overflow-y-auto border-l border-neutral-200 bg-[var(--pd-accent-soft,#f7f5ff)] px-1.5 py-3 dark:border-neutral-800 dark:bg-neutral-950"
-        >
-          <button
-            type="button"
-            aria-pressed={!showArtifacts && displayActiveTab === 'chat'}
-            data-pane-state={!showArtifacts && displayActiveTab === 'chat' ? 'on' : 'off'}
-            onClick={() => { setShowArtifacts(false); setActiveTab('chat'); }}
-            className={!showArtifacts && displayActiveTab === 'chat' ? 'active' : ''}
-          >
-            <span>对话</span>
-          </button>
-          {projectFilesEnabled ? (
+        {/* 悬浮抽屉式页面标签。三个页面依旧各自整窗显示，不把窗口分成两半；
+            标签本身是一层浮在主区右缘的抽屉：absolute 定位，不占主区宽度，
+            右侧圆角 + 投影让它读起来是「浮在上面」而不是「右边栏」。
+            底部有收起按钮，收起后只留右缘一枚小把手，点把手再展开。 */}
+        <div className="pd-page-drawer">
+          {pageTabsOpen ? (
+            <nav aria-label="页面切换" className="right-rail pd-page-drawer-panel">
+              <button
+                type="button"
+                aria-pressed={!showArtifacts && displayActiveTab === 'chat'}
+                data-pane-state={!showArtifacts && displayActiveTab === 'chat' ? 'on' : 'off'}
+                onClick={() => { setShowArtifacts(false); setActiveTab('chat'); }}
+                className={!showArtifacts && displayActiveTab === 'chat' ? 'active' : ''}
+              >
+                <span>对话</span>
+              </button>
+              {projectFilesEnabled ? (
+                <button
+                  type="button"
+                  aria-pressed={!showArtifacts && displayActiveTab === FILES_TAB.id}
+                  data-pane-state={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'on' : 'off'}
+                  onClick={() => { setShowArtifacts(false); setActiveTab(FILES_TAB.id); }}
+                  className={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'active' : ''}
+                >
+                  <span>文件</span>
+                </button>
+              ) : null}
+              <button
+                type="button"
+                aria-pressed={showArtifacts}
+                data-pane-state={showArtifacts ? 'on' : 'off'}
+                onClick={() => setShowArtifacts(true)}
+                className={showArtifacts ? 'active' : ''}
+              >
+                <span>成果</span>
+              </button>
+              <span aria-hidden="true" className="pd-page-drawer-divider" />
+              <button
+                type="button"
+                aria-label="收起页面标签"
+                title="收起页面标签"
+                onClick={() => setPageTabsOpen(false)}
+                className="pd-page-drawer-toggle"
+              >
+                <PanelRightClose className="h-3.5 w-3.5" strokeWidth={1.9} />
+              </button>
+            </nav>
+          ) : (
             <button
               type="button"
-              aria-pressed={!showArtifacts && displayActiveTab === FILES_TAB.id}
-              data-pane-state={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'on' : 'off'}
-              onClick={() => { setShowArtifacts(false); setActiveTab(FILES_TAB.id); }}
-              className={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'active' : ''}
+              aria-label="展开页面标签"
+              title="展开页面标签"
+              aria-expanded={false}
+              onClick={() => setPageTabsOpen(true)}
+              className="pd-page-drawer-handle"
             >
-              <span>文件</span>
+              <PanelRightOpen className="h-4 w-4" strokeWidth={1.9} />
             </button>
-          ) : null}
-          <button
-            type="button"
-            aria-pressed={showArtifacts}
-            data-pane-state={showArtifacts ? 'on' : 'off'}
-            onClick={() => setShowArtifacts(true)}
-            className={showArtifacts ? 'active' : ''}
-          >
-            <span>成果</span>
-          </button>
-        </nav>
+          )}
+        </div>
       </div>
     </div>
   );

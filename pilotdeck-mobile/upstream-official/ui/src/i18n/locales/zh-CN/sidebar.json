@@ -186,5 +186,17 @@
     "sessionCount_other": "此项目包含 {{count}} 个对话。",
     "allConversationsDeleted": "所有对话将被永久删除。",
     "cannotUndo": "此操作无法撤销。"
+  },
+  "multiPreview": {
+    "title": "会话监控",
+    "toggle": "多屏预览",
+    "close": "关闭",
+    "empty": "暂无运行中或最近完成的会话",
+    "untitled": "未命名会话",
+    "summary": "{{running}} 个运行中 · 共 {{total}} 个窗口",
+    "statusRunning": "运行中",
+    "statusFailed": "失败",
+    "statusDone": "已完成",
+    "elapsed": "已运行 {{time}}"
   }
 }

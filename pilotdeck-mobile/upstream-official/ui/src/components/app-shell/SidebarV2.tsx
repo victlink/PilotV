@@ -24,6 +24,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronRight,
+  PanelLeftClose,
   Loader2,
   Folder,
   MessageSquarePlus,
@@ -1241,10 +1242,10 @@ export default function SidebarV2({
         <div className="min-h-[62px] shrink-0 border-b border-neutral-200/80 dark:border-neutral-800">
           {/* logo 变成设置入口：侧栏底部原来那个独立设置按钮的位置让给「探索」，
               三块内容（探索／项目／设置）就这样固定下来。 */}
-          <div className="flex min-h-[61px] items-center gap-2 pl-3"><button type="button" onClick={onShowSettings}
+          <div className="flex min-h-[61px] items-center gap-2 pl-3 pr-2"><button type="button" onClick={onShowSettings}
             aria-label={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
             title={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
-            className="shrink-0 rounded text-left"><PilotVLogo height={17} aria-hidden /><span className="sr-only">PilotV</span></button><div className="min-w-0 flex-1"><DeviceSwitcher compact={false} /></div><DeviceUrlSync /></div>
+            className="shrink-0 rounded text-left"><PilotVLogo height={17} aria-hidden /><span className="sr-only">PilotV</span></button><div className="min-w-0 flex-1"><DeviceSwitcher compact={false} /></div><button type="button" onClick={() => { setSidebarWidth(SIDEBAR_MIN_WIDTH); try { window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(SIDEBAR_MIN_WIDTH)); } catch { /* localStorage may be unavailable. */ } }} aria-label="折叠左侧栏" title="折叠左侧栏" className="shrink-0 rounded-md p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"><PanelLeftClose size={17} /></button><DeviceUrlSync /></div>
         </div>
       )}
       <nav

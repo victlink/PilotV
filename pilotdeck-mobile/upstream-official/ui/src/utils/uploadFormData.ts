@@ -1,4 +1,6 @@
 import { IS_PLATFORM } from '../constants/config';
+import { readTokenFor, writeTokenFor } from '../components/auth/deviceTokens';
+import { activeBackendOrigin } from '../components/app-shell/pilotvRuntime';
 
 /** Shared transport for chat and workspace uploads; completion awaits the HTTP response. */
 export function postFormDataWithProgress({
@@ -32,7 +34,7 @@ export function postFormDataWithProgress({
     xhr.onload = () => {
       cleanup();
       const token = xhr.getResponseHeader('X-Refreshed-Token');
-      if (token) localStorage.setItem('auth-token', token);
+      if (token) writeTokenFor(activeBackendOrigin(), token);
       let body: Record<string, any> = {};
       try { body = JSON.parse(xhr.responseText || '{}'); } catch { /* HTTP status still identifies failure. */ }
       resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, body });
@@ -41,7 +43,7 @@ export function postFormDataWithProgress({
     xhr.ontimeout = () => { cleanup(); reject(Object.assign(new Error('Upload timed out. Please retry.'), { code: 'UPLOAD_TIMEOUT' })); };
     xhr.onabort = () => { cleanup(); reject(new DOMException('Upload aborted', 'AbortError')); };
     xhr.open('POST', url);
-    const token = localStorage.getItem('auth-token');
+    const token = readTokenFor(activeBackendOrigin());
     if (!IS_PLATFORM && token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     signal.addEventListener('abort', abort, { once: true });
     try { xhr.send(formData); } catch (error) { cleanup(); reject(error); }

@@ -2,7 +2,7 @@ import { useCallback, type RefObject } from 'react';
 import { useRegisterFindShortcutTarget } from '../../../contexts/FindShortcutContext';
 
 type UseFileSearchShortcutOptions = {
-  containerRef: RefObject<HTMLElement>;
+  containerRef: RefObject<HTMLElement | null>;
   enabled?: boolean;
   onOpen: () => void;
 };

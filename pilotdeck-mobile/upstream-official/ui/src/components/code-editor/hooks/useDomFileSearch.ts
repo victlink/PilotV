@@ -12,7 +12,7 @@ type DomSearchMatch = {
 };
 
 type UseDomFileSearchOptions = {
-  rootRef: RefObject<HTMLElement>;
+  rootRef: RefObject<HTMLElement | null>;
   query: string;
   activeIndex: number;
   onActiveIndexChange: (index: number) => void;

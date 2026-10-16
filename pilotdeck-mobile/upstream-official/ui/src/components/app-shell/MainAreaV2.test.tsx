@@ -174,6 +174,29 @@ describe('MainAreaV2 dashboard switcher', () => {
     expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
   });
 
+  it('folds the page tabs into a handle and brings them back', () => {
+    render(<Harness />);
+
+    // 标签是浮在主区上的一层抽屉：收起后只留右缘一枚把手，页面本身不卸载。
+    fireEvent.click(screen.getByRole('button', { name: '收起页面标签' }));
+    expect(screen.queryByRole('navigation', { name: '页面切换' })).toBeNull();
+    expect(screen.getByTestId('main-content')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '展开页面标签' }));
+    const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
+    expect(pages.getByRole('button', { name: '对话' })).toBeTruthy();
+  });
+
+  it('remembers a folded tab drawer across remounts', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: '收起页面标签' }));
+    cleanup();
+
+    render(<Harness />);
+    expect(screen.queryByRole('navigation', { name: '页面切换' })).toBeNull();
+    expect(screen.getByRole('button', { name: '展开页面标签' })).toBeTruthy();
+  });
+
   it('renames the selected session inline after double-clicking the header title', () => {
     render(<Harness withSession />);
 
@@ -264,7 +287,7 @@ describe('MainAreaV2 dashboard switcher', () => {
     render(<Harness initialTab="cron" withSession />);
 
     expect(await screen.findByRole('heading', { name: 'Scheduled Tasks' })).toBeTruthy();
-    expect(screen.getByTestId('cron-page')).toBeTruthy();
+    expect(await screen.findByTestId('cron-page')).toBeTruthy();
     expect(screen.queryByTitle('Searchable chat')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Search current conversation' })).toBeNull();
     expect(screen.queryByRole('button', { name: '文件' })).toBeNull();
@@ -275,7 +298,7 @@ describe('MainAreaV2 dashboard switcher', () => {
     render(<Harness initialTab="skills" withSession />);
 
     expect(await screen.findByRole('heading', { name: 'Skills' })).toBeTruthy();
-    expect(screen.getByTestId('skills-page')).toBeTruthy();
+    expect(await screen.findByTestId('skills-page')).toBeTruthy();
     expect(screen.queryByTitle('Searchable chat')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Search current conversation' })).toBeNull();
     expect(screen.queryByRole('button', { name: '文件' })).toBeNull();
