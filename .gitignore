@@ -74,3 +74,10 @@ design/logo/frame-strip.png
 
 # 兜底：任何 .secret / *.secret 一律不入库
 *.secret
+
+# ── 介绍页 QA 产物（qa.py 随时可重跑生成）─────────────────────────
+site/.qa/*.png
+site/.qa/shots/
+site/.qa/prev/
+site/.qa/3d/
+site/.qa/app/

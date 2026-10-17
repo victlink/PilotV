@@ -1,0 +1,1829 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PilotV · 这是生产力工具，不是聊天助手</title>
+<meta name="description" content="PilotV 是 VICTLINK 微麟科技研发的开源生产力工具。不是一个会话，而是一组项目：独立工作区、独立记忆、独立技能，长任务自己往下跑，交付的是文件。">
+<meta property="og:title" content="PilotV · 这是生产力工具，不是聊天助手">
+<meta property="og:description" content="VICTLINK 微麟科技研发的开源生产力工具。一组项目各自独立记忆与工作区，长任务自己往下跑。">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+
+<style>.letter,.v-reveal,.blue-line{animation-duration:16s;animation-iteration-count:infinite;animation-timing-function:cubic-bezier(.4,0,.2,1);transform-box:view-box;}
+.blue-line{transform-origin:236.35px 94.6px;animation-name:line;}
+@keyframes line{0%,100%{opacity:0;x:233.60px;width:5.5px}3%{opacity:1;x:233.60px;width:5.5px}10%,88%{opacity:1;x:200.70px;width:71.30px}96%{opacity:1;x:233.60px;width:5.5px}}
+.v-reveal{transform-origin:236.35px 94.6px;animation-name:v-reveal;}
+@keyframes v-reveal{0%,10%,90%,100%{opacity:0;transform:translateY(0px) scale(0)}18%,79%{opacity:1;transform:translateY(0px) scale(1)}87%{opacity:0;transform:translateY(0px) scale(0)}}
+.v-spin{transform-box:view-box;transform-origin:236.35px 44.425px;animation:spin 3.2s linear infinite;}
+@keyframes spin{0.000000%{transform:scaleX(1.00000000)}1.388889%{transform:scaleX(0.99619470)}2.777778%{transform:scaleX(0.98480775)}4.166667%{transform:scaleX(0.96592583)}5.555556%{transform:scaleX(0.93969262)}6.944444%{transform:scaleX(0.90630779)}8.333333%{transform:scaleX(0.86602540)}9.722222%{transform:scaleX(0.81915204)}11.111111%{transform:scaleX(0.76604444)}12.500000%{transform:scaleX(0.70710678)}13.888889%{transform:scaleX(0.64278761)}15.277778%{transform:scaleX(0.57357644)}16.666667%{transform:scaleX(0.50000000)}18.055556%{transform:scaleX(0.42261826)}19.444444%{transform:scaleX(0.34202014)}20.833333%{transform:scaleX(0.25881905)}22.222222%{transform:scaleX(0.17364818)}23.611111%{transform:scaleX(0.08715574)}25.000000%{transform:scaleX(0.00000000)}26.388889%{transform:scaleX(-0.08715574)}27.777778%{transform:scaleX(-0.17364818)}29.166667%{transform:scaleX(-0.25881905)}30.555556%{transform:scaleX(-0.34202014)}31.944444%{transform:scaleX(-0.42261826)}33.333333%{transform:scaleX(-0.50000000)}34.722222%{transform:scaleX(-0.57357644)}36.111111%{transform:scaleX(-0.64278761)}37.500000%{transform:scaleX(-0.70710678)}38.888889%{transform:scaleX(-0.76604444)}40.277778%{transform:scaleX(-0.81915204)}41.666667%{transform:scaleX(-0.86602540)}43.055556%{transform:scaleX(-0.90630779)}44.444444%{transform:scaleX(-0.93969262)}45.833333%{transform:scaleX(-0.96592583)}47.222222%{transform:scaleX(-0.98480775)}48.611111%{transform:scaleX(-0.99619470)}50.000000%{transform:scaleX(-1.00000000)}51.388889%{transform:scaleX(-0.99619470)}52.777778%{transform:scaleX(-0.98480775)}54.166667%{transform:scaleX(-0.96592583)}55.555556%{transform:scaleX(-0.93969262)}56.944444%{transform:scaleX(-0.90630779)}58.333333%{transform:scaleX(-0.86602540)}59.722222%{transform:scaleX(-0.81915204)}61.111111%{transform:scaleX(-0.76604444)}62.500000%{transform:scaleX(-0.70710678)}63.888889%{transform:scaleX(-0.64278761)}65.277778%{transform:scaleX(-0.57357644)}66.666667%{transform:scaleX(-0.50000000)}68.055556%{transform:scaleX(-0.42261826)}69.444444%{transform:scaleX(-0.34202014)}70.833333%{transform:scaleX(-0.25881905)}72.222222%{transform:scaleX(-0.17364818)}73.611111%{transform:scaleX(-0.08715574)}75.000000%{transform:scaleX(-0.00000000)}76.388889%{transform:scaleX(0.08715574)}77.777778%{transform:scaleX(0.17364818)}79.166667%{transform:scaleX(0.25881905)}80.555556%{transform:scaleX(0.34202014)}81.944444%{transform:scaleX(0.42261826)}83.333333%{transform:scaleX(0.50000000)}84.722222%{transform:scaleX(0.57357644)}86.111111%{transform:scaleX(0.64278761)}87.500000%{transform:scaleX(0.70710678)}88.888889%{transform:scaleX(0.76604444)}90.277778%{transform:scaleX(0.81915204)}91.666667%{transform:scaleX(0.86602540)}93.055556%{transform:scaleX(0.90630779)}94.444444%{transform:scaleX(0.93969262)}95.833333%{transform:scaleX(0.96592583)}97.222222%{transform:scaleX(0.98480775)}98.611111%{transform:scaleX(0.99619470)}100.000000%{transform:scaleX(1.00000000)}}
+.v-edge{opacity:0;animation:edge 3.2s linear infinite;}
+@keyframes edge{0%,20%,30%,70%,80%,100%{opacity:0}25%,75%{opacity:1}}
+.letter-P{transform-origin:42.55000px 44.42499px;animation-name:letter-P;}
+@keyframes letter-P{0%,18%{opacity:0;transform:translate(193.80000px,50.17501px) scale(.02)}25%,70%{opacity:1;transform:translate(0px,0px) scale(1)}75%{opacity:1;transform:translate(174.42000px,0.00000px) scale(.18)}76%,100%{opacity:0;transform:translate(193.80000px,0.00001px) scale(.02)}}
+.letter-i{transform-origin:80.95000px 43.27500px;animation-name:letter-i;}
+@keyframes letter-i{0%,20%{opacity:0;transform:translate(155.40000px,51.32500px) scale(.02)}27%,63%{opacity:1;transform:translate(0px,0px) scale(1)}68%{opacity:1;transform:translate(139.86000px,1.03500px) scale(.18)}69%,100%{opacity:0;transform:translate(155.40000px,1.15000px) scale(.02)}}
+.letter-l{transform-origin:103.30000px 43.42499px;animation-name:letter-l;}
+@keyframes letter-l{0%,22%{opacity:0;transform:translate(133.05000px,51.17501px) scale(.02)}29%,56%{opacity:1;transform:translate(0px,0px) scale(1)}61%{opacity:1;transform:translate(119.74500px,0.90000px) scale(.18)}62%,100%{opacity:0;transform:translate(133.05000px,1.00001px) scale(.02)}}
+.letter-o{transform-origin:141.35001px 54.92500px;animation-name:letter-o;}
+@keyframes letter-o{0%,24%{opacity:0;transform:translate(94.99999px,39.67500px) scale(.02)}31%,49%{opacity:1;transform:translate(0px,0px) scale(1)}54%{opacity:1;transform:translate(85.49999px,-9.45000px) scale(.18)}55%,100%{opacity:0;transform:translate(94.99999px,-10.50000px) scale(.02)}}
+.letter-t{transform-origin:186.20000px 47.80000px;animation-name:letter-t;}
+@keyframes letter-t{0%,26%{opacity:0;transform:translate(50.15000px,46.80000px) scale(.02)}33%,42%{opacity:1;transform:translate(0px,0px) scale(1)}47%{opacity:1;transform:translate(45.13500px,-3.03750px) scale(.18)}48%,100%{opacity:0;transform:translate(50.15000px,-3.37500px) scale(.02)}}
+@media(prefers-reduced-motion:reduce){.letter,.v-reveal,.v-spin,.blue-line{animation:none!important;transform:none!important;opacity:1!important}.v-edge{animation:none!important;opacity:0!important}}</style>
+
+<style>
+/* ══════════════ 设计令牌 ══════════════ */
+:root{
+  --bg:#05070c; --bg2:#080b12;
+  --panel:#0c1018; --panel2:#111827; --panel3:#0a0e16;
+  --line:#1b2231; --line2:#28324a;
+  --tx:#e9eef7; --tx2:#98a5ba; --tx3:#66738c;
+  --blue:#297cc0; --blue2:#4da3f0; --blue-dim:rgba(41,124,192,.13);
+  --orange:#e55a09; --orange2:#ff8f45; --orange-dim:rgba(229,90,9,.13);
+  --ok:#3ecf8e; --red:#e5484d;
+  --ff:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --fm:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --pad:clamp(20px,5vw,48px);
+  --maxw:1240px;
+  --r:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:78px;-webkit-text-size-adjust:100%}
+body{
+  background:var(--bg);color:var(--tx);font-family:var(--ff);
+  font-size:16px;line-height:1.72;letter-spacing:.01em;
+  overflow-x:hidden;-webkit-font-smoothing:antialiased;
+}
+/* 底纹：工程网格 + 顶部辉光 */
+body::before{
+  content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:
+    radial-gradient(1200px 620px at 50% -8%,rgba(41,124,192,.16),transparent 62%),
+    radial-gradient(900px 520px at 92% 22%,rgba(229,90,9,.07),transparent 60%),
+    var(--bg);
+}
+body::after{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.5;
+  background-image:
+    linear-gradient(rgba(41,124,192,.055) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(41,124,192,.055) 1px,transparent 1px);
+  background-size:64px 64px;
+  mask-image:linear-gradient(180deg,#000 0,transparent 78%);
+  -webkit-mask-image:linear-gradient(180deg,#000 0,transparent 78%);
+}
+img{max-width:100%;display:block}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+::selection{background:rgba(41,124,192,.4)}
+
+/* ══════════════ 通用骨架 ══════════════ */
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 var(--pad);position:relative}
+section{padding:clamp(72px,11vh,124px) 0;position:relative}
+.eyebrow{
+  font:600 12px/1 var(--fm);letter-spacing:.2em;text-transform:uppercase;
+  color:var(--blue2);display:flex;align-items:center;gap:10px;margin-bottom:22px;
+}
+.eyebrow::before{content:"";width:26px;height:1px;background:linear-gradient(90deg,var(--blue),transparent)}
+h2.sec{
+  font-size:clamp(30px,4.6vw,50px);line-height:1.16;font-weight:800;letter-spacing:-.025em;
+  margin-bottom:20px;max-width:24ch;text-wrap:balance;
+}
+h2.sec em{font-style:normal;color:var(--blue2)}
+.lede{color:var(--tx2);font-size:clamp(16px,1.55vw,19px);max-width:62ch;line-height:1.8}
+.sec-head{max-width:860px;margin-bottom:clamp(38px,5vw,60px)}
+.s2{fill:var(--blue2);font:600 11px var(--fm);letter-spacing:.14em}
+.hr{height:1px;background:linear-gradient(90deg,transparent,var(--line2) 18%,var(--line2) 82%,transparent);border:0;margin:0}
+
+.tag{
+  display:inline-flex;align-items:center;gap:6px;
+  font:600 11.5px/1 var(--fm);letter-spacing:.04em;
+  padding:5px 9px;border-radius:6px;
+  border:1px solid var(--line2);color:var(--tx2);background:rgba(255,255,255,.022);
+}
+.tag.b{border-color:rgba(41,124,192,.42);color:var(--blue2);background:var(--blue-dim)}
+.tag.o{border-color:rgba(229,90,9,.42);color:var(--orange2);background:var(--orange-dim)}
+.tag.ok{border-color:rgba(62,207,142,.4);color:var(--ok);background:rgba(62,207,142,.1)}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  height:48px;padding:0 24px;border-radius:10px;
+  font-weight:700;font-size:15px;letter-spacing:.02em;
+  border:1px solid transparent;transition:transform .18s,box-shadow .25s,background .2s,border-color .2s;
+  white-space:nowrap;
+}
+.btn-p{background:linear-gradient(180deg,var(--blue2),var(--blue));color:#fff;box-shadow:0 8px 26px -10px rgba(41,124,192,.85)}
+.btn-p:hover{transform:translateY(-2px);box-shadow:0 14px 34px -10px rgba(41,124,192,.95)}
+.btn-g{border-color:var(--line2);color:var(--tx);background:rgba(255,255,255,.03)}
+.btn-g:hover{border-color:var(--blue);background:var(--blue-dim);transform:translateY(-2px)}
+.btn-o{border-color:rgba(229,90,9,.5);color:var(--orange2);background:var(--orange-dim)}
+.btn-o:hover{background:rgba(229,90,9,.2);transform:translateY(-2px)}
+.btn:active{transform:translateY(0)}
+.cta-row{display:flex;flex-wrap:wrap;gap:13px;margin-top:34px}
+
+/* 卡片通用 */
+.card{
+  background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border:1px solid var(--line);border-radius:var(--r);
+  position:relative;overflow:hidden;
+}
+.card::before{
+  content:"";position:absolute;inset:0 0 auto;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(77,163,240,.5),transparent);
+  opacity:.7;
+}
+.num{font:700 12px/1 var(--fm);letter-spacing:.16em;color:var(--blue2);opacity:.85}
+
+/* ══════════════ 片头 ══════════════ */
+#intro{
+  position:fixed;inset:0;z-index:9000;background:#04060a;
+  display:grid;place-items:center;overflow:hidden;
+}
+#intro.gone{opacity:0;pointer-events:none;transition:opacity .75s ease .1s,visibility .75s}
+#intro::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(60% 44% at 50% 50%,rgba(41,124,192,.14),transparent 70%);
+}
+.intro-in{position:relative;z-index:2;display:grid;justify-items:center;gap:26px;padding:24px}
+#intro .wm{width:min(74vw,430px);height:auto;overflow:visible}
+/* 定格：16s 时间轴的 37.5% 处 P i l o t 与 V 全部到位 */
+.wm-still{display:block;max-width:100%}
+.wm-still svg{width:100%;height:auto;overflow:visible;display:block}
+.wm-still .blue-line{animation-delay:-6s!important;animation-play-state:paused!important}
+.wm-still .letter,.wm-still .v-reveal{animation-delay:-6s!important;animation-play-state:paused!important}
+.wm-still .v-spin{animation:none!important;transform:scaleX(1)!important}
+.intro-meta{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;
+  opacity:0;animation:metaIn .9s ease 1.05s forwards;
+}
+@keyframes metaIn{to{opacity:1}}
+.intro-meta .dot{width:4px;height:4px;border-radius:50%;background:var(--tx3)}
+.intro-skip{
+  position:absolute;right:22px;bottom:20px;z-index:3;
+  font:600 12px/1 var(--fm);color:var(--tx3);padding:9px 14px;border-radius:8px;
+  border:1px solid var(--line);background:rgba(255,255,255,.02);
+  opacity:0;animation:metaIn .6s ease .8s forwards;transition:color .2s,border-color .2s;
+}
+.intro-skip:hover{color:var(--tx2);border-color:var(--line2)}
+
+/* ══════════════ 导航 ══════════════ */
+.nav{
+  position:sticky;top:0;z-index:500;height:62px;
+  display:flex;align-items:center;
+  background:rgba(5,7,12,.78);backdrop-filter:blur(16px) saturate(150%);
+  -webkit-backdrop-filter:blur(16px) saturate(150%);
+  border-bottom:1px solid var(--line);
+}
+.nav-in{max-width:var(--maxw);margin:0 auto;padding:0 var(--pad);width:100%;display:flex;align-items:center;gap:20px}
+.nav-wm{display:block;width:96px;flex:none}
+.nav-wm svg{width:100%;height:auto;overflow:visible;display:block}
+#intro .wm-still{display:block;width:min(74vw,430px)}
+.nav-links{display:flex;gap:2px;margin-left:auto}
+.nav-links a{
+  padding:8px 11px;border-radius:7px;font-size:13.5px;color:var(--tx2);
+  transition:color .18s,background .18s;
+}
+.nav-links a:hover{color:var(--tx);background:rgba(255,255,255,.045)}
+.nav-cta{display:flex;align-items:center;gap:10px}
+.nav-org{
+  font:600 10.5px/1.35 var(--fm);letter-spacing:.14em;color:var(--tx3);
+  text-align:right;line-height:1.35;
+}
+.nav-org b{display:block;color:var(--tx2);font-size:11px;letter-spacing:.16em}
+.nav-gh{
+  display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;
+  border:1px solid var(--line2);border-radius:8px;font-size:13px;font-weight:600;color:var(--tx);
+  transition:border-color .2s,background .2s;
+}
+.nav-gh:hover{border-color:var(--blue);background:var(--blue-dim)}
+.nav-gh svg{width:15px;height:15px;fill:currentColor}
+.nav-burger{display:none;width:36px;height:36px;border:1px solid var(--line2);border-radius:8px;align-items:center;justify-content:center;margin-left:auto}
+.nav-burger i{display:block;width:15px;height:1.5px;background:var(--tx);position:relative}
+.nav-burger i::before,.nav-burger i::after{content:"";position:absolute;left:0;width:15px;height:1.5px;background:var(--tx)}
+.nav-burger i::before{top:-5px}.nav-burger i::after{top:5px}
+
+/* ══════════════ Hero ══════════════ */
+.hero{padding:clamp(64px,10vh,108px) 0 clamp(56px,8vh,90px);position:relative;overflow:hidden}
+.hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(32px,5vw,64px);align-items:center}
+.hero-logo{
+  width:min(46vw,300px);height:auto;overflow:visible;margin-bottom:30px;
+}
+.hero h1{
+  font-size:clamp(34px,5.6vw,64px);line-height:1.08;font-weight:800;letter-spacing:-.035em;
+  margin-bottom:22px;
+}
+.hero h1 .strike{position:relative;white-space:nowrap;color:var(--tx3)}
+.hero h1 .strike::after{
+  content:"";position:absolute;left:-2%;top:54%;width:104%;height:4px;border-radius:3px;
+  background:linear-gradient(90deg,var(--orange),#ff6b3d);
+  transform:scaleX(0);transform-origin:0 50%;
+  animation:strikeIn .55s cubic-bezier(.2,.8,.3,1) .9s forwards;
+  box-shadow:0 0 18px rgba(229,90,9,.55);
+}
+@keyframes strikeIn{to{transform:scaleX(1)}}
+.hero h1 .hl{
+  background:linear-gradient(100deg,var(--blue2),#8ecbff);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.hero-sub{font-size:clamp(16px,1.6vw,19px);color:var(--tx2);max-width:52ch;line-height:1.82}
+.hero-note{
+  margin-top:26px;padding:14px 16px;border-radius:11px;
+  border:1px solid rgba(229,90,9,.28);background:linear-gradient(180deg,var(--orange-dim),transparent);
+  font-size:14.5px;color:#f3c9a8;line-height:1.7;
+}
+.hero-note b{color:var(--orange2)}
+/* Hero 侧栏：小程序卡 */
+.hero-side{display:grid;gap:14px}
+.hcard{
+  padding:18px;border-radius:12px;border:1px solid var(--line);
+  background:linear-gradient(180deg,var(--panel2),var(--panel));
+  position:relative;overflow:hidden;
+}
+.hcard .hl2{font:700 11px/1 var(--fm);letter-spacing:.16em;color:var(--tx3);margin-bottom:14px}
+.metric{display:flex;align-items:baseline;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line)}
+.metric:last-child{border-bottom:0}
+.metric .k{font-size:14px;color:var(--tx2);flex:1}
+.metric .v{font:700 15px var(--fm);color:var(--blue2)}
+.metric .v.o{color:var(--orange2)}
+.metric .v.g{color:var(--ok)}
+
+/* ══════════════ S1 对比 ══════════════ */
+.vs{display:grid;grid-template-columns:1fr auto 1fr;gap:0;align-items:stretch;border-radius:var(--r);overflow:hidden;border:1px solid var(--line)}
+.vs-col{background:var(--panel3)}
+.vs-col.right{background:linear-gradient(180deg,rgba(41,124,192,.09),rgba(41,124,192,.02))}
+.vs-head{padding:20px 22px;border-bottom:1px solid var(--line)}
+.vs-head .t{font-size:17px;font-weight:700;letter-spacing:-.01em}
+.vs-head .d{font:500 12.5px/1.5 var(--fm);color:var(--tx3);letter-spacing:.06em;margin-top:5px}
+.vs-col.right .vs-head .t{color:var(--blue2)}
+.vs-mid{
+  display:grid;place-items:center;padding:0 12px;background:var(--bg2);
+  border-left:1px solid var(--line);border-right:1px solid var(--line);
+}
+.vs-mid span{
+  writing-mode:vertical-rl;font:700 11.5px var(--fm);letter-spacing:.3em;color:var(--tx3);
+}
+.vs-row{display:grid;grid-template-columns:1fr;padding:15px 22px;border-bottom:1px solid var(--line);gap:5px}
+.vs-row:last-child{border-bottom:0}
+.vs-row .k{font:600 11px/1 var(--fm);letter-spacing:.14em;color:var(--tx3)}
+.vs-row .l{font-size:14.5px;color:var(--tx2);line-height:1.66}
+.vs-col.right .vs-row .l{color:var(--tx)}
+.vs-row .l b{color:var(--blue2);font-weight:700}
+
+/* ══════════════ 截图墙 ══════════════ */
+.shots{display:grid;grid-template-columns:repeat(12,1fr);gap:clamp(14px,1.8vw,22px)}
+.shot{grid-column:span 6;display:grid;gap:12px}
+.shot.w4{grid-column:span 4}
+.shot.w5{grid-column:span 5}
+.shot.w7{grid-column:span 7}
+.shot.w8{grid-column:span 8}
+.shot.w12{grid-column:span 12}
+/* 截图自带大片空白页时，贴着顶部裁掉，别让空白占版面 */
+.cropb .frame{height:clamp(240px,26vw,320px)}
+.cropb .frame img{height:100%;object-fit:cover;object-position:top center}
+.phonepair{display:grid;grid-template-columns:1fr 1fr;gap:clamp(10px,1.3vw,16px);align-items:start}
+.pp{display:grid;gap:10px;align-content:start}
+.pp .shot-cap .ct{font-size:13.5px}
+.pp .shot-cap .cd{font-size:12.5px;line-height:1.6}
+.frame{
+  position:relative;border-radius:12px;overflow:hidden;
+  border:1px solid var(--line2);background:#fff;
+  box-shadow:0 22px 50px -26px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.035) inset;
+}
+.frame img{width:100%;height:auto;display:block}
+.frame::after{
+  content:"";position:absolute;inset:0;pointer-events:none;border-radius:12px;
+  box-shadow:0 0 0 1px rgba(255,255,255,.07) inset;
+}
+/* 顶部工具条，模拟真实浏览器/应用外框 */
+.chrome{
+  height:30px;display:flex;align-items:center;gap:6px;padding:0 11px;
+  background:#141924;border-bottom:1px solid #232a38;
+}
+.chrome i{width:9px;height:9px;border-radius:50%;background:#2d3547;display:block}
+.chrome i:nth-child(1){background:#3b4254}
+.chrome .u{
+  margin-left:6px;flex:1;height:16px;border-radius:4px;background:#1b2130;
+  font:500 9.5px/16px var(--fm);color:#5a6579;padding:0 8px;letter-spacing:.04em;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+}
+/* 手机外框 */
+.frame.phone{
+  border-radius:26px;padding:7px;background:#0f131c;border:1px solid #2b3446;
+  box-shadow:0 26px 54px -28px #000,0 0 0 1px rgba(255,255,255,.05) inset;
+  justify-self:center;width:100%;max-width:288px;
+}
+.frame.phone img{border-radius:20px}
+.frame.phone::after{border-radius:20px}
+.phone-notch{
+  width:70px;height:4px;border-radius:3px;background:#232a38;margin:0 auto 5px;
+}
+.shot-cap{display:grid;gap:5px}
+.shot-cap .ct{font-size:15px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.shot-cap .cd{font-size:13.5px;color:var(--tx2);line-height:1.7}
+.shot-cap .cd code{
+  font:500 12.5px var(--fm);background:var(--blue-dim);color:var(--blue2);
+  padding:1px 6px;border-radius:4px;
+}
+.shot:hover .frame{transform:translateY(-4px);transition:transform .3s}
+.frame{transition:transform .3s cubic-bezier(.2,.8,.3,1)}
+
+/* ══════════════ S 项目组 ══════════════ */
+.gcards{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(14px,1.8vw,20px)}
+.gcard{padding:26px 24px 28px;display:grid;gap:10px;align-content:start}
+.gcard .gt{font-size:20px;font-weight:800;letter-spacing:-.02em}
+.gcard .gd{font-size:14.5px;color:var(--tx2);line-height:1.76}
+.gcard .gd b{color:var(--tx);font-weight:700}
+.gcard .gic{
+  width:38px;height:38px;border-radius:9px;display:grid;place-items:center;margin-bottom:6px;
+  border:1px solid var(--line2);background:rgba(255,255,255,.025);color:var(--blue2);
+}
+.gcard .gic svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+/* ══════════════ S 长任务 ══════════════ */
+.long-wrap{display:grid;grid-template-columns:1fr 1fr;gap:clamp(22px,3vw,38px);align-items:stretch}
+.steps{display:grid;gap:12px}
+.step{
+  padding:20px 22px;border-radius:12px;border:1px solid var(--line);
+  background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border-left:3px solid var(--blue);
+}
+.step:nth-child(2){border-left-color:#2f9c6b}
+.step:nth-child(3){border-left-color:var(--orange)}
+.step:nth-child(4){border-left-color:#7b5cf0}
+.step .sh{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.step .sn{font:700 11px/1 var(--fm);letter-spacing:.18em;color:var(--tx3)}
+.step .stt{font-size:18px;font-weight:700;letter-spacing:-.015em}
+.step .sd{font-size:14.5px;color:var(--tx2);line-height:1.74}
+.step .sd b{color:var(--tx);font-weight:700}
+/* 执行日志 */
+.logbox{
+  border-radius:12px;border:1px solid var(--line);background:var(--panel3);
+  overflow:hidden;display:flex;flex-direction:column;
+}
+.loghead{
+  display:flex;align-items:center;gap:9px;padding:11px 15px;
+  border-bottom:1px solid var(--line);background:var(--panel2);
+  font:600 11.5px/1 var(--fm);letter-spacing:.1em;color:var(--tx2);
+}
+.loghead .live{
+  width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(62,207,142,.6);
+  animation:pulse 2s infinite;
+}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 rgba(62,207,142,.55)}
+  70%{box-shadow:0 0 0 8px rgba(62,207,142,0)}
+  100%{box-shadow:0 0 0 0 rgba(62,207,142,0)}
+}
+.loghead .t{margin-left:auto;color:var(--tx3);letter-spacing:.04em}
+.logbody{padding:14px 15px;font:12.5px/1.95 var(--fm);max-height:430px;overflow:hidden;flex:1}
+.logline{display:flex;gap:11px;opacity:0;animation:logIn .4s ease forwards}
+@keyframes logIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+.logline .ts{color:var(--tx3);flex:none;width:56px}
+.logline .tx{color:var(--tx2);min-width:0}
+.logline .tx b{color:var(--tx)}
+.logline .tx .b{color:var(--blue2)}
+.logline .tx .o{color:var(--orange2)}
+.logline .tx .g{color:var(--ok)}
+.logline.okrow{border-left:2px solid var(--ok);padding-left:10px;margin-left:-2px;background:linear-gradient(90deg,rgba(62,207,142,.07),transparent)}
+.logline.pend{border-left:2px solid var(--orange);padding-left:10px;margin-left:-2px;background:linear-gradient(90deg,rgba(229,90,9,.07),transparent)}
+
+/* ══════════════ S 标注演示 ══════════════ */
+.demo{
+  border-radius:16px;border:1px solid var(--line2);overflow:hidden;
+  background:#0b0f17;box-shadow:0 30px 70px -34px #000;
+}
+.demo-bar{
+  height:44px;display:flex;align-items:center;gap:11px;padding:0 15px;
+  background:#121721;border-bottom:1px solid #232a38;font-size:13px;
+}
+.demo-bar .dt{font-weight:700}
+.demo-bar .vv{
+  font:700 11px/1 var(--fm);padding:4px 7px;border-radius:5px;
+  background:rgba(41,124,192,.2);color:var(--blue2);border:1px solid rgba(41,124,192,.4);
+  transition:background .3s,color .3s,border-color .3s;
+}
+.demo-bar .vv.v2{background:rgba(62,207,142,.18);color:var(--ok);border-color:rgba(62,207,142,.45)}
+.demo-bar .tools{
+  margin-left:auto;display:flex;gap:6px;flex:none;
+  overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+}
+.demo-bar .tools::-webkit-scrollbar{display:none}
+.demo-bar .tools b{
+  font:600 11px/1 var(--fm);letter-spacing:.06em;color:var(--tx3);
+  padding:5px 8px;border:1px solid #262e3d;border-radius:6px;
+}
+.demo-bar .tools b.on{color:var(--tx);border-color:#3a465c;background:rgba(255,255,255,.05)}
+.demo-main{display:grid;grid-template-columns:1fr 290px;min-height:430px}
+.demo-canvas{
+  position:relative;background:#f4f1ea;padding:18px;overflow:hidden;
+  border-right:1px solid #232a38;
+}
+.demo-canvas svg{width:100%;height:100%;display:block}
+/* 光标 */
+.cur{
+  position:absolute;width:22px;height:22px;margin:-3px 0 0 -3px;pointer-events:none;
+  opacity:0;z-index:9;
+  filter:drop-shadow(0 2px 5px rgba(0,0,0,.4));
+  transition:opacity .22s,left .95s cubic-bezier(.45,.05,.25,1),top .95s cubic-bezier(.45,.05,.25,1);
+}
+.cur.on{opacity:1}
+.cur svg{width:100%;height:100%;fill:#111;stroke:#fff;stroke-width:1.4}
+/* 演示字幕：钉在画布底部中央，不压成果 */
+.demo-label{
+  position:absolute;z-index:8;left:50%;bottom:14px;padding:7px 13px;border-radius:9px;
+  background:rgba(10,13,20,.93);border:1px solid var(--line2);
+  font:600 12.5px/1.5 var(--ff);color:var(--tx);pointer-events:none;
+  opacity:0;transform:translate(-50%,6px);transition:opacity .25s,transform .25s;
+  box-shadow:0 12px 30px -14px #000;max-width:min(78%,420px);text-align:center;
+}
+.demo-label.on{opacity:1;transform:translate(-50%,0)}
+.demo-label .sm{display:block;font:500 10.5px/1.45 var(--fm);color:var(--tx3);margin-top:3px}
+/* 批注侧栏 */
+.demo-side{background:#0e1219;display:grid;grid-template-rows:auto 1fr auto;min-height:0}
+.dside-h{
+  padding:14px 16px;border-bottom:1px solid var(--line);
+  font:700 12.5px/1 var(--ff);display:flex;align-items:center;gap:9px;
+}
+.dside-h .n{
+  margin-left:auto;font:700 11px/1 var(--fm);padding:4px 8px;border-radius:20px;
+  background:rgba(229,90,9,.16);color:var(--orange2);border:1px solid rgba(229,90,9,.35);
+  transition:all .3s;
+}
+.dside-h .n.done{background:rgba(62,207,142,.16);color:var(--ok);border-color:rgba(62,207,142,.35)}
+.dside-body{padding:13px;display:grid;gap:10px;align-content:start;overflow-y:auto;max-height:330px}
+.ditem{
+  padding:12px 13px;border-radius:9px;border:1px solid var(--line2);
+  background:var(--panel2);display:grid;gap:7px;
+  opacity:0;transform:translateY(8px);animation:itemIn .45s cubic-bezier(.2,.8,.3,1) forwards;
+}
+@keyframes itemIn{to{opacity:1;transform:none}}
+.ditem .dh{display:flex;align-items:center;gap:8px}
+.ditem .no{
+  width:19px;height:19px;border-radius:5px;display:grid;place-items:center;
+  font:700 11px/1 var(--fm);color:#fff;flex:none;
+}
+.ditem.box .no{background:var(--blue)}
+.ditem.ink .no{background:var(--orange)}
+.ditem .kind{font:600 10.5px/1 var(--fm);letter-spacing:.1em;color:var(--tx3)}
+.ditem .kind b{color:var(--tx2);font-weight:600}
+.ditem .dtxt{font-size:13.5px;color:var(--tx);line-height:1.66}
+.ditem .dbtns{display:flex;gap:7px;margin-top:2px}
+.ditem .dbtns button{
+  font:600 11px/1 var(--ff);padding:5px 9px;border-radius:6px;
+  border:1px solid var(--line2);color:var(--tx3);transition:all .2s;
+}
+.ditem .dbtns button:hover{color:var(--tx2);border-color:#3a465c;background:rgba(255,255,255,.04)}
+.dside-f{padding:13px;display:grid;gap:9px;border-top:1px solid var(--line)}
+.dside-f .hint{font-size:11.5px;color:var(--tx3);text-align:center;line-height:1.5}
+.dside-f .row{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.dside-f .btn{height:42px;font-size:13.5px;padding:0 10px}
+.btn.submit{
+  background:linear-gradient(180deg,#3f7ffb,#2f5fe0);color:#fff;
+  animation:subReady .5s ease;
+}
+@keyframes subReady{0%{transform:scale(1)}45%{transform:scale(1.05)}100%{transform:scale(1)}}
+.dside-f .btn.sent{
+  background:linear-gradient(180deg,rgba(62,207,142,.28),rgba(62,207,142,.16));
+  color:var(--ok);border:1px solid rgba(62,207,142,.5);animation:none;
+}
+/* 演示下的说明 */
+.demo-notes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
+.demo-note{
+  padding:14px 15px;border-radius:10px;border:1px solid var(--line);
+  background:var(--panel3);font-size:13px;color:var(--tx2);line-height:1.68;
+}
+.demo-note b{color:var(--tx);display:block;margin-bottom:4px;font-size:13.5px}
+.demo-note .ic{color:var(--blue2);margin-right:5px}
+
+/* ══════════════ S 结果展示 ══════════════ */
+.res{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(14px,1.8vw,20px)}
+.rcard{
+  border-radius:12px;border:1px solid var(--line);overflow:hidden;
+  background:linear-gradient(180deg,var(--panel2),var(--panel));
+  display:grid;grid-template-rows:auto 1fr;transition:transform .3s cubic-bezier(.2,.8,.3,1),border-color .3s;
+}
+.rcard:hover{transform:translateY(-4px);border-color:var(--line2)}
+.rviz{
+  position:relative;background:#fff;border-bottom:1px solid var(--line);
+  aspect-ratio:4/3;overflow:hidden;display:grid;place-items:center;
+}
+.rviz.dark{background:#0a0e16}
+.rviz svg{width:100%;height:100%;display:block}
+.rviz img{width:100%;height:100%;object-fit:cover}
+.rviz .ftag{
+  position:absolute;left:10px;bottom:10px;font:700 10px/1 var(--fm);letter-spacing:.1em;
+  padding:5px 8px;border-radius:5px;background:rgba(8,11,18,.85);color:var(--blue2);
+  border:1px solid rgba(41,124,192,.4);backdrop-filter:blur(6px);
+}
+.rbody{padding:17px 18px 19px;display:grid;gap:7px;align-content:start}
+.rtitle{font-size:16px;font-weight:700;letter-spacing:-.015em;display:flex;align-items:center;gap:8px}
+.rtitle .ic{width:16px;height:16px;flex:none;fill:none;stroke:var(--blue2);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.rdesc{font-size:13.5px;color:var(--tx2);line-height:1.7}
+.rfmt{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+.rfmt .tag{font-size:10.5px;padding:4px 7px}
+
+/* 横向大卡（图文 / 音视频） */
+.rwide{grid-column:span 2;grid-template-columns:1.15fr 1fr;grid-template-rows:1fr}
+.rwide .rviz{aspect-ratio:auto;border-bottom:0;border-right:1px solid var(--line)}
+
+/* ══════════════ S 开源 ══════════════ */
+.open-wrap{display:grid;grid-template-columns:1fr 1fr;gap:clamp(22px,3vw,40px);align-items:start}
+.oplist{display:grid;gap:12px}
+.opitem{padding:20px 22px;border-radius:12px;border:1px solid var(--line);background:var(--panel);display:grid;gap:8px}
+.opitem .oi{display:flex;align-items:center;gap:10px}
+.opitem .oin{
+  width:24px;height:24px;border-radius:6px;display:grid;place-items:center;flex:none;
+  font:700 11px/1 var(--fm);background:var(--blue-dim);color:var(--blue2);border:1px solid rgba(41,124,192,.35);
+}
+.opitem .oit{font-size:17px;font-weight:700;letter-spacing:-.015em}
+.opitem .oid{font-size:14.5px;color:var(--tx2);line-height:1.74}
+.opitem .oid b{color:var(--tx);font-weight:700}
+.modelbox{
+  border-radius:12px;border:1px solid var(--line);background:var(--panel3);
+  padding:20px 22px;display:grid;gap:13px;
+}
+.modelbox .mh{font:700 11.5px/1 var(--fm);letter-spacing:.15em;color:var(--tx3)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{
+  padding:8px 13px;border-radius:8px;border:1px solid var(--line2);
+  background:var(--panel2);font-size:13.5px;font-weight:600;color:var(--tx2);
+  transition:all .22s;
+}
+.chip:hover{border-color:var(--blue);color:var(--tx);transform:translateY(-2px)}
+.chip.hl{border-color:rgba(229,90,9,.4);color:var(--orange2);background:var(--orange-dim)}
+.ghbox{
+  border-radius:12px;border:1px solid rgba(41,124,192,.3);
+  background:linear-gradient(180deg,rgba(41,124,192,.12),rgba(41,124,192,.03));
+  padding:18px 20px;display:grid;gap:11px;
+}
+.ghbox .gurl{
+  font:600 14px/1.5 var(--fm);color:var(--blue2);word-break:break-all;
+  display:flex;align-items:center;gap:9px;
+}
+.ghbox .gurl svg{width:16px;height:16px;fill:currentColor;flex:none}
+.ghbox .gd{font-size:13.5px;color:var(--tx2);line-height:1.7}
+
+/* ══════════════ S 设备 ══════════════ */
+.fleet{display:grid;grid-template-columns:1.25fr .75fr;gap:clamp(22px,3vw,40px);align-items:center}
+.fleet-vis{position:relative}
+.fleet-vis svg{width:100%;height:auto;overflow:visible}
+.fleet-notes{display:grid;gap:12px}
+.fnote{
+  padding:16px 18px;border-radius:11px;border:1px solid var(--line);background:var(--panel);
+  display:grid;gap:6px;
+}
+.fnote .ft{font-size:15.5px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+.fnote .ft .dot{width:7px;height:7px;border-radius:50%;background:var(--blue2);flex:none}
+.fnote:nth-child(2) .ft .dot{background:var(--orange2)}
+.fnote:nth-child(3) .ft .dot{background:var(--ok)}
+.fnote .fd{font-size:13.5px;color:var(--tx2);line-height:1.72}
+/* 设备拓扑上的数据流动画 */
+.pk{animation:pkFlow 2.4s linear infinite}
+.pk2{animation-delay:-.6s}.pk3{animation-delay:-1.2s}.pk4{animation-delay:-1.8s}
+@keyframes pkFlow{from{stroke-dashoffset:0}to{stroke-dashoffset:-230}}
+.ring{transform-box:fill-box;transform-origin:center;animation:ringOut 3.6s ease-out infinite}
+@keyframes ringOut{
+  0%{opacity:.85;transform:scale(.92)}
+  70%{opacity:0;transform:scale(1.14)}
+  100%{opacity:0;transform:scale(1.14)}
+}
+@media(prefers-reduced-motion:reduce){.pk,.ring{animation:none}}
+
+/* ══════════════ 结尾 CTA ══════════════ */
+.end{text-align:center;padding:clamp(80px,12vh,140px) 0 clamp(56px,8vh,84px)}
+.end .wm{width:min(38vw,190px);height:auto;overflow:visible;margin:0 auto 28px;display:block}
+.end h2{font-size:clamp(28px,4.4vw,46px);font-weight:800;letter-spacing:-.03em;line-height:1.14;margin-bottom:18px}
+.end h2 em{font-style:normal;color:var(--blue2)}
+.end p{color:var(--tx2);font-size:clamp(15px,1.5vw,18px);max-width:52ch;margin:0 auto;line-height:1.8}
+.end .cta-row{justify-content:center;margin-top:36px}
+.end .gh{
+  margin-top:30px;display:inline-flex;align-items:center;gap:10px;padding:12px 18px;
+  border:1px solid var(--line2);border-radius:10px;background:var(--panel);
+  font:600 13.5px var(--fm);color:var(--blue2);transition:all .22s;
+}
+.end .gh:hover{border-color:var(--blue);background:var(--blue-dim);transform:translateY(-2px)}
+.end .gh svg{width:16px;height:16px;fill:currentColor}
+
+/* ══════════════ 页脚 ══════════════ */
+.foot{border-top:1px solid var(--line);padding:38px 0 44px}
+.foot-in{max-width:var(--maxw);margin:0 auto;padding:0 var(--pad);display:grid;gap:26px}
+.foot-top{display:flex;align-items:flex-start;gap:24px;flex-wrap:wrap}
+.foot-top .wm{width:88px;height:auto;overflow:visible;flex:none}
+.foot-desc{font-size:13.5px;color:var(--tx3);line-height:1.76;max-width:46ch;flex:1;min-width:260px}
+.foot-links{display:flex;gap:20px;flex-wrap:wrap;margin-left:auto}
+.foot-links a{
+  font-size:13px;color:var(--tx2);display:inline-flex;align-items:center;gap:7px;
+  transition:color .2s;
+}
+.foot-links a:hover{color:var(--blue2)}
+.foot-links svg{width:14px;height:14px;fill:currentColor}
+.foot-note{
+  font-size:12px;color:var(--tx3);line-height:1.8;padding-top:22px;border-top:1px solid var(--line);
+}
+.foot-note b{color:var(--tx2);font-weight:600}
+.foot-note .org{color:var(--tx2);font-weight:700;letter-spacing:.02em}
+.foot-note a{color:var(--blue2);border-bottom:1px solid rgba(77,163,240,.3)}
+.foot-note a:hover{border-bottom-color:var(--blue2)}
+
+/* ══════════════ S 流程图 ══════════════ */
+.flowviz{
+  border:1px solid var(--line);border-radius:var(--r);background:var(--panel3);
+  padding:clamp(14px,2vw,22px);overflow:hidden;
+}
+.flowviz svg{width:100%;height:auto;display:block}
+.flowsteps{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:16px}
+.fstep{padding:12px 13px;border-radius:10px;border:1px solid var(--line);background:var(--panel)}
+.fstep .fn{font:700 10.5px/1 var(--fm);letter-spacing:.14em;color:var(--tx3)}
+.fstep .ft2{font-size:13.5px;font-weight:700;margin:7px 0 5px}
+.fstep .fd2{font-size:12.5px;color:var(--tx2);line-height:1.62}
+.fstep:nth-child(2) .fn,.fstep:nth-child(2) .ft2{color:var(--blue2)}
+.fstep:nth-child(5) .fn,.fstep:nth-child(5) .ft2{color:var(--orange2)}
+@media(max-width:1080px){.flowsteps{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:680px){.flowsteps{grid-template-columns:1fr}}
+
+/* ══════════════ 响应式 ══════════════ */
+@media(max-width:1080px){
+  .hero-grid{grid-template-columns:1fr;gap:34px}
+  .hero-side{grid-template-columns:repeat(2,1fr);display:grid}
+  .long-wrap,.open-wrap,.fleet{grid-template-columns:1fr;gap:26px}
+  .fleet .fleet-side{order:-1}
+  .demo-main{grid-template-columns:1fr 250px}
+  .nav-links{display:none}
+  .nav-burger{display:flex}
+  .nav-org{display:none}
+  .nav-cta{margin-left:auto}
+}
+@media(max-width:860px){
+  .vs{grid-template-columns:1fr}
+  .vs-mid{padding:12px;border-left:0;border-right:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .vs-mid span{writing-mode:horizontal-tb;letter-spacing:.24em}
+  .gcards,.res,.demo-notes{grid-template-columns:1fr}
+  .rwide{grid-column:span 1;grid-template-columns:1fr}
+  .rwide .rviz{aspect-ratio:4/3;border-bottom:1px solid var(--line);border-right:0}
+  .shot,.shot.w4,.shot.w5,.shot.w7,.shot.w8{grid-column:span 12}
+  .hero-side{grid-template-columns:1fr}
+  .phonepair{grid-template-columns:1fr 1fr}
+}
+@media(max-width:560px){
+  .phonepair{grid-template-columns:1fr}
+}
+@media(max-width:680px){
+  section{padding:clamp(56px,9vh,80px) 0}
+  .hero-logo{width:min(62vw,230px)}
+  .demo-bar{height:auto;min-height:44px;flex-wrap:wrap;row-gap:8px;padding:9px 15px}
+  .demo-bar .tools{margin-left:0;width:100%;max-width:100%}
+  .demo-bar .tools b{flex:none}
+  .demo-main{grid-template-columns:1fr}
+  .demo-canvas{border-right:0;border-bottom:1px solid #232a38;min-height:280px}
+  .demo-side{grid-template-rows:auto auto auto}
+  .dside-body{max-height:none}
+  .shots{gap:26px}
+  .foot-links{margin-left:0;width:100%}
+  .end .wm{width:150px}
+}
+@media(max-width:400px){
+  .nav .wm{width:80px}
+  .nav-gh span{display:none}
+  .nav-gh{padding:0 10px}
+}
+
+/* ══════════════ 动效降级 ══════════════ */
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{
+    animation-duration:.001ms!important;animation-iteration-count:1!important;
+    transition-duration:.001ms!important;scroll-behavior:auto!important;
+  }
+  .logline,.ditem{opacity:1!important;transform:none!important}
+  .hero h1 .strike::after{transform:scaleX(1)}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ 片头 ═══════════ -->
+<div id="intro">
+  <div class="intro-in">
+    <span class="wm-still"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -18 310 130" width="620" height="260"><title id="title">PilotV · 无限循环</title><desc id="desc">蓝点延伸成线，生成橙色 V 和 Pilot，V 绕自身竖直轴左右转身。V 依次吞入 t、o、l、i、P，再缩回线和点，16 秒平滑循环。减少动态效果时显示完整静态字标。</desc><g class="letter letter-P" data-letter="P"><g transform="translate(8.00 80.85) scale(0.050 -0.050)"><path d="M655 742Q787 742 845.0 805.0Q903 868 903 981Q903 1031 888.0 1072.0Q873 1113 842.5 1142.5Q812 1172 765.5 1188.0Q719 1204 655 1204H479V742ZM655 1457Q809 1457 919.5 1420.5Q1030 1384 1101.5 1320.0Q1173 1256 1207.0 1169.0Q1241 1082 1241 981Q1241 872 1206.0 781.0Q1171 690 1099.0 625.0Q1027 560 916.5 523.5Q806 487 655 487H479V0H141V1457Z" fill="#FAFAFA" /></g></g><g class="letter letter-i" data-letter="i"><g class="fly-i" data-station="213.53" data-foot="80.95"><g transform="translate(67.60 80.85) scale(0.050 -0.050)"><path d="M422 1037V0H112V1037ZM454 1321Q454 1284 439.0 1251.5Q424 1219 398.0 1194.5Q372 1170 337.5 1155.5Q303 1141 264 1141Q226 1141 193.0 1155.5Q160 1170 134.5 1194.5Q109 1219 94.5 1251.5Q80 1284 80 1321Q80 1359 94.5 1392.0Q109 1425 134.5 1450.0Q160 1475 193.0 1489.0Q226 1503 264 1503Q303 1503 337.5 1489.0Q372 1475 398.0 1450.0Q424 1425 439.0 1392.0Q454 1359 454 1321Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-l" data-letter="l"><g class="fly-l" data-station="228.51" data-foot="103.30"><g transform="translate(90.30 80.85) scale(0.050 -0.050)"><path d="M415 1497V0H105V1497Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-o" data-letter="o"><g class="fly-o" data-station="239.91" data-foot="141.35"><g transform="translate(112.30 80.85) scale(0.050 -0.050)"><path d="M583 1053Q701 1053 798.0 1016.0Q895 979 964.5 910.0Q1034 841 1072.5 742.5Q1111 644 1111 521Q1111 397 1072.5 297.5Q1034 198 964.5 128.5Q895 59 798.0 21.5Q701 -16 583 -16Q464 -16 366.5 21.5Q269 59 198.5 128.5Q128 198 89.5 297.5Q51 397 51 521Q51 644 89.5 742.5Q128 841 198.5 910.0Q269 979 366.5 1016.0Q464 1053 583 1053ZM583 214Q690 214 740.5 289.5Q791 365 791 519Q791 673 740.5 748.0Q690 823 583 823Q473 823 422.0 748.0Q371 673 371 519Q371 365 422.0 289.5Q473 214 583 214Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-t" data-letter="t"><g class="fly-t" data-station="252.04" data-foot="186.20"><g transform="translate(166.40 80.85) scale(0.050 -0.050)"><path d="M476 -16Q402 -16 345.5 5.5Q289 27 250.5 66.5Q212 106 192.0 162.0Q172 218 172 287V823H84Q60 823 43.0 838.5Q26 854 26 884V1005L191 1037L252 1290Q264 1338 320 1338H482V1035H739V823H482V308Q482 272 499.5 248.5Q517 225 550 225Q567 225 578.5 228.5Q590 232 598.5 236.5Q607 241 614.5 244.5Q622 248 632 248Q646 248 654.5 241.5Q663 235 672 221L766 74Q706 29 631.0 6.5Q556 -16 476 -16Z" fill="#FAFAFA" /></g></g></g><g class="v-reveal" data-letter="V"><line class="v-edge" x1="236.35" x2="236.35" y1="8" y2="80.85" stroke="#e55a09" stroke-width=".8" stroke-linecap="round" /><g class="v-spin"><g><g><g transform="translate(200.80 80.85) scale(0.050 -0.050)"><path d="M1448 1457 864 0H558L-26 1457H246Q290 1457 317.0 1436.5Q344 1416 358 1384L640 604Q660 553 679.0 492.5Q698 432 715 366Q729 432 746.5 492.5Q764 553 784 604L1064 1384Q1075 1412 1103.5 1434.5Q1132 1457 1174 1457Z" fill="#e55a09" stroke="#e55a09" stroke-width="32" paint-order="stroke" /></g></g></g></g></g><rect class="blue-line" x="200.70" y="91.85" width="71.30" height="5.5" rx="2.75" fill="#297cc0" /></svg></span>
+    <div class="intro-meta">
+      <span style="font:700 12px/1 var(--fm);letter-spacing:.26em;color:var(--tx2)">VICTLINK</span>
+      <span class="dot"></span>
+      <span style="font-size:13px;color:var(--tx2)">微麟科技研发</span>
+      <span class="dot"></span>
+      <span style="font:600 11.5px/1 var(--fm);letter-spacing:.14em;color:var(--tx3)">开源生产力工具</span>
+    </div>
+  </div>
+  <button class="intro-skip" id="skip">跳过 ⟶</button>
+</div>
+
+<!-- ═══════════ 导航 ═══════════ -->
+<nav class="nav">
+  <div class="nav-in">
+    <span class="wm-still nav-wm"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -18 310 130" width="620" height="260"><title id="title">PilotV · 无限循环</title><desc id="desc">蓝点延伸成线，生成橙色 V 和 Pilot，V 绕自身竖直轴左右转身。V 依次吞入 t、o、l、i、P，再缩回线和点，16 秒平滑循环。减少动态效果时显示完整静态字标。</desc><g class="letter letter-P" data-letter="P"><g transform="translate(8.00 80.85) scale(0.050 -0.050)"><path d="M655 742Q787 742 845.0 805.0Q903 868 903 981Q903 1031 888.0 1072.0Q873 1113 842.5 1142.5Q812 1172 765.5 1188.0Q719 1204 655 1204H479V742ZM655 1457Q809 1457 919.5 1420.5Q1030 1384 1101.5 1320.0Q1173 1256 1207.0 1169.0Q1241 1082 1241 981Q1241 872 1206.0 781.0Q1171 690 1099.0 625.0Q1027 560 916.5 523.5Q806 487 655 487H479V0H141V1457Z" fill="#FAFAFA" /></g></g><g class="letter letter-i" data-letter="i"><g class="fly-i" data-station="213.53" data-foot="80.95"><g transform="translate(67.60 80.85) scale(0.050 -0.050)"><path d="M422 1037V0H112V1037ZM454 1321Q454 1284 439.0 1251.5Q424 1219 398.0 1194.5Q372 1170 337.5 1155.5Q303 1141 264 1141Q226 1141 193.0 1155.5Q160 1170 134.5 1194.5Q109 1219 94.5 1251.5Q80 1284 80 1321Q80 1359 94.5 1392.0Q109 1425 134.5 1450.0Q160 1475 193.0 1489.0Q226 1503 264 1503Q303 1503 337.5 1489.0Q372 1475 398.0 1450.0Q424 1425 439.0 1392.0Q454 1359 454 1321Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-l" data-letter="l"><g class="fly-l" data-station="228.51" data-foot="103.30"><g transform="translate(90.30 80.85) scale(0.050 -0.050)"><path d="M415 1497V0H105V1497Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-o" data-letter="o"><g class="fly-o" data-station="239.91" data-foot="141.35"><g transform="translate(112.30 80.85) scale(0.050 -0.050)"><path d="M583 1053Q701 1053 798.0 1016.0Q895 979 964.5 910.0Q1034 841 1072.5 742.5Q1111 644 1111 521Q1111 397 1072.5 297.5Q1034 198 964.5 128.5Q895 59 798.0 21.5Q701 -16 583 -16Q464 -16 366.5 21.5Q269 59 198.5 128.5Q128 198 89.5 297.5Q51 397 51 521Q51 644 89.5 742.5Q128 841 198.5 910.0Q269 979 366.5 1016.0Q464 1053 583 1053ZM583 214Q690 214 740.5 289.5Q791 365 791 519Q791 673 740.5 748.0Q690 823 583 823Q473 823 422.0 748.0Q371 673 371 519Q371 365 422.0 289.5Q473 214 583 214Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-t" data-letter="t"><g class="fly-t" data-station="252.04" data-foot="186.20"><g transform="translate(166.40 80.85) scale(0.050 -0.050)"><path d="M476 -16Q402 -16 345.5 5.5Q289 27 250.5 66.5Q212 106 192.0 162.0Q172 218 172 287V823H84Q60 823 43.0 838.5Q26 854 26 884V1005L191 1037L252 1290Q264 1338 320 1338H482V1035H739V823H482V308Q482 272 499.5 248.5Q517 225 550 225Q567 225 578.5 228.5Q590 232 598.5 236.5Q607 241 614.5 244.5Q622 248 632 248Q646 248 654.5 241.5Q663 235 672 221L766 74Q706 29 631.0 6.5Q556 -16 476 -16Z" fill="#FAFAFA" /></g></g></g><g class="v-reveal" data-letter="V"><line class="v-edge" x1="236.35" x2="236.35" y1="8" y2="80.85" stroke="#e55a09" stroke-width=".8" stroke-linecap="round" /><g class="v-spin"><g><g><g transform="translate(200.80 80.85) scale(0.050 -0.050)"><path d="M1448 1457 864 0H558L-26 1457H246Q290 1457 317.0 1436.5Q344 1416 358 1384L640 604Q660 553 679.0 492.5Q698 432 715 366Q729 432 746.5 492.5Q764 553 784 604L1064 1384Q1075 1412 1103.5 1434.5Q1132 1457 1174 1457Z" fill="#e55a09" stroke="#e55a09" stroke-width="32" paint-order="stroke" /></g></g></g></g></g><rect class="blue-line" x="200.70" y="91.85" width="71.30" height="5.5" rx="2.75" fill="#297cc0" /></svg></span>
+    <div class="nav-links">
+      <a href="#shot">界面</a>
+      <a href="#group">项目组</a>
+      <a href="#long">长任务</a>
+      <a href="#mark">批注返工</a>
+      <a href="#works">交付物</a>
+      <a href="#open">开源</a>
+      <a href="#fleet">设备</a>
+    </div>
+    <div class="nav-cta">
+      <span class="nav-org"><b>VICTLINK</b>微麟科技</span>
+      <a class="nav-gh" href="https://github.com/VICTLINK/PilotV" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        <span>GitHub</span>
+      </a>
+      <button class="nav-burger" id="burger" aria-label="菜单"><i></i></button>
+    </div>
+  </div>
+</nav>
+
+<!-- ═══════════ Hero ═══════════ -->
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="eyebrow">VICTLINK 微麟科技 · 研发</div>
+      <div class="hero-logo wm-still"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -18 310 130" width="620" height="260"><title id="title">PilotV · 无限循环</title><desc id="desc">蓝点延伸成线，生成橙色 V 和 Pilot，V 绕自身竖直轴左右转身。V 依次吞入 t、o、l、i、P，再缩回线和点，16 秒平滑循环。减少动态效果时显示完整静态字标。</desc><g class="letter letter-P" data-letter="P"><g transform="translate(8.00 80.85) scale(0.050 -0.050)"><path d="M655 742Q787 742 845.0 805.0Q903 868 903 981Q903 1031 888.0 1072.0Q873 1113 842.5 1142.5Q812 1172 765.5 1188.0Q719 1204 655 1204H479V742ZM655 1457Q809 1457 919.5 1420.5Q1030 1384 1101.5 1320.0Q1173 1256 1207.0 1169.0Q1241 1082 1241 981Q1241 872 1206.0 781.0Q1171 690 1099.0 625.0Q1027 560 916.5 523.5Q806 487 655 487H479V0H141V1457Z" fill="#FAFAFA" /></g></g><g class="letter letter-i" data-letter="i"><g class="fly-i" data-station="213.53" data-foot="80.95"><g transform="translate(67.60 80.85) scale(0.050 -0.050)"><path d="M422 1037V0H112V1037ZM454 1321Q454 1284 439.0 1251.5Q424 1219 398.0 1194.5Q372 1170 337.5 1155.5Q303 1141 264 1141Q226 1141 193.0 1155.5Q160 1170 134.5 1194.5Q109 1219 94.5 1251.5Q80 1284 80 1321Q80 1359 94.5 1392.0Q109 1425 134.5 1450.0Q160 1475 193.0 1489.0Q226 1503 264 1503Q303 1503 337.5 1489.0Q372 1475 398.0 1450.0Q424 1425 439.0 1392.0Q454 1359 454 1321Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-l" data-letter="l"><g class="fly-l" data-station="228.51" data-foot="103.30"><g transform="translate(90.30 80.85) scale(0.050 -0.050)"><path d="M415 1497V0H105V1497Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-o" data-letter="o"><g class="fly-o" data-station="239.91" data-foot="141.35"><g transform="translate(112.30 80.85) scale(0.050 -0.050)"><path d="M583 1053Q701 1053 798.0 1016.0Q895 979 964.5 910.0Q1034 841 1072.5 742.5Q1111 644 1111 521Q1111 397 1072.5 297.5Q1034 198 964.5 128.5Q895 59 798.0 21.5Q701 -16 583 -16Q464 -16 366.5 21.5Q269 59 198.5 128.5Q128 198 89.5 297.5Q51 397 51 521Q51 644 89.5 742.5Q128 841 198.5 910.0Q269 979 366.5 1016.0Q464 1053 583 1053ZM583 214Q690 214 740.5 289.5Q791 365 791 519Q791 673 740.5 748.0Q690 823 583 823Q473 823 422.0 748.0Q371 673 371 519Q371 365 422.0 289.5Q473 214 583 214Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-t" data-letter="t"><g class="fly-t" data-station="252.04" data-foot="186.20"><g transform="translate(166.40 80.85) scale(0.050 -0.050)"><path d="M476 -16Q402 -16 345.5 5.5Q289 27 250.5 66.5Q212 106 192.0 162.0Q172 218 172 287V823H84Q60 823 43.0 838.5Q26 854 26 884V1005L191 1037L252 1290Q264 1338 320 1338H482V1035H739V823H482V308Q482 272 499.5 248.5Q517 225 550 225Q567 225 578.5 228.5Q590 232 598.5 236.5Q607 241 614.5 244.5Q622 248 632 248Q646 248 654.5 241.5Q663 235 672 221L766 74Q706 29 631.0 6.5Q556 -16 476 -16Z" fill="#FAFAFA" /></g></g></g><g class="v-reveal" data-letter="V"><line class="v-edge" x1="236.35" x2="236.35" y1="8" y2="80.85" stroke="#e55a09" stroke-width=".8" stroke-linecap="round" /><g class="v-spin"><g><g><g transform="translate(200.80 80.85) scale(0.050 -0.050)"><path d="M1448 1457 864 0H558L-26 1457H246Q290 1457 317.0 1436.5Q344 1416 358 1384L640 604Q660 553 679.0 492.5Q698 432 715 366Q729 432 746.5 492.5Q764 553 784 604L1064 1384Q1075 1412 1103.5 1434.5Q1132 1457 1174 1457Z" fill="#e55a09" stroke="#e55a09" stroke-width="32" paint-order="stroke" /></g></g></g></g></g><rect class="blue-line" x="200.70" y="91.85" width="71.30" height="5.5" rx="2.75" fill="#297cc0" /></svg></div>
+      <h1>这是<span class="hl">生产力工具</span>，<br>不是<span class="strike">聊天助手</span></h1>
+      <p class="hero-sub">活派下去，它自己干完、反复返工到你要的样子，把<strong style="color:var(--tx)">文件</strong>交到你手上。</p>
+      <div class="hero-note">
+        <b>一句话：</b>聊天助手等你问，它答完就忘。PilotV 接了活就往下走 —— 一件事从接单到交文件，中间几个小时它自己在跑。
+      </div>
+      <div class="cta-row">
+        <a class="btn btn-p" href="#shot">看真实界面</a>
+        <a class="btn btn-g" href="https://github.com/VICTLINK/PilotV" target="_blank" rel="noopener">GitHub · VICTLINK/PilotV</a>
+      </div>
+    </div>
+    <aside class="hero-side">
+      <div class="hcard">
+        <div class="hl2">一个项目里同时发生的事</div>
+        <div class="metric"><span class="k">项目组 / 独立工作区</span><span class="v">3</span></div>
+        <div class="metric"><span class="k">长任务连续运行</span><span class="v">6.4 h</span></div>
+        <div class="metric"><span class="k">卡点主动回来问你</span><span class="v o">2 次</span></div>
+        <div class="metric"><span class="k">交付物自动落盘</span><span class="v g">14 个文件</span></div>
+      </div>
+      <div class="hcard">
+        <div class="hl2">能直接交付的活</div>
+        <div class="chips">
+          <span class="chip">工业设计</span>
+          <span class="chip">制造图纸</span>
+          <span class="chip">建筑设计</span>
+          <span class="chip">建筑图纸</span>
+          <span class="chip">合同标书</span>
+          <span class="chip">法律文书</span>
+          <span class="chip">图文制作</span>
+          <span class="chip">音视频制作</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+</header>
+
+<!-- ═══════════ S1 它不是聊天助手 ═══════════ -->
+<section id="diff">
+  <div class="wrap">
+    <div class="sec-head" data-reveal>
+      <div class="eyebrow">01 / 与聊天助手的区别</div>
+      <h2 class="sec">不是聊天助手，<em>是干活的人</em></h2>
+      <p class="lede">聊天助手的工作单位是「一次问答」——你问它答，窗口关掉就没了。PilotV 的工作单位是「一个项目」——有目录、有记忆、有技能，能挂着跑一整天，最后交文件给你。</p>
+    </div>
+    <div class="vs" data-reveal>
+      <div class="vs-col">
+        <div class="vs-head">
+          <div class="t">聊天助手</div>
+          <div class="d">Doubao / ChatGPT 网页版</div>
+        </div>
+        <div class="vs-row"><div class="k">单位</div><div class="l">一次问答，窗口即会话</div></div>
+        <div class="vs-row"><div class="k">上下文</div><div class="l">关掉就没了，换设备重来</div></div>
+        <div class="vs-row"><div class="k">时间</div><div class="l">你盯着才动，关页面就停</div></div>
+        <div class="vs-row"><div class="k">产出</div><div class="l">一段回答，你手动复制走</div></div>
+        <div class="vs-row"><div class="k">并行</div><div class="l">一个窗口一件事</div></div>
+      </div>
+      <div class="vs-mid"><span>VS</span></div>
+      <div class="vs-col right">
+        <div class="vs-head">
+          <div class="t">PilotV</div>
+          <div class="d">开源生产力工具 · VICTLINK</div>
+        </div>
+        <div class="vs-row"><div class="k">单位</div><div class="l"><b>项目组</b>，一个项目一个独立工作区</div></div>
+        <div class="vs-row"><div class="k">上下文</div><div class="l"><b>独立记忆</b>，沉淀成技能，跨设备跟着走</div></div>
+        <div class="vs-row"><div class="k">时间</div><div class="l"><b>长任务常驻</b>，你离开它继续跑</div></div>
+        <div class="vs-row"><div class="k">产出</div><div class="l"><b>文件</b>：图纸、模型、文档、图、音视频</div></div>
+        <div class="vs-row"><div class="k">并行</div><div class="l"><b>多个项目组同时跑</b>，互不干扰</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ S2 真实界面 ═══════════ -->
+<section id="shot">
+  <div class="wrap">
+    <div class="sec-head" data-reveal>
+      <div class="eyebrow">02 / 真实界面</div>
+      <h2 class="sec">长这样，<em>不是效果图</em></h2>
+      <p class="lede">下面每一张都是 PilotV 自己跑出来的真实界面截图，不是设计稿。左边是它的工作台，右边是它的成果与评审。</p>
+    </div>
+    <div class="shots">
+      <figure class="shot w7" data-reveal>
+        <div class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span class="u">PilotV · 工作台 — 项目组 / 成果 / 对话</span></div>
+          <img src="assets/shot-board.webp" width="1200" height="750" loading="lazy" decoding="async" alt="PilotV 工作台界面，左侧项目组列表，中间成果白板，手绘工具栏">
+        </div>
+        <figcaption class="shot-cap">
+          <div class="ct">工作台 <span class="tag b">多项目组并行</span></div>
+          <div class="cd">左侧是<b>项目组</b>列表，每个组一个图标、独立记忆、独立会话。中间是成果白板，顶部工具栏可以直接<b>手绘、圈选、打标记</b>，画完立刻出现在结果里。</div>
+        </figcaption>
+      </figure>
+      <figure class="shot w5 cropb" data-reveal>
+        <div class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span class="u">PilotV · 评审与返工</span></div>
+          <img src="assets/shot-review.webp" width="1200" height="626" loading="lazy" decoding="async" alt="PilotV 成果评审界面，右侧标注面板，确认提交与驳回按钮">
+        </div>
+        <figcaption class="shot-cap">
+          <div class="ct">评审 <span class="tag o">圈选提修改</span></div>
+          <div class="cd">成果出来了不急着发走 —— 右侧<b>标注面板</b>：单击画面加编号、拖动框选、长按已有标注可改或删。改完点<b>确认提交</b>，自动生成新版本。</div>
+        </figcaption>
+      </figure>
+
+      <figure class="shot w4" data-reveal>
+        <div class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span class="u">PilotV · 成果评审 · HTML 页面</span></div>
+          <img src="assets/shot-files.webp" width="1200" height="750" loading="lazy" decoding="async" alt="PilotV 成果页面视图，左侧项目组，中间 HTML 成果，右侧标注栏">
+        </div>
+        <figcaption class="shot-cap">
+          <div class="ct">成果页 <span class="tag">HTML / 图文</span></div>
+          <div class="cd">生成的图文直接以<b>网页成果</b>形态渲染，右侧同步标注栏，图文稿能像网页一样被打回重做。</div>
+        </figcaption>
+      </figure>
+      <figure class="shot w4" data-reveal>
+        <div class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span class="u">PilotV · 对话与长任务</span></div>
+          <img src="assets/shot-chat.webp" width="1200" height="750" loading="lazy" decoding="async" alt="PilotV 对话界面，底部输入框，模型选择器">
+        </div>
+        <figcaption class="shot-cap">
+          <div class="ct">对话 <span class="tag b">能挂长任务</span></div>
+          <div class="cd">对话框里可以只挂任务，人走开它照跑。右上角能<b>切设备</b>——成都的活交给上海的机器继续干。</div>
+        </figcaption>
+      </figure>
+
+      <div class="shot w4" data-reveal>
+        <div class="phonepair">
+          <figure class="pp">
+            <div class="frame phone">
+              <div class="phone-notch"></div>
+              <img src="assets/shot-box.webp" width="390" height="844" loading="lazy" decoding="async" alt="PilotV 手机端成果评审，框选标注">
+            </div>
+            <figcaption class="shot-cap">
+              <div class="ct">手机框选 <span class="tag o">框选</span></div>
+              <div class="cd">手指<b>拖一块区域</b>就能选中问题，不用打字。</div>
+            </figcaption>
+          </figure>
+          <figure class="pp">
+            <div class="frame phone">
+              <div class="phone-notch"></div>
+              <img src="assets/shot-ink.webp" width="390" height="844" loading="lazy" decoding="async" alt="PilotV 手机端成果评审，手绘标注">
+            </div>
+            <figcaption class="shot-cap">
+              <div class="ct">手机手绘 <span class="tag o">手绘</span></div>
+              <div class="cd"><b>手指或笔画</b>直接画，圆哪改哪。</div>
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+
+      <figure class="shot w7" data-reveal>
+        <div class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span class="u">PilotV · 成果查看 — 三维模型（STEP / GLB）</span></div>
+          <img src="assets/shot-3d.webp" width="1200" height="750" loading="lazy" decoding="async" alt="PilotV 成果查看界面，中间三维查看器里是可转动的连接法兰模型，顶部有框选、手绘、浏览工具，右侧是标注面板">
+        </div>
+        <figcaption class="shot-cap">
+          <div class="ct">三维成果 <span class="tag b">可转动</span></div>
+          <div class="cd"><b>STEP / GLB</b> 直接在成果台里转起来看：拖动转视角、滚轮缩放，上一张下一张翻模型。模型旁边就是标注面板，<b>圈到哪标到哪</b>。</div>
+        </figcaption>
+      </figure>
+      <figure class="shot w5" data-reveal>
+        <div class="frame">
+          <div class="chrome"><i></i><i></i><i></i><span class="u">PilotV · 三维模型手绘标注</span></div>
+          <img src="assets/shot-3d-ink.webp" width="1200" height="750" loading="lazy" decoding="async" alt="PilotV 三维模型上的手绘标注，模型上有一圈手绘圈选和编号角标，右侧标注面板列出意见">
+        </div>
+        <figcaption class="shot-cap">
+          <div class="ct">模型上直接画 <span class="tag o">手绘 / 框选</span></div>
+          <div class="cd">不用切出去找截图软件 —— 在模型上<b>画一圈、框一块</b>，意见就贴在那个位置，右边同步成清单。</div>
+        </figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ S3 项目组 ═══════════ -->
+<section id="group">
+  <div class="wrap">
+    <div class="sec-head" data-reveal>
+      <div class="eyebrow">03 / 项目组</div>
+      <h2 class="sec">一个项目，<em>就是开一个工位</em></h2>
+      <p class="lede">开一个项目，就是开一个独立工位：文件、记忆、技能、知识都在里面，和别的项目彻底隔开。三个项目并行，等于三个人在干活，互不打扰。</p>
+    </div>
+    <div class="gcards">
+      <article class="card gcard" data-reveal>
+        <div class="gic"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+        <div class="gt">独立工作区</div>
+        <div class="gd">每个项目一个目录，代码、图纸、素材、合同各归各位。文件进进出出<b>有账可查</b>，哪一版是哪一版说得清。</div>
+      </article>
+      <article class="card gcard" data-reveal>
+        <div class="gic"><svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4v1a3 3 0 0 0 0 6v1a4 4 0 0 0 8 0v-1a3 3 0 0 0 0-6V7a4 4 0 0 0-4-4z"/><path d="M8 19h8"/></svg></div>
+        <div class="gt">独立记忆</div>
+        <div class="gd">项目组各自沉淀上下文，<b>看得见、找得到、改得动</b>。记错了定位到那一条直接改，不用重开整个会话重来一遍。</div>
+      </article>
+      <article class="card gcard" data-reveal>
+        <div class="gic"><svg viewBox="0 0 24 24"><path d="M12 3l2.4 5.6L20 10l-4 4 1 6-5-3-5 3 1-6-4-4 5.6-1.4z"/></svg></div>
+        <div class="gt">独立技能</div>
+        <div class="gd">这个项目练出来的流程沉淀成技能，留在项目里复用，<b>不外溢</b>到别的项目组污染别人的上下文。</div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ S4 长任务 ═══════════ -->
+<section id="long">
+  <div class="wrap">
+    <div class="sec-head" data-reveal>
+      <div class="eyebrow">04 / 长任务执行</div>
+      <h2 class="sec">交付一次，<em>它自己往下走</em></h2>
+      <p class="lede">不是等你一句一句问。是它拆解、常驻执行、卡住就停、做完落盘，中间几个小时不用你盯着。</p>
+    </div>
+    <div class="long-wrap">
+      <div class="steps" data-reveal>
+        <article class="step">
+          <div class="sh"><span class="sn">STEP 01</span><span class="stt">接单拆解</span></div>
+          <div class="sd">把一件事拆成可勾选的条目，先问你<b>边界在哪</b>，不清楚就先问清楚再动手。</div>
+        </article>
+        <article class="step">
+          <div class="sh"><span class="sn">STEP 02</span><span class="stt">常驻执行</span></div>
+          <div class="sd">你离开电脑它继续跑。简单步骤走便宜模型，难题才上大模型，<b>成本自己控</b>。</div>
+        </article>
+        <article class="step">
+          <div class="sh"><span class="sn">STEP 03</span><span class="stt">卡点停下</span></div>
+          <div class="sd">需要你确认的地方<b>主动停在那儿等你</b>，不替你做决定，也不闷头做完再通知。</div>
+        </article>
+        <article class="step">
+          <div class="sh"><span class="sn">STEP 04</span><span class="stt">交付落盘</span></div>
+          <div class="sd">成果变成你目录里的<b>真实文件</b>加一份摘要汇报，不是一段需要你手动存的话。</div>
+        </article>
+      </div>
+      <div class="logbox" data-reveal>
+        <div class="loghead"><span class="live"></span>LONG TASK · 执行日志<span class="t">上海 · jx88</span></div>
+        <div class="logbody" id="logBody"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ S5 批注 / 框选 / 手绘 ═══════════ -->
+<section id="mark">
+  <div class="wrap">
+    <div class="sec-head" data-reveal>
+      <div class="eyebrow">05 / 批注 · 框选 · 手绘</div>
+      <h2 class="sec">直接在成果上，<em>指哪儿改哪儿</em></h2>
+      <p class="lede">不用打字描述「第三行那个圆再大一点」。在成果图上<b>圈一下、框一块、画一笔</b>，它就知道你说的是哪儿。下面是真实交互流程的演示动画，循环播放。</p>
+    </div>
+
+    <div class="demo" id="demo" data-reveal>
+      <div class="demo-bar">
+        <span class="dt">成果预览 · V 标志重构</span>
+        <span class="vv" id="dVer">v1</span>
+        <span class="tools"><b class="on">页面</b><b>真机预览</b><b>编辑</b><b>下载</b><b>通过</b><b>驳回</b></span>
+      </div>
+      <div class="demo-main">
+        <div class="demo-canvas" id="dCanvas">
+          <svg viewBox="0 0 640 420" id="dSvg" role="img" aria-label="成果预览演示：三个 V 标志方向，可框选与手绘标注">
+            <defs>
+              <g id="vg"><path d="M1448 1457 864 0H558L-26 1457H246Q290 1457 317.0 1436.5Q344 1416 358 1384L640 604Q660 553 679.0 492.5Q698 432 715 366Q729 432 746.5 492.5Q764 553 784 604L1064 1384Q1075 1412 1103.5 1434.5Q1132 1457 1174 1457Z" fill="#141a18"/></g>
+            </defs>
+            <rect width="640" height="420" fill="#f4f1ea"/>
+            <text x="46" y="50" font-family="ui-monospace,monospace" font-size="11" letter-spacing="3" fill="#8a8578">PILOTV / RECONSTRUCTION</text>
+            <text x="46" y="86" font-size="24" font-weight="800" fill="#141a18">不是给 V 加装饰，而是重新构造 V。</text>
+            <line x1="46" y1="108" x2="594" y2="108" stroke="#ddd8cc" stroke-width="1"/>
+            <g font-family="ui-monospace,monospace" font-size="10" letter-spacing="1.2" fill="#8a8578" text-anchor="middle">
+              <text x="130" y="144">01 交汇 / CONFLUENCE</text>
+              <text x="290" y="144">02 切角 / VECTOR CUT</text>
+              <text x="450" y="144">03 回转 / CONTINUUM</text>
+            </g>
+            <!-- 三列成果：底边统一落在 y=306 -->
+            <g id="dCols">
+              <use href="#vg" transform="translate(64,306) scale(0.092,-0.092)"/>
+              <use href="#vg" transform="translate(224,306) scale(0.092,-0.092)"/>
+              <use href="#vg" transform="translate(384,306) scale(0.092,-0.092)"/>
+            </g>
+            <!-- 基线与尺寸标注 -->
+            <line x1="70" y1="306" x2="520" y2="306" stroke="#c9c2b4" stroke-width="1"/>
+            <g stroke="#c9c2b4" stroke-width="1">
+              <line x1="70" y1="302" x2="70" y2="310"/><line x1="200" y1="302" x2="200" y2="310"/>
+              <line x1="230" y1="302" x2="230" y2="310"/><line x1="360" y1="302" x2="360" y2="310"/>
+              <line x1="390" y1="302" x2="390" y2="310"/><line x1="520" y1="302" x2="520" y2="310"/>
+            </g>
+            <g font-family="ui-monospace,monospace" font-size="9" fill="#8a8578" text-anchor="middle">
+              <text x="135" y="322">130</text><text x="295" y="322">130</text><text x="455" y="322">130</text>
+              <text x="70" y="352" text-anchor="start">基准栅格 8pt · 最小笔画 24pt · 安全边距 32</text>
+            </g>
+            <!-- 标注层 -->
+            <g id="dMarks"></g>
+          </svg>
+          <div class="cur" id="dCur"><svg viewBox="0 0 24 24"><path d="M4 2l16 8-7 2-2 7z"/></svg></div>
+          <div class="demo-label" id="dLabel"></div>
+        </div>
+        <aside class="demo-side">
+          <div class="dside-h">标注<span class="n" id="dCount">0 条待处理</span></div>
+          <div class="dside-body" id="dItems">
+            <div class="ditem box" style="animation-delay:.2s">
+              <div class="dh"><span class="no">1</span><span class="kind">框选 <b>/ BOX</b></span></div>
+              <div class="dtxt">交汇版下摆太宽，收到 64pt 以内</div>
+              <div class="dbtns"><button>标记已解决</button><button>删除</button></div>
+            </div>
+            <div class="ditem ink" style="animation-delay:.5s">
+              <div class="dh"><span class="no">2</span><span class="kind">手绘 <b>/ INK</b></span></div>
+              <div class="dtxt">切角再深 2mm，转折处更利落</div>
+              <div class="dbtns"><button>标记已解决</button><button>删除</button></div>
+            </div>
+          </div>
+          <div class="dside-f">
+            <div class="hint">单击画面加编号，按住拖动框选；长按可改可删</div>
+            <div class="row">
+              <button class="btn btn-g">继续编辑</button>
+              <button class="btn btn-p submit" id="dSubmit">确认提交</button>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <div class="demo-notes" data-reveal>
+      <div class="demo-note"><b><span class="ic">◻</span>框选</b>在成果图上按住拖一块区域，系统自动记下这块的坐标和上下文，提交时附带给你。</div>
+      <div class="demo-note"><b><span class="ic">✎</span>手绘 / 圈画</b>用笔或手指直接画圈、画箭头标出要改的地方，系统识别成手绘标注跟着走。</div>
+      <div class="demo-note"><b><span class="ic">✓</span>编号 + 同步</b>单击加编号，一条条列在侧栏，可标记解决、删除，确认提交后<b>同步到对话输入</b>，自动排进返工队列。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ S6 一件事的完整流程 ═══════════ -->
+<section id="flow">
+  <div class="wrap">
+    <div class="sec-head" data-reveal>
+      <div class="eyebrow">06 / 完整流程</div>
+      <h2 class="sec">从一句话，<em>到可以交付的文件</em></h2>
+      <p class="lede">这是 PilotV 里一件事真实会走的路。你只需要在<b>头</b>和<b>尾</b>出现，中间那段它自己走完；不满意就在成果上圈一下，从第 4 步自动重来。</p>
+    </div>
+    <div class="flowviz" data-reveal>
+      <svg viewBox="0 0 1180 330" role="img" aria-label="任务流程图：你提活、拆成清单、常驻执行、卡点问你、成果落盘，你框选手绘批注后自动返工生成新版本">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 10 5 0 10z" fill="#3a465c"/>
+          </marker>
+          <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 10 5 0 10z" fill="#e55a09"/>
+          </marker>
+        </defs>
+        <!-- 主链 -->
+        <g stroke="#3a465c" stroke-width="1.6" fill="none" marker-end="url(#ah)">
+          <path d="M186 92h34"/><path d="M400 92h34"/><path d="M614 92h34"/><path d="M828 92h34"/>
+        </g>
+        <!-- 节点 -->
+        <g>
+          <rect x="16" y="42" width="170" height="100" rx="12" fill="#0c1018" stroke="#232c3d"/>
+          <text x="32" y="68" style="font:700 10.5px/1 var(--fm)" fill="#66738c" letter-spacing=".14em">01 · 你</text>
+          <text x="32" y="94" style="font:700 15px/1 var(--ff)" fill="#e9eef7">提一句活</text>
+          <text x="32" y="118" style="font:400 12px/1 var(--ff)" fill="#98a5ba">打字、丢图、画草图都行</text>
+
+          <rect x="230" y="42" width="170" height="100" rx="12" fill="#0c1018" stroke="#297cc0"/>
+          <text x="246" y="68" style="font:700 10.5px/1 var(--fm)" fill="#4da3f0" letter-spacing=".14em">02 · 它</text>
+          <text x="246" y="94" style="font:700 15px/1 var(--ff)" fill="#e9eef7">拆成清单</text>
+          <text x="246" y="118" style="font:400 12px/1 var(--ff)" fill="#98a5ba">边界不清先问你一句</text>
+
+          <rect x="444" y="42" width="170" height="100" rx="12" fill="#0c1018" stroke="#232c3d"/>
+          <text x="460" y="68" style="font:700 10.5px/1 var(--fm)" fill="#66738c" letter-spacing=".14em">03 · 它</text>
+          <text x="460" y="94" style="font:700 15px/1 var(--ff)" fill="#e9eef7">常驻执行</text>
+          <text x="460" y="118" style="font:400 12px/1 var(--ff)" fill="#98a5ba">跑脚本、出图、重活甩显卡</text>
+
+          <rect x="658" y="42" width="170" height="100" rx="12" fill="#0c1018" stroke="#e55a09"/>
+          <text x="674" y="68" style="font:700 10.5px/1 var(--fm)" fill="#ff8f45" letter-spacing=".14em">04 · 它</text>
+          <text x="674" y="94" style="font:700 15px/1 var(--ff)" fill="#e9eef7">卡点就停</text>
+          <text x="674" y="118" style="font:400 12px/1 var(--ff)" fill="#98a5ba">要你拍板就等你，不瞎猜</text>
+
+          <rect x="872" y="42" width="170" height="100" rx="12" fill="#0c1018" stroke="#3ecf8e"/>
+          <text x="888" y="68" style="font:700 10.5px/1 var(--fm)" fill="#3ecf8e" letter-spacing=".14em">05 · 交付</text>
+          <text x="888" y="94" style="font:700 15px/1 var(--ff)" fill="#e9eef7">文件落盘</text>
+          <text x="888" y="118" style="font:400 12px/1 var(--ff)" fill="#98a5ba">图纸 / 模型 / 文档 / 成片</text>
+        </g>
+        <!-- 下行箭头 -->
+        <path d="M957 142v40" stroke="#3a465c" stroke-width="1.6" fill="none" marker-end="url(#ah)"/>
+        <!-- 批注行 -->
+        <g>
+          <rect x="600" y="182" width="442" height="94" rx="12" fill="rgba(229,90,9,.07)" stroke="#e55a09" stroke-dasharray="5 4"/>
+          <text x="620" y="208" style="font:700 10.5px/1 var(--fm)" fill="#ff8f45" letter-spacing=".14em">06 · 你</text>
+          <text x="620" y="234" style="font:700 15px/1 var(--ff)" fill="#e9eef7">在成果上框选 / 手绘 / 加编号</text>
+          <text x="620" y="258" style="font:400 12px/1 var(--ff)" fill="#98a5ba">不用打字描述，「第三行那个圆再大点」这种最省事</text>
+        </g>
+        <!-- 返工回环：批注 → 回到第 3 步继续做 -->
+        <path d="M600 229H545Q529 229 529 213V152" stroke="#e55a09" stroke-width="1.8" fill="none" stroke-dasharray="7 5" marker-end="url(#ah2)"/>
+        <text x="300" y="262" text-anchor="middle" style="font:700 11px/1 var(--fm)" fill="#ff8f45" letter-spacing=".08em">返工循环 · 自动生成 v2 / v3，同一份标注一直带着，直到你点头</text>
+        <!-- 版本标记 -->
+        <g style="font:700 11px/1 var(--fm)">
+          <rect x="1000" y="26" width="120" height="30" rx="8" fill="rgba(62,207,142,.14)" stroke="#3ecf8e"/>
+          <text x="1020" y="46" fill="#3ecf8e">v1 交付</text>
+          <rect x="1052" y="164" width="90" height="30" rx="8" fill="rgba(62,207,142,.14)" stroke="#3ecf8e"/>
+          <text x="1068" y="184" fill="#3ecf8e">v2 交付</text>
+        </g>
+        <path d="M1062 56v108" stroke="#3ecf8e" stroke-width="1.4" fill="none" stroke-dasharray="4 4" marker-end="url(#ah2)" opacity=".7"/>
+      </svg>
+    </div>
+    <div class="flowsteps" data-reveal>
+      <div class="fstep"><div class="fn">你只做两件事</div><div class="ft2">开头说清楚</div><div class="fd2">目标、边界、给谁看。说不清它会先问你一句再动手。</div></div>
+      <div class="fstep"><div class="fn">中间不用管</div><div class="ft2">它自己往下走</div><div class="fd2">关掉页面、切换设备、甚至隔几个小时回来，进度都还在。</div></div>
+      <div class="fstep"><div class="fn">结果看得见</div><div class="ft2">成果先预览</div><div class="fd2">网页、图纸、模型、成片都能先看再决定要不要。</div></div>
+      <div class="fstep"><div class="fn">改用圈的</div><div class="ft2">指哪儿改哪儿</div><div class="fd2">框一块、画一笔、加个编号，比打字描述准得多。</div></div>
+      <div class="fstep"><div class="fn">版本留痕</div><div class="ft2">v1 / v2 / v3</div><div class="fd2">每次返工自动存一版，哪版改的、改哪儿、谁提的都记得。</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ S7 它真的会干活 ═══════════ -->
+<section id="works">
+  <div class="wrap">
+    <div class="sec-head" data-reveal>
+      <div class="eyebrow">07 / 交付什么</div>
+      <h2 class="sec">它真的会干活，<em>交的是文件</em></h2>
+      <p class="lede">不是把答案贴在聊天窗口里等你复制。是把成品做成<b>真实文件</b>放进你的目录：图纸、模型、文档、图、音视频。</p>
+    </div>
+    <div class="res">
+      <article class="rcard" data-reveal>
+        <div class="rviz">
+          <svg viewBox="0 0 400 300" role="img" aria-label="机械零件制造图纸示意图：支架三视图、剖面、尺寸链与图框">
+            <rect width="400" height="300" fill="#f4f1ea"/>
+            <!-- 主视图：L 形支架 -->
+            <g stroke="#141a18" fill="none" stroke-width="1.7">
+              <path d="M36 196V74h132v72h92v50z"/>
+              <path d="M60 120a24 24 0 0 0 24 24h84"/>
+            </g>
+            <g fill="#f4f1ea" stroke="#141a18" stroke-width="1.3">
+              <circle cx="66" cy="170" r="8"/><circle cx="230" cy="170" r="8"/>
+            </g>
+            <!-- 中心线 -->
+            <g stroke="#8a8578" stroke-width=".7" stroke-dasharray="9 3 2 3">
+              <path d="M66 150v40M50 170h32"/><path d="M230 150v40M214 170h32"/>
+              <path d="M26 122h250"/>
+            </g>
+            <!-- 尺寸链 -->
+            <g stroke="#e55a09" stroke-width=".8" fill="none">
+              <path d="M36 232h132M36 228v8M168 228v8"/><path d="M168 232h92M168 228v8M260 228v8"/>
+              <path d="M20 74v122M16 74h8M16 196h8"/>
+            </g>
+            <g font-family="ui-monospace,monospace" font-size="8" fill="#e55a09">
+              <text x="94" y="228">64.00</text><text x="206" y="228">48.00</text>
+            </g>
+            <text x="8" y="138" font-family="ui-monospace,monospace" font-size="8" fill="#e55a09" transform="rotate(-90 8 138)">86.00</text>
+            <!-- 剖面 A-A -->
+            <g stroke="#141a18" fill="none" stroke-width="1.5">
+              <rect x="278" y="74" width="92" height="122"/>
+            </g>
+            <g stroke="#8a8578" stroke-width=".6">
+              <path d="M278 82l10-8M278 96l18-8M278 110l26-8M278 124l34-8M278 138l42-8M278 152l50-8
+               M278 166l58-8M278 180l66-8M278 194l74-8M370 82l-10-8M370 96l-18-8M370 110l-26-8
+               M370 124l-34-8M370 138l-42-8M370 152l-50-8M370 166l-58-8M370 180l-66-8M370 194l-74-8"/>
+            </g>
+            <g stroke="#8a8578" stroke-width=".7" stroke-dasharray="9 3 2 3"><path d="M324 64v140"/></g>
+            <g font-family="ui-monospace,monospace" font-size="7.5" fill="#8a8578">
+              <text x="278" y="58">剖面 A-A　1:2</text><text x="30" y="60">主视图</text>
+            </g>
+            <!-- 图框 -->
+            <rect x="264" y="212" width="126" height="70" fill="none" stroke="#c9c2b4"/>
+            <path d="M264 232h126M264 252h126" stroke="#c9c2b4" stroke-width=".7"/>
+            <g font-family="ui-monospace,monospace" font-size="7" fill="#8a8578">
+              <text x="270" y="226">PILOTV WORKS · BRACKET-A</text>
+              <text x="270" y="245">材质 AL6061　比例 1:2　单位 mm</text>
+              <text x="270" y="265">图号 02-118　第三角投影</text>
+            </g>
+          </svg>
+          <span class="ftag">.STEP · .DXF · .PDF</span>
+        </div>
+        <div class="rbody">
+          <div class="rtitle"><svg class="ic" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>制造图纸</div>
+          <div class="rdesc">零件三视图、剖面、尺寸链、公差标注，直接出 DXF / STEP / 带图框的 PDF，装配前就能核对。</div>
+          <div class="rfmt"><span class="tag b">STEP</span><span class="tag b">DXF</span><span class="tag">PDF 图框</span></div>
+        </div>
+      </article>
+
+      <article class="rcard" data-reveal>
+        <div class="rviz">
+          <svg viewBox="0 0 400 300" role="img" aria-label="住宅建筑平面图示意图：墙体、门窗、家具布置、房间标注与尺寸链">
+            <rect width="400" height="300" fill="#f4f1ea"/>
+            <!-- 墙体 -->
+            <g stroke="#141a18" stroke-width="3" fill="none" stroke-linecap="square">
+              <path d="M44 46h312v196H44z"/>
+              <path d="M184 46v96M184 178v64M44 142h140"/>
+            </g>
+            <!-- 门洞与开启弧 -->
+            <g stroke="#f4f1ea" stroke-width="3.4" fill="none">
+              <path d="M172 84v28M228 178v28M184 130h26"/>
+            </g>
+            <g stroke="#8a8578" stroke-width=".9" fill="none">
+              <path d="M172 84a28 28 0 0 1 28 28M228 178a28 28 0 0 0-28 28M184 130a26 26 0 0 1 26 26"/>
+            </g>
+            <!-- 窗 -->
+            <g stroke="#297cc0" stroke-width="1.6" fill="none">
+              <path d="M84 46h52M84 49h52M270 46h44M270 49h44M226 242h60M226 245h60"/>
+            </g>
+            <!-- 家具 -->
+            <g stroke="#c9c2b4" stroke-width="1" fill="none">
+              <rect x="60" y="156" width="46" height="70" rx="3"/>
+              <rect x="64" y="160" width="38" height="30" rx="2"/>
+              <rect x="120" y="182" width="42" height="24" rx="3"/>
+              <circle cx="86" cy="76" r="18"/><rect x="60" y="52" width="52" height="12" rx="2"/>
+              <rect x="248" y="52" width="100" height="16" rx="2"/>
+              <rect x="252" y="82" width="34" height="22" rx="2"/>
+              <rect x="300" y="200" width="46" height="32" rx="2"/>
+              <path d="M248 200h40M248 196v40"/>
+            </g>
+            <!-- 标注 -->
+            <g font-family="ui-monospace,monospace" font-size="8.5" fill="#141a18" text-anchor="middle">
+              <text x="112" y="120">起居室</text><text x="284" y="124">厨房</text>
+              <text x="112" y="196">主卧</text><text x="290" y="184">书房</text>
+            </g>
+            <g font-family="ui-monospace,monospace" font-size="7" fill="#8a8578" text-anchor="middle">
+              <text x="112" y="130">LIVING</text><text x="112" y="206">BEDROOM</text>
+            </g>
+            <!-- 指北针 -->
+            <g transform="translate(348,52)">
+              <circle r="12" fill="none" stroke="#e55a09" stroke-width="1.2"/>
+              <path d="M0-10 4.5 4 0 1.5-4.5 4z" fill="#e55a09"/>
+              <text y="-15" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#e55a09">N</text>
+            </g>
+            <!-- 尺寸链 -->
+            <g stroke="#e55a09" stroke-width=".7" fill="none">
+              <path d="M44 268h312M44 264v8M184 264v8M356 264v8"/>
+              <path d="M30 46v196M26 46h8M26 242h8"/>
+            </g>
+            <g font-family="ui-monospace,monospace" font-size="7.5" fill="#e55a09" text-anchor="middle">
+              <text x="114" y="264">4800</text><text x="270" y="264">5760</text>
+            </g>
+            <text x="17" y="150" font-family="ui-monospace,monospace" font-size="7.5" fill="#e55a09" transform="rotate(-90 17 150)">3900</text>
+            <text x="44" y="288" font-family="ui-monospace,monospace" font-size="7.5" fill="#8a8578">一层平面图 1:100　墙厚 240　标高 ±0.000</text>
+          </svg>
+          <span class="ftag">.DWG · .DXF · .SVG</span>
+        </div>
+        <div class="rbody">
+          <div class="rtitle"><svg class="ic" viewBox="0 0 24 24"><path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M10 21v-6h4v6"/></svg>建筑图纸</div>
+          <div class="rdesc">平面、立面、剖面带完整尺寸链与图例，改哪面墙重出一版整套，不是只给你一张平面。</div>
+          <div class="rfmt"><span class="tag b">DWG</span><span class="tag b">DXF</span><span class="tag">SVG</span></div>
+        </div>
+      </article>
+
+      <article class="rcard" data-reveal>
+        <div class="rviz">
+          <svg viewBox="0 0 400 300" role="img" aria-label="工业设计效果图示意图">
+            <defs>
+              <linearGradient id="gBg" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#20304d"/><stop offset="1" stop-color="#4a6489"/>
+              </linearGradient>
+              <linearGradient id="gBody" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#f2f4f8"/><stop offset="1" stop-color="#aab6c8"/>
+              </linearGradient>
+            </defs>
+            <rect width="400" height="300" fill="url(#gBg)"/>
+            <ellipse cx="200" cy="232" rx="120" ry="18" fill="rgba(0,0,0,.28)"/>
+            <path d="M120 120c0-22 36-40 80-40s80 18 80 40v92c0 12-10 20-22 20H142c-12 0-22-8-22-20z" fill="url(#gBody)"/>
+            <path d="M120 140c40 14 120 14 160 0" fill="none" stroke="#8a97aa" stroke-width="1.2"/>
+            <rect x="160" y="100" width="80" height="18" rx="9" fill="#2f3a4c"/>
+            <circle cx="200" cy="176" r="14" fill="#2f3a4c"/><circle cx="200" cy="176" r="6" fill="#4a6489"/>
+            <path d="M142 232h116" stroke="#8a97aa" stroke-width="1"/>
+            <g font-family="ui-monospace,monospace" font-size="9" fill="rgba(255,255,255,.75)">
+              <text x="24" y="34">产品渲染 · CMF 确认稿</text><text x="24" y="272">PILOTV 工业设计</text>
+            </g>
+            <g stroke="#e55a09" stroke-width="1.4" fill="none">
+              <path d="M200 100V70M192 78l8-8 8 8"/>
+            </g>
+          </svg>
+          <span class="ftag">.PNG · .GLB · .OBJ</span>
+        </div>
+        <div class="rbody">
+          <div class="rtitle"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l2.5 5.5L20 9.5l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-1z"/></svg>工业设计</div>
+          <div class="rdesc">从草图到效果图到可转动的三维模型，CMF 材质配色一起给，确认完就能进下一步出图。</div>
+          <div class="rfmt"><span class="tag b">GLB</span><span class="tag b">OBJ</span><span class="tag">渲染图</span></div>
+        </div>
+      </article>
+
+      <article class="rcard" data-reveal>
+        <div class="rviz">
+          <svg viewBox="0 0 400 300" role="img" aria-label="合同法律文书示意图">
+            <rect width="400" height="300" fill="#f4f1ea"/>
+            <rect x="86" y="24" width="228" height="252" fill="#fff" stroke="#ddd8cc"/>
+            <text x="200" y="52" text-anchor="middle" font-size="15" font-weight="800" fill="#141a18">建筑工程施工合同</text>
+            <text x="200" y="70" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9" fill="#8a8578">CONTRACT · V1.2</text>
+            <g fill="#c9c2b4">
+              <rect x="104" y="88" width="192" height="5" rx="2"/>
+              <rect x="104" y="100" width="170" height="5" rx="2"/>
+              <rect x="104" y="118" width="192" height="5" rx="2"/>
+              <rect x="104" y="130" width="150" height="5" rx="2"/>
+              <rect x="104" y="148" width="192" height="5" rx="2"/>
+              <rect x="104" y="160" width="180" height="5" rx="2"/>
+            </g>
+            <g stroke="#e55a09" stroke-width="1" fill="none">
+              <rect x="100" y="116" width="200" height="22" rx="4" stroke-dasharray="4 3"/>
+            </g>
+            <g font-family="ui-monospace,monospace" font-size="8" fill="#e55a09">
+              <text x="100" y="112">第 8 条 · 付款节点（已标注）</text>
+            </g>
+            <text x="104" y="192" font-size="8.5" fill="#8a8578">甲方（盖章）</text>
+            <text x="250" y="192" font-size="8.5" fill="#8a8578">乙方（盖章）</text>
+            <g stroke="#c9c2b4" stroke-width=".8">
+              <path d="M104 214h86M250 214h46"/>
+            </g>
+            <text x="104" y="228" font-size="8" fill="#8a8578">日期</text>
+            <text x="250" y="228" font-size="8" fill="#8a8578">日期</text>
+            <circle cx="272" cy="248" r="22" fill="none" stroke="#e5484d" stroke-width="1.4" opacity=".7"/>
+            <text x="272" y="246" text-anchor="middle" font-size="7" fill="#e5484d" opacity=".8">合同专用章</text>
+            <text x="272" y="257" text-anchor="middle" font-size="6" fill="#e5484d" opacity=".8">示例</text>
+          </svg>
+          <span class="ftag">.DOCX · .PDF</span>
+        </div>
+        <div class="rbody">
+          <div class="rtitle"><svg class="ic" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>合同 / 法律文书</div>
+          <div class="rdesc">合同、标书、法律意见书按模板起草，条款能逐条批注改，改完出带修订的 Word 和 PDF。</div>
+          <div class="rfmt"><span class="tag b">DOCX</span><span class="tag b">PDF</span><span class="tag">逐条批注</span></div>
+        </div>
+      </article>
+
+      <article class="rcard rwide" data-reveal>
+        <div class="rviz dark">
+          <svg viewBox="0 0 640 300" role="img" aria-label="图文制作示意图">
+            <rect width="640" height="300" fill="#0d121b"/>
+            <rect x="28" y="24" width="276" height="252" rx="6" fill="#151c29" stroke="#232c3d"/>
+            <rect x="28" y="24" width="276" height="112" rx="6" fill="#1d2a3e"/>
+            <rect x="44" y="40" width="150" height="8" rx="4" fill="#4da3f0"/>
+            <rect x="44" y="58" width="220" height="16" rx="4" fill="#e8edf5" opacity=".9"/>
+            <rect x="44" y="84" width="180" height="8" rx="4" fill="#66738c"/>
+            <rect x="44" y="104" width="120" height="8" rx="4" fill="#66738c"/>
+            <rect x="44" y="156" width="244" height="6" rx="3" fill="#28324a"/>
+            <rect x="44" y="170" width="230" height="6" rx="3" fill="#28324a"/>
+            <rect x="44" y="184" width="240" height="6" rx="3" fill="#28324a"/>
+            <rect x="44" y="204" width="112" height="44" rx="6" fill="#1a2434" stroke="#2c3a4e"/>
+            <rect x="172" y="204" width="116" height="44" rx="6" fill="#1a2434" stroke="#2c3a4e"/>
+            <rect x="336" y="24" width="276" height="252" rx="6" fill="#151c29" stroke="#232c3d"/>
+            <text x="352" y="48" font-family="ui-monospace,monospace" font-size="9" fill="#66738c">音视频时间轴</text>
+            <g font-family="ui-monospace,monospace" font-size="8">
+              <text x="352" y="74" fill="#66738c">00:00</text><text x="430" y="74" fill="#66738c">00:30</text>
+              <text x="508" y="74" fill="#66738c">01:00</text><text x="586" y="74" fill="#66738c">01:30</text>
+            </g>
+            <line x1="352" y1="80" x2="596" y2="80" stroke="#28324a"/>
+            <g stroke="#28324a"><line x1="352" y1="80" x2="352" y2="96"/><line x1="430" y1="80" x2="430" y2="96"/><line x1="508" y1="80" x2="508" y2="96"/><line x1="586" y1="80" x2="586" y2="96"/></g>
+            <g>
+              <rect x="352" y="104" width="72" height="46" rx="4" fill="#1d2a3e" stroke="#297cc0"/>
+              <rect x="430" y="104" width="72" height="46" rx="4" fill="#1d2a3e" stroke="#297cc0"/>
+              <rect x="508" y="104" width="72" height="46" rx="4" fill="#1d2a3e" stroke="#297cc0"/>
+            </g>
+            <g font-family="ui-monospace,monospace" font-size="7.5" fill="#4da3f0">
+              <text x="360" y="124">镜头 01</text><text x="438" y="124">镜头 02</text><text x="516" y="124">镜头 03</text>
+            </g>
+            <g fill="#e55a09"><rect x="352" y="164" width="228" height="7" rx="3.5"/></g>
+            <g fill="#ff8f45" opacity=".8">
+              <rect x="352" y="180" width="12" height="34" rx="3"/><rect x="368" y="180" width="8" height="34" rx="3"/>
+              <rect x="380" y="180" width="14" height="34" rx="3"/><rect x="398" y="180" width="9" height="34" rx="3"/>
+              <rect x="411" y="180" width="13" height="34" rx="3"/><rect x="428" y="180" width="8" height="34" rx="3"/>
+              <rect x="440" y="180" width="14" height="34" rx="3"/><rect x="458" y="180" width="10" height="34" rx="3"/>
+              <rect x="472" y="180" width="13" height="34" rx="3"/><rect x="489" y="180" width="8" height="34" rx="3"/>
+              <rect x="501" y="180" width="14" height="34" rx="3"/><rect x="519" y="180" width="9" height="34" rx="3"/>
+              <rect x="532" y="180" width="13" height="34" rx="3"/><rect x="549" y="180" width="10" height="34" rx="3"/>
+              <rect x="563" y="180" width="17" height="34" rx="3"/>
+            </g>
+            <text x="352" y="234" font-family="ui-monospace,monospace" font-size="8" fill="#66738c">配音轨 · 00:48</text>
+            <circle cx="420" cy="252" r="14" fill="#297cc0"/>
+            <path d="M416 246l10 6-10 6z" fill="#fff"/>
+          </svg>
+          <span class="ftag">.MP4 · .SRT · 图文</span>
+        </div>
+        <div class="rbody">
+          <div class="rtitle"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/></svg>图文与音视频制作</div>
+          <div class="rdesc">公众号长图、海报、演示稿，以及带配音、字幕、分镜的成片——时间轴上分镜、配音轨、字幕轨都在，导出即成片。</div>
+          <div class="rfmt"><span class="tag b">MP4</span><span class="tag b">SRT 字幕</span><span class="tag">分镜时间轴</span><span class="tag">长图 / 海报</span></div>
+          <div style="margin-top:10px">
+            <span class="tag ok">交付即文件 · 全部落盘到项目目录</span>
+          </div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ S7 设备 ═══════════ -->
+<section id="fleet">
+  <div class="wrap">
+    <div class="sec-head" data-reveal>
+      <div class="eyebrow">08 / 多设备</div>
+      <h2 class="sec">成都派的活，<em>上海的机器接着干</em></h2>
+      <p class="lede">同一件事可以在你手上的任何设备上看、点、批注；真正干活的机器可以挂在另一台电脑上 —— 你走哪它跟哪，切换不用搬东西。</p>
+    </div>
+    <div class="fleet">
+      <div class="fleet-vis" data-reveal>
+        <svg viewBox="0 0 620 400" role="img" aria-label="多设备与远程执行示意图：中心 PilotV 引擎连接手机、平板、本地电脑与远程工作站">
+          <defs>
+            <radialGradient id="hub" cx="50%" cy="42%" r="62%">
+              <stop offset="0" stop-color="#1d2b3d"/><stop offset="1" stop-color="#0b1018"/>
+            </radialGradient>
+          </defs>
+          <g stroke="#232c3d" stroke-width="1" stroke-dasharray="3 6" fill="none">
+            <path d="M310 200 L110 96"/><path d="M310 200 L110 304"/>
+            <path d="M310 200 L510 96"/><path d="M310 200 L510 304"/>
+          </g>
+          <g stroke="#297cc0" stroke-width="1.6" fill="none" opacity=".85">
+            <path d="M310 200 L110 96" stroke-dasharray="10 220" class="pk pk1"/>
+            <path d="M310 200 L110 304" stroke-dasharray="10 220" class="pk pk2"/>
+            <path d="M310 200 L510 96" stroke-dasharray="10 220" class="pk pk3"/>
+            <path d="M310 200 L510 304" stroke-dasharray="10 220" class="pk pk4"/>
+          </g>
+          <g style="font:600 10px/1 var(--fm)" fill="#7e8aa0" letter-spacing=".06em">
+            <text x="176" y="140" text-anchor="middle">项目组 · 进度同步</text>
+            <text x="176" y="272" text-anchor="middle">随手批注 · 框选回传</text>
+            <text x="448" y="140" text-anchor="middle">长任务 · 断点续跑</text>
+            <text x="448" y="272" text-anchor="middle">大模型 · 自动接力</text>
+          </g>
+
+          <!-- 中心 -->
+          <circle cx="310" cy="200" r="86" fill="url(#hub)" stroke="#2c3a4e"/>
+          <circle cx="310" cy="200" r="86" fill="none" stroke="#297cc0" stroke-width="1.2" class="ring"/>
+          <g transform="translate(310,168)">
+            <path d="M34 52 21 2h-9L-1 26l-11-24h-9L-34 2l-13 50h13l7-27 10 22h8l10-22 7 27z" fill="#e9eef7" transform="scale(.62)"/>
+          </g>
+          <text x="310" y="228" text-anchor="middle" style="font:700 14px var(--ff)" fill="#e9eef7" letter-spacing=".06em">PilotV 引擎</text>
+          <text x="310" y="248" text-anchor="middle" style="font:500 11px var(--fm)" fill="#66738c" letter-spacing=".12em">STATE · FILES · MEMORY</text>
+          <text x="310" y="268" text-anchor="middle" style="font:500 10.5px var(--fm)" fill="#4a5568" letter-spacing=".1em">断网也不丢状态</text>
+
+          <!-- 左上：本地电脑 -->
+          <g class="node">
+            <rect x="26" y="44" width="168" height="80" rx="11" fill="#0c1018" stroke="#232c3d"/>
+            <rect x="40" y="58" width="52" height="36" rx="4" fill="none" stroke="#66738c"/>
+            <path d="M58 102h16M66 94v8" stroke="#66738c" stroke-width="1.2"/>
+            <text x="106" y="74" style="font:600 13.5px var(--ff)" fill="#e9eef7">本地电脑</text>
+            <text x="106" y="92" style="font:500 10.5px var(--fm)" fill="#66738c">你正在用的这台</text>
+            <circle cx="176" cy="60" r="4" fill="#3ecf8e"/>
+          </g>
+          <!-- 左下：手机 / 平板 -->
+          <g class="node">
+            <rect x="26" y="276" width="168" height="80" rx="11" fill="#0c1018" stroke="#232c3d"/>
+            <rect x="40" y="290" width="22" height="38" rx="5" fill="none" stroke="#66738c"/>
+            <rect x="68" y="288" width="34" height="24" rx="4" fill="none" stroke="#66738c"/>
+            <path d="M80 316h10" stroke="#66738c"/>
+            <text x="112" y="306" style="font:600 13.5px var(--ff)" fill="#e9eef7">手机 / 平板</text>
+            <text x="112" y="324" style="font:500 10.5px var(--fm)" fill="#66738c">随时批注 · 框选</text>
+            <circle cx="176" cy="292" r="4" fill="#3ecf8e"/>
+          </g>
+          <!-- 右上：远程工作站 -->
+          <g class="node">
+            <rect x="426" y="44" width="168" height="80" rx="11" fill="#0c1018" stroke="#232c3d"/>
+            <rect x="440" y="58" width="52" height="36" rx="4" fill="none" stroke="#66738c"/>
+            <path d="M458 102h16M466 94v8" stroke="#66738c" stroke-width="1.2"/>
+            <text x="506" y="74" style="font:600 13.5px var(--ff)" fill="#e9eef7">远程工作站</text>
+            <text x="506" y="92" style="font:500 10.5px var(--fm)" fill="#66738c">上海 · 4×RTX 3090</text>
+            <circle cx="576" cy="60" r="4" fill="#3ecf8e"/>
+          </g>
+          <!-- 右下：云端模型 -->
+          <g class="node">
+            <rect x="426" y="276" width="168" height="80" rx="11" fill="#0c1018" stroke="#232c3d"/>
+            <path d="M444 306a11 11 0 0 1 2-21 15 15 0 0 1 28-4 12 12 0 0 1 4 25z" fill="none" stroke="#66738c"/>
+            <text x="494" y="306" style="font:600 13.5px var(--ff)" fill="#e9eef7">模型服务</text>
+            <text x="494" y="324" style="font:500 10.5px var(--fm)" fill="#66738c">大小模型自己配</text>
+            <circle cx="576" cy="292" r="4" fill="#e55a09"/>
+          </g>
+        </svg>
+      </div>
+      <div class="fleet-notes" data-reveal>
+        <div class="fnote">
+          <div class="ft"><span class="dot"></span>在哪看都行</div>
+          <div class="fd">电脑、手机、平板登同一个项目组，进度、文件、批注全都一样。手机上就能<b>框选打回</b>。</div>
+        </div>
+        <div class="fnote">
+          <div class="ft"><span class="dot"></span>换台机器接着跑</div>
+          <div class="fd">长任务跑到一半，你把这台关了，在另一台上打开就<b>继续跑</b>，进度、记忆、产物全在。</div>
+        </div>
+        <div class="fnote">
+          <div class="ft"><span class="dot"></span>算力按需分配</div>
+          <div class="fd">简单步骤走便宜模型，渲染、出图这种重的<b>自动甩给带显卡的机器</b>，跑完把文件送回项目目录。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ S8 开源 ═══════════ -->
+<section id="open">
+  <div class="wrap">
+    <div class="sec-head" data-reveal>
+      <div class="eyebrow">09 / 开源</div>
+      <h2 class="sec">VICTLINK 微麟科技研发，<em>完全开源</em></h2>
+      <p class="lede">代码、构建方式、目录结构全公开，你可以自己装、自己改、自己审。不锁账号、不收费、不看你要不要续费。</p>
+    </div>
+    <div class="open-wrap">
+      <div class="oplist" data-reveal>
+        <article class="opitem">
+          <div class="oi"><span class="oin">01</span><span class="oit">装在你自己的机器上</span></div>
+          <div class="oid">一条命令拉下来跑，桌面端、终端、浏览器三头都能进。<b>项目文件全在你本地</b>，不用上传到谁的服务器。</div>
+        </article>
+        <article class="opitem">
+          <div class="oi"><span class="oin">02</span><span class="oit">技能是纯文本，随便改</span></div>
+          <div class="oid">技能就是一堆 Markdown 加脚本，<b>改一个字立刻生效</b>。团队里怎么干，就怎么写成技能传下去。</div>
+        </article>
+        <article class="opitem">
+          <div class="oi"><span class="oin">03</span><span class="oit">模型是你的，key 是你的</span></div>
+          <div class="oid">接哪家模型、用哪个 key、便宜的还是贵的，<b>你自己填</b>。本机模型也能接，不被绑死。</div>
+        </article>
+      </div>
+      <div class="fleet-side" data-reveal style="display:grid;gap:14px">
+        <div class="ghbox">
+          <div class="gurl">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+            github.com/VICTLINK/PilotV
+          </div>
+          <div class="gd">源码、构建说明、Issue 和讨论全在这个仓库。觉得不好用，直接提 Issue 或自己提 PR。</div>
+        </div>
+        <div class="modelbox">
+          <div class="mh">可接的模型 —— 你自己挑</div>
+          <div class="chips">
+            <span class="chip hl">OpenAI</span><span class="chip hl">Anthropic</span>
+            <span class="chip">DeepSeek</span><span class="chip">Qwen</span><span class="chip">GLM</span>
+            <span class="chip">Kimi</span><span class="chip">Ollama 本地模型</span><span class="chip">自定义 OpenAI 兼容接口</span>
+          </div>
+          <div class="gd" style="font-size:13px;color:var(--tx3);line-height:1.7">简单的活派便宜模型，难的活才上大模型 —— <b style="color:var(--tx2)">省下来的都是你的成本</b>。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 结尾 ═══════════ -->
+<section class="end">
+  <div class="wrap">
+    <div class="wm wm-still"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -18 310 130" width="620" height="260"><title id="title">PilotV · 无限循环</title><desc id="desc">蓝点延伸成线，生成橙色 V 和 Pilot，V 绕自身竖直轴左右转身。V 依次吞入 t、o、l、i、P，再缩回线和点，16 秒平滑循环。减少动态效果时显示完整静态字标。</desc><g class="letter letter-P" data-letter="P"><g transform="translate(8.00 80.85) scale(0.050 -0.050)"><path d="M655 742Q787 742 845.0 805.0Q903 868 903 981Q903 1031 888.0 1072.0Q873 1113 842.5 1142.5Q812 1172 765.5 1188.0Q719 1204 655 1204H479V742ZM655 1457Q809 1457 919.5 1420.5Q1030 1384 1101.5 1320.0Q1173 1256 1207.0 1169.0Q1241 1082 1241 981Q1241 872 1206.0 781.0Q1171 690 1099.0 625.0Q1027 560 916.5 523.5Q806 487 655 487H479V0H141V1457Z" fill="#FAFAFA" /></g></g><g class="letter letter-i" data-letter="i"><g class="fly-i" data-station="213.53" data-foot="80.95"><g transform="translate(67.60 80.85) scale(0.050 -0.050)"><path d="M422 1037V0H112V1037ZM454 1321Q454 1284 439.0 1251.5Q424 1219 398.0 1194.5Q372 1170 337.5 1155.5Q303 1141 264 1141Q226 1141 193.0 1155.5Q160 1170 134.5 1194.5Q109 1219 94.5 1251.5Q80 1284 80 1321Q80 1359 94.5 1392.0Q109 1425 134.5 1450.0Q160 1475 193.0 1489.0Q226 1503 264 1503Q303 1503 337.5 1489.0Q372 1475 398.0 1450.0Q424 1425 439.0 1392.0Q454 1359 454 1321Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-l" data-letter="l"><g class="fly-l" data-station="228.51" data-foot="103.30"><g transform="translate(90.30 80.85) scale(0.050 -0.050)"><path d="M415 1497V0H105V1497Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-o" data-letter="o"><g class="fly-o" data-station="239.91" data-foot="141.35"><g transform="translate(112.30 80.85) scale(0.050 -0.050)"><path d="M583 1053Q701 1053 798.0 1016.0Q895 979 964.5 910.0Q1034 841 1072.5 742.5Q1111 644 1111 521Q1111 397 1072.5 297.5Q1034 198 964.5 128.5Q895 59 798.0 21.5Q701 -16 583 -16Q464 -16 366.5 21.5Q269 59 198.5 128.5Q128 198 89.5 297.5Q51 397 51 521Q51 644 89.5 742.5Q128 841 198.5 910.0Q269 979 366.5 1016.0Q464 1053 583 1053ZM583 214Q690 214 740.5 289.5Q791 365 791 519Q791 673 740.5 748.0Q690 823 583 823Q473 823 422.0 748.0Q371 673 371 519Q371 365 422.0 289.5Q473 214 583 214Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-t" data-letter="t"><g class="fly-t" data-station="252.04" data-foot="186.20"><g transform="translate(166.40 80.85) scale(0.050 -0.050)"><path d="M476 -16Q402 -16 345.5 5.5Q289 27 250.5 66.5Q212 106 192.0 162.0Q172 218 172 287V823H84Q60 823 43.0 838.5Q26 854 26 884V1005L191 1037L252 1290Q264 1338 320 1338H482V1035H739V823H482V308Q482 272 499.5 248.5Q517 225 550 225Q567 225 578.5 228.5Q590 232 598.5 236.5Q607 241 614.5 244.5Q622 248 632 248Q646 248 654.5 241.5Q663 235 672 221L766 74Q706 29 631.0 6.5Q556 -16 476 -16Z" fill="#FAFAFA" /></g></g></g><g class="v-reveal" data-letter="V"><line class="v-edge" x1="236.35" x2="236.35" y1="8" y2="80.85" stroke="#e55a09" stroke-width=".8" stroke-linecap="round" /><g class="v-spin"><g><g><g transform="translate(200.80 80.85) scale(0.050 -0.050)"><path d="M1448 1457 864 0H558L-26 1457H246Q290 1457 317.0 1436.5Q344 1416 358 1384L640 604Q660 553 679.0 492.5Q698 432 715 366Q729 432 746.5 492.5Q764 553 784 604L1064 1384Q1075 1412 1103.5 1434.5Q1132 1457 1174 1457Z" fill="#e55a09" stroke="#e55a09" stroke-width="32" paint-order="stroke" /></g></g></g></g></g><rect class="blue-line" x="200.70" y="91.85" width="71.30" height="5.5" rx="2.75" fill="#297cc0" /></svg></div>
+    <h2 data-reveal>活派下去，<em>它自己干完</em></h2>
+    <p data-reveal>不用你一句一句盯，不用你手动存结果。你要做的只有两件事：把活说清楚，把要改的地方圈出来。</p>
+    <div class="cta-row" data-reveal>
+      <a class="btn btn-p" href="#shot">再看一遍真实界面</a>
+      <a class="btn btn-g" href="https://github.com/VICTLINK/PilotV" target="_blank" rel="noopener">GitHub · VICTLINK/PilotV</a>
+    </div>
+    <a class="gh" data-reveal href="https://github.com/VICTLINK/PilotV" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      克隆下来，自己装一台
+    </a>
+  </div>
+</section>
+
+<!-- ═══════════ 页脚 ═══════════ -->
+<footer class="foot">
+  <div class="foot-in">
+    <div class="foot-top">
+      <span class="wm wm-still"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -18 310 130" width="620" height="260"><title id="title">PilotV · 无限循环</title><desc id="desc">蓝点延伸成线，生成橙色 V 和 Pilot，V 绕自身竖直轴左右转身。V 依次吞入 t、o、l、i、P，再缩回线和点，16 秒平滑循环。减少动态效果时显示完整静态字标。</desc><g class="letter letter-P" data-letter="P"><g transform="translate(8.00 80.85) scale(0.050 -0.050)"><path d="M655 742Q787 742 845.0 805.0Q903 868 903 981Q903 1031 888.0 1072.0Q873 1113 842.5 1142.5Q812 1172 765.5 1188.0Q719 1204 655 1204H479V742ZM655 1457Q809 1457 919.5 1420.5Q1030 1384 1101.5 1320.0Q1173 1256 1207.0 1169.0Q1241 1082 1241 981Q1241 872 1206.0 781.0Q1171 690 1099.0 625.0Q1027 560 916.5 523.5Q806 487 655 487H479V0H141V1457Z" fill="#FAFAFA" /></g></g><g class="letter letter-i" data-letter="i"><g class="fly-i" data-station="213.53" data-foot="80.95"><g transform="translate(67.60 80.85) scale(0.050 -0.050)"><path d="M422 1037V0H112V1037ZM454 1321Q454 1284 439.0 1251.5Q424 1219 398.0 1194.5Q372 1170 337.5 1155.5Q303 1141 264 1141Q226 1141 193.0 1155.5Q160 1170 134.5 1194.5Q109 1219 94.5 1251.5Q80 1284 80 1321Q80 1359 94.5 1392.0Q109 1425 134.5 1450.0Q160 1475 193.0 1489.0Q226 1503 264 1503Q303 1503 337.5 1489.0Q372 1475 398.0 1450.0Q424 1425 439.0 1392.0Q454 1359 454 1321Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-l" data-letter="l"><g class="fly-l" data-station="228.51" data-foot="103.30"><g transform="translate(90.30 80.85) scale(0.050 -0.050)"><path d="M415 1497V0H105V1497Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-o" data-letter="o"><g class="fly-o" data-station="239.91" data-foot="141.35"><g transform="translate(112.30 80.85) scale(0.050 -0.050)"><path d="M583 1053Q701 1053 798.0 1016.0Q895 979 964.5 910.0Q1034 841 1072.5 742.5Q1111 644 1111 521Q1111 397 1072.5 297.5Q1034 198 964.5 128.5Q895 59 798.0 21.5Q701 -16 583 -16Q464 -16 366.5 21.5Q269 59 198.5 128.5Q128 198 89.5 297.5Q51 397 51 521Q51 644 89.5 742.5Q128 841 198.5 910.0Q269 979 366.5 1016.0Q464 1053 583 1053ZM583 214Q690 214 740.5 289.5Q791 365 791 519Q791 673 740.5 748.0Q690 823 583 823Q473 823 422.0 748.0Q371 673 371 519Q371 365 422.0 289.5Q473 214 583 214Z" fill="#FAFAFA" /></g></g></g><g class="letter letter-t" data-letter="t"><g class="fly-t" data-station="252.04" data-foot="186.20"><g transform="translate(166.40 80.85) scale(0.050 -0.050)"><path d="M476 -16Q402 -16 345.5 5.5Q289 27 250.5 66.5Q212 106 192.0 162.0Q172 218 172 287V823H84Q60 823 43.0 838.5Q26 854 26 884V1005L191 1037L252 1290Q264 1338 320 1338H482V1035H739V823H482V308Q482 272 499.5 248.5Q517 225 550 225Q567 225 578.5 228.5Q590 232 598.5 236.5Q607 241 614.5 244.5Q622 248 632 248Q646 248 654.5 241.5Q663 235 672 221L766 74Q706 29 631.0 6.5Q556 -16 476 -16Z" fill="#FAFAFA" /></g></g></g><g class="v-reveal" data-letter="V"><line class="v-edge" x1="236.35" x2="236.35" y1="8" y2="80.85" stroke="#e55a09" stroke-width=".8" stroke-linecap="round" /><g class="v-spin"><g><g><g transform="translate(200.80 80.85) scale(0.050 -0.050)"><path d="M1448 1457 864 0H558L-26 1457H246Q290 1457 317.0 1436.5Q344 1416 358 1384L640 604Q660 553 679.0 492.5Q698 432 715 366Q729 432 746.5 492.5Q764 553 784 604L1064 1384Q1075 1412 1103.5 1434.5Q1132 1457 1174 1457Z" fill="#e55a09" stroke="#e55a09" stroke-width="32" paint-order="stroke" /></g></g></g></g></g><rect class="blue-line" x="200.70" y="91.85" width="71.30" height="5.5" rx="2.75" fill="#297cc0" /></svg></span>
+      <div class="foot-desc">PilotV 是 VICTLINK 微麟科技研发的开源生产力工具 —— 一组项目各自带独立工作区、独立记忆与独立技能，长任务自己往下跑，交付的是真文件。</div>
+      <nav class="foot-links">
+        <a href="https://github.com/VICTLINK/PilotV" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+        <a href="#shot">界面</a>
+        <a href="#group">项目组</a>
+        <a href="#long">长任务</a>
+        <a href="#mark">批注返工</a>
+        <a href="#open">开源</a>
+      </nav>
+    </div>
+    <div class="foot-note">
+      <span class="org">VICTLINK</span> 微麟科技研发 · 开源项目 <a href="https://github.com/VICTLINK/PilotV" target="_blank" rel="noopener">github.com/VICTLINK/PilotV</a>　|　本页所有界面截图均为软件实际运行画面，非设计稿。
+    </div>
+  </div>
+</footer>
+
+<script>
+/* ═══════════ 片头 ═══════════ */
+(function(){
+  var el=document.getElementById('intro'), skip=document.getElementById('skip');
+  if(!el) return;
+  var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var seen=false;
+  try{ seen=sessionStorage.getItem('pv-intro')==='1'; }catch(e){}
+  function end(){
+    if(el.classList.contains('gone')) return;
+    el.classList.add('gone');
+    try{ sessionStorage.setItem('pv-intro','1'); }catch(e){}
+    setTimeout(function(){ el.style.display='none'; },900);
+  }
+  if(seen||reduce){ el.style.display='none'; return; }
+  skip.addEventListener('click',end);
+  /* 品牌动画 6s 处（约 37.5%）字母全部到位，此时切走 */
+  setTimeout(end, 2400);
+  document.addEventListener('keydown',function once(e){
+    if(e.key==='Escape'||e.key==='Enter'){ end(); document.removeEventListener('keydown',once); }
+  });
+})();
+
+/* ═══════════ 导航 ═══════════ */
+(function(){
+  var b=document.getElementById('burger');
+  if(!b) return;
+  b.addEventListener('click',function(){
+    var open=document.body.classList.toggle('menu-open');
+    b.setAttribute('aria-expanded',open?'true':'false');
+  });
+  document.querySelectorAll('.nav-links a').forEach(function(a){
+    a.addEventListener('click',function(){
+      document.body.classList.remove('menu-open');
+      b.setAttribute('aria-expanded','false');
+    });
+  });
+})();
+
+/* ═══════════ 入场 ═══════════ */
+(function(){
+  var els=document.querySelectorAll('[data-reveal]');
+  if(!('IntersectionObserver' in window)){
+    els.forEach(function(e){ e.style.opacity=1; e.style.transform='none'; });
+    return;
+  }
+  var io=new IntersectionObserver(function(es){
+    es.forEach(function(e){
+      if(e.isIntersecting){
+        e.target.style.opacity=1;
+        e.target.style.transform='none';
+        io.unobserve(e.target);
+      }
+    });
+  },{rootMargin:'0px 0px -12% 0px',threshold:.08});
+  els.forEach(function(e,i){
+    e.style.transition='opacity .62s cubic-bezier(.2,.8,.3,1) '+(i%6*60)+'ms, transform .62s cubic-bezier(.2,.8,.3,1) '+(i%6*60)+'ms';
+    io.observe(e);
+  });
+})();
+
+/* ═══════════ 长任务日志（进入视口才跑） ═══════════ */
+(function(){
+  var body=document.getElementById('logBody');
+  if(!body) return;
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  var LINES=[
+    ['09:12:04','接单 <b>「出 V 新标志的三版结构方案」</b>，项目组 <span class="b">/ 品牌</span>'],
+    ['09:12:05','澄清 1 问 → 已确认边界：<b>保留 V 字形、不改配色</b>'],
+    ['09:12:06','拆解 <span class="b">7 个子任务</span>，写入清单，可随时叫停'],
+    ['09:14:31','#2 结构推导 <span class="g">✓</span>　生成 3 版路径，已落盘 <b>brand/v1.svg</b>'],
+    ['09:18:02','#3 尺寸规范 <span class="g">✓</span>　最小笔画 24pt，最小间距 8pt'],
+    ['09:22:47','#4 动效曲线 <span class="g">✓</span>　本机渲染 240 帧，已交成果台'],
+    ['09:31:15','<span class="o">卡点 · 等你确认</span>　三版方向要先选一个才能继续，出哪版？'],
+    ['09:47:52','收到选择 → 继续 <b>#5 #6 #7</b>'],
+    ['10:38:19','<span class="g">✓ 全部完成</span>　交付 <b>14 个文件</b>：SVG / PNG / GIF / 说明文档'],
+    ['10:38:20','长任务用时 <span class="b">1h 26m</span>　你全程只需要回答了 2 次'],
+    ['10:41:07','成果评审：<span class="o">2 条待处理</span>（1 框选 · 1 手绘）']
+  ];
+
+  var i=0, timer=null, running=false;
+  function line(d){
+    var el=document.createElement('div');
+    el.className='logline'+(d[2]?' '+d[2]:'');
+    el.innerHTML='<span class="ts">'+d[0]+'</span><span class="tx">'+d[1]+'</span>';
+    body.appendChild(el);
+    while(body.children.length>11) body.removeChild(body.firstChild);
+  }
+  function run(){
+    i=0; body.innerHTML='';
+    (function step(){
+      if(!running) return;
+      if(i<LINES.length){
+        var d=LINES[i++];
+        line(d);
+        var gap = d[0]==='09:31:15' ? 2800 : (d[0]==='10:41:07' ? 700 : 620);
+        timer=setTimeout(step,gap);
+      }else{
+        timer=setTimeout(function(){ running=false; }, 5400);   // 停在末尾，让人看清结果
+      }
+    })();
+  }
+  function play(){ if(!running){ running=true; run(); } }
+  function pause(){ running=false; clearTimeout(timer); }
+
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(e){ e.isIntersecting?play():pause(); });
+    },{threshold:.18});
+    io.observe(body);
+  }else play();
+  document.addEventListener('visibilitychange',function(){ document.hidden?pause():play(); });
+})();
+
+/* ═══════════ 成果批注演示：编号 / 框选 / 手绘 / 提交，循环播放 ═══════════ */
+(function(){
+  var box=document.getElementById('demo');
+  if(!box) return;
+  var canvas=document.getElementById('dCanvas'), svg=document.getElementById('dSvg');
+  var marks=document.getElementById('dMarks'), cur=document.getElementById('dCur');
+  var label=document.getElementById('dLabel'), items=document.getElementById('dItems');
+  var count=document.getElementById('dCount'), ver=document.getElementById('dVer');
+  var submit=document.getElementById('dSubmit');
+  if(!canvas||!svg||!marks) return;
+
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* 归一化坐标（640×420）→ 画布像素，跟 SVG preserveAspectRatio=meet 规则一致 */
+  function px(x,y){
+    var r=svg.getBoundingClientRect(), c=canvas.getBoundingClientRect();
+    var s=Math.min(r.width/640, r.height/420)||1;
+    var ox=(r.width-640*s)/2, oy=(r.height-420*s)/2;
+    return [r.left-c.left+ox+x*s, r.top-c.top+oy+y*s];
+  }
+  function moveTo(x,y){ var p=px(x,y); cur.style.left=p[0]+'px'; cur.style.top=p[1]+'px'; }
+  function say(t,sub){
+    label.innerHTML=t+(sub?'<span class="sm">'+sub+'</span>':'');
+    label.classList.add('on');
+  }
+  function NS(tag,attrs){
+    var e=document.createElementNS('http://www.w3.org/2000/svg',tag);
+    for(var k in attrs) e.setAttribute(k,attrs[k]);
+    return e;
+  }
+  function badge(x,y,n,color){
+    var g=NS('g',{});
+    g.appendChild(NS('circle',{cx:x,cy:y,r:13,fill:color,stroke:'#fff','stroke-width':2}));
+    var t=NS('text',{x:x,y:y+4,'text-anchor':'middle','font-size':12,'font-weight':700,fill:'#fff'});
+    t.textContent=n; g.appendChild(t); marks.appendChild(g);
+  }
+  function drawStroke(elm){
+    var L=elm.getTotalLength();
+    elm.style.strokeDasharray=L; elm.style.strokeDashoffset=L;
+    void elm.getBoundingClientRect();
+    elm.style.transition='stroke-dashoffset .85s cubic-bezier(.3,.7,.3,1)';
+    elm.style.strokeDashoffset=0;
+  }
+  function item(cls,n,kind,text){
+    var d=document.createElement('div');
+    d.className='ditem '+cls;
+    d.innerHTML='<div class="dh"><span class="no">'+n+'</span><span class="kind">'+kind+' <b>/ '+(cls==='box'?'BOX':'INK')+'</b></span></div>'+
+                '<div class="dtxt">'+text+'</div>'+
+                '<div class="dbtns"><button>标记已解决</button><button>删除</button></div>';
+    items.appendChild(d);
+  }
+  function reset(){
+    marks.innerHTML=''; items.innerHTML='';
+    count.textContent='0 条待处理'; count.classList.remove('done');
+    ver.textContent='v1'; ver.classList.remove('v2');
+    submit.textContent='确认提交'; submit.classList.remove('sent');
+    label.classList.remove('on'); cur.classList.remove('on');
+  }
+
+  var S=[
+    [   0, function(){ reset(); cur.classList.add('on'); moveTo(352,376);
+                      say('成果预览 · v1','先看方向对不对'); }],
+    [1300, function(){ moveTo(202,226); }],
+    [2200, function(){ badge(202,226,'1','#297cc0');
+                      item('box','1','框选','交汇版下摆太宽，收到 64pt 以内');
+                      count.textContent='1 条待处理';
+                      say('① 单击画面加编号','编号会同步出现在右侧标注列表'); }],
+    [3500, function(){ moveTo(58,232); }],
+    [4300, function(){ moveTo(160,310);
+                      say('正在框选…','按住拖动一块区域，自动记下坐标'); }],
+    [5000, function(){ var r=NS('rect',{x:56,y:230,width:104,height:80,rx:4,
+                       fill:'rgba(41,124,192,.14)',stroke:'#297cc0','stroke-width':2});
+                      marks.appendChild(r); drawStroke(r);
+                      say('② 框选 / BOX','这块的问题我知道了'); }],
+    [6200, function(){ moveTo(330,214); }],
+    [7000, function(){ moveTo(248,176); moveTo(290,168); moveTo(334,186);
+                      var ink=NS('path',{d:'M250 214 C240 186 262 164 290 166 C318 168 342 190 332 218',
+                        fill:'none',stroke:'#e55a09','stroke-width':2.6,'stroke-linecap':'round'});
+                      marks.appendChild(ink); drawStroke(ink);
+                      item('ink','2','手绘','切角再深 2mm，转折处更利落');
+                      count.textContent='2 条待处理';
+                      say('③ 手绘 / INK','手指或笔直接画，圈哪改哪'); }],
+    [8700, function(){ say('2 条待处理','确认提交后同步进对话，自动排进返工队列'); }],
+    [9700, function(){ var b=submit.getBoundingClientRect(), c=canvas.getBoundingClientRect();
+                      cur.style.left=(b.right-c.left+4)+'px';
+                      cur.style.top=(b.top-c.top+b.height/2-11)+'px'; }],
+    [10500,function(){ submit.classList.add('sent'); submit.textContent='已提交 · 返工中';
+                      count.textContent='2 条已提交'; count.classList.add('done');
+                      ver.textContent='v2'; ver.classList.add('v2');
+                      say('确认提交 → 自动返工','同一份标注一直带着，直到你点头'); }]
+  ];
+  var idx=0, timer=null, on=false;
+
+  function step(){
+    if(!on) return;
+    if(idx>=S.length){ idx=0; timer=setTimeout(step,1000); return; }
+    S[idx][1](); idx++;
+    if(idx>=S.length){ timer=setTimeout(step,3800); return; }
+    timer=setTimeout(step,Math.max(S[idx][0]-S[idx-1][0],500));
+  }
+  function play(){ if(!on){ on=true; idx=0; step(); } }
+  function pause(){ on=false; clearTimeout(timer); }
+
+  if(reduce){ items.innerHTML=''; count.textContent='2 条待处理'; return; }   // 静止版：标注摆好不播
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(e){ e.isIntersecting?play():pause(); });
+    },{threshold:.2});
+    io.observe(box);
+  }else play();
+  document.addEventListener('visibilitychange',function(){ document.hidden?pause():play(); });
+  window.addEventListener('resize',function(){ clearTimeout(timer); on=false; idx=0; reset(); },{passive:true});
+})();
+
+</script>
+</body>
+</html>
