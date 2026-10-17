@@ -1077,7 +1077,7 @@ function SplitBody(props: SplitBodyProps) {
   };
 
   return (
-    <ChatReviewProvider project={selectedProject} session={selectedSession} openGit={activeTab === "git"} openRequest={reviewOpenRequest} onOpen={handleReviewOpen}>
+    <ChatReviewProvider project={selectedProject} session={selectedSession} openTab={activeTab === "git" ? "changes" : undefined} openRequest={reviewOpenRequest} onOpen={handleReviewOpen}>
     <div
       ref={filesSplitContainerRef}
       className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"

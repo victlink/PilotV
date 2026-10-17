@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useEffect } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ArtifactsConsolePane from './ArtifactsConsolePane';
 
 // jsdom 既没有 ResizeObserver，也没有 canvas 后端；这里只补上形状，不测绘图本身。
@@ -164,6 +164,84 @@ describe('没有选中对话时的手绘页', () => {
     // 撤销之后画布才真的清空。
     fireEvent.click(screen.getByRole('button', { name: '清空' }));
     await waitFor(() => expect(screen.getByTestId('fake-ink-count').textContent).toBe('0'));
+  });
+});
+
+describe('按文件类型筛选', () => {
+  beforeEach(() => window.localStorage.clear());
+
+  const doc = (id: string, title: string) => ({ ...artifact(id, title), kind: 'doc', file_name: `${id}.md` });
+  const video = (id: string, title: string) => ({ ...artifact(id, title), kind: 'video', file_name: `${id}.mp4` });
+  const model = (id: string, title: string) => ({ ...artifact(id, title), kind: 'model3d', file_name: `${id}.glb` });
+  const mixed = () => [artifact('a1', '封面图'), doc('a2', '说明文档'), video('a3', '演示视频'), model('a4', '法兰模型')];
+  const optionTexts = (label: string) =>
+    within(screen.getByLabelText(label)).getAllByRole('option').map(option => option.textContent);
+
+  it('只有一种类型时照样摆下拉：位置统一，不会看着像这个会话的筛选坏了', async () => {
+    loadSessionArtifacts.mockResolvedValue([artifact('a1', '第一张图'), artifact('a2', '第二张图')]);
+
+    render(<ArtifactsConsolePane sessionId="session-1" />);
+
+    await screen.findByLabelText('按类型筛选');
+    // 数量写在选项里，一眼能看出这个会话只有这一类。
+    expect(optionTexts('按类型筛选')).toEqual(['全部类型（2）', '图片（2）']);
+    expect(optionTexts('选择成果')).toHaveLength(2);
+  });
+
+  it('多种类型时给出带数量的类型下拉，筛完只列该类型并补上总数', async () => {
+    loadSessionArtifacts.mockResolvedValue(mixed());
+
+    render(<ArtifactsConsolePane sessionId="session-1" />);
+
+    const filter = await screen.findByLabelText('按类型筛选');
+    expect(optionTexts('按类型筛选')).toEqual(['全部类型（4）', '图片（1）', '网页 / 文档（1）', '视频（1）', '三维模型（1）']);
+
+    fireEvent.change(filter, { target: { value: 'image' } });
+    await waitFor(() => expect(optionTexts('选择成果')).toEqual(['1. 封面图']));
+
+    // 筛着看的时候「1 / 1」会让人以为整个会话只有一份，所以把总数也写出来。
+    expect(within(screen.getByRole('group', { name: '成果操作' })).getByText('1 / 1（共 4）')).toBeTruthy();
+  });
+
+  it('翻页只在筛出来的成果里走', async () => {
+    loadSessionArtifacts.mockResolvedValue([
+      artifact('a1', '封面图'), video('a2', '演示视频'), video('a3', '第二段视频'),
+    ]);
+
+    render(<ArtifactsConsolePane sessionId="session-1" />);
+
+    fireEvent.change(await screen.findByLabelText('按类型筛选'), { target: { value: 'video' } });
+    await waitFor(() => expect(optionTexts('选择成果')).toHaveLength(2));
+    expect(within(screen.getByRole('group', { name: '成果操作' })).getByText('1 / 2（共 3）')).toBeTruthy();
+
+    fireEvent.click(within(screen.getByRole('group', { name: '成果操作' })).getByRole('button', { name: '下一步' }));
+    await waitFor(() => expect((screen.getByLabelText('选择成果') as HTMLSelectElement).value).toBe('a3'));
+    expect(within(screen.getByRole('group', { name: '成果操作' })).getByText('2 / 2（共 3）')).toBeTruthy();
+  });
+
+  it('记住上次选的类型', async () => {
+    loadSessionArtifacts.mockResolvedValue(mixed());
+
+    const first = render(<ArtifactsConsolePane sessionId="session-1" />);
+    fireEvent.change(await screen.findByLabelText('按类型筛选'), { target: { value: 'video' } });
+    await waitFor(() => expect((screen.getByLabelText('按类型筛选') as HTMLSelectElement).value).toBe('video'));
+    first.unmount();
+
+    render(<ArtifactsConsolePane sessionId="session-1" />);
+    const reopened = await screen.findByLabelText('按类型筛选') as HTMLSelectElement;
+    expect(reopened.value).toBe('video');
+    expect(optionTexts('选择成果')).toEqual(['1. 演示视频']);
+  });
+
+  it('记住的类型在这个会话没有对应成果时退回全部，不给一块空白画面', async () => {
+    window.localStorage.setItem('pdconsole.artifacttype.v1', 'video');
+    loadSessionArtifacts.mockResolvedValue([artifact('a1', '封面图'), doc('a2', '说明文档')]);
+
+    render(<ArtifactsConsolePane sessionId="session-1" />);
+
+    const filter = await screen.findByLabelText('按类型筛选');
+    expect((filter as HTMLSelectElement).value).toBe('');
+    expect(optionTexts('选择成果')).toHaveLength(2);
   });
 });
 

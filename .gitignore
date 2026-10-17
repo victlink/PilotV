@@ -54,7 +54,11 @@ service/data/
 # 部署脚本每次先备份旧 dist，backup 目录会逐次累积到几十 MB。
 .deployment-backups/
 # vite build 前手动改名留下的旧产物目录，dist/ 规则匹配不到。
-pilotdeck-mobile/upstream-official/ui/dist.previous-*/
+# ** 覆盖 ui/ 与 upstream-official/ 两处：备份脚本落在哪一层都算。
+pilotdeck-mobile/upstream-official/**/dist.previous-*/
+
+# 验收/探查截图：跑一次 .qa 或 review 下的脚本就能重新生成，逐次几十 MB。
+/review/
 
 # ── 脚本运行状态（一次性排查脚本的残留）──────────────────────────
 scripts/.deploy_running_fixes_state.json

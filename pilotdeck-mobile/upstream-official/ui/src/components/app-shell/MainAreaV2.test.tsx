@@ -146,16 +146,18 @@ describe('MainAreaV2 dashboard switcher', () => {
     expect(screen.getByRole('button', { name: '成果' })).toBeTruthy();
   });
 
-  it('switches chat, files and artifacts from one three-page header', () => {
+  it('switches chat, files, changes and artifacts from one four-page header', () => {
     render(<Harness />);
 
     const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
     const chatButton = pages.getByRole('button', { name: '对话' });
     const filesButton = pages.getByRole('button', { name: '文件' });
+    const changesButton = pages.getByRole('button', { name: '改动' });
     const artifactsButton = pages.getByRole('button', { name: '成果' });
 
     expect(chatButton.getAttribute('aria-pressed')).toBe('true');
     expect(filesButton.getAttribute('aria-pressed')).toBe('false');
+    expect(changesButton.getAttribute('aria-pressed')).toBe('false');
     expect(artifactsButton.getAttribute('aria-pressed')).toBe('false');
 
     fireEvent.click(filesButton);
@@ -172,6 +174,29 @@ describe('MainAreaV2 dashboard switcher', () => {
     expect(chatButton.getAttribute('aria-pressed')).toBe('true');
     expect(artifactsButton.getAttribute('aria-pressed')).toBe('false');
     expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
+  });
+
+  it('enters the changes page from the drawer and closes the panel on the way out', () => {
+    const closed = vi.fn();
+    window.addEventListener('pilotdeck:close-review', closed);
+    render(<Harness withSession />);
+
+    const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
+    const changesButton = pages.getByRole('button', { name: '改动' });
+
+    fireEvent.click(changesButton);
+    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('git');
+    expect(changesButton.getAttribute('aria-pressed')).toBe('true');
+    // 进「改动」这一页不该顺手把面板也关掉——它就是要在这里弹出来。
+    expect(closed).not.toHaveBeenCalled();
+
+    // 面板开合和 activeTab 是两份状态：以前切回对话面板还留在原地，
+    // 右上角的关闭按钮又被页面标签条压住，于是只剩下重启能出去。
+    fireEvent.click(pages.getByRole('button', { name: '对话' }));
+    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
+    expect(closed).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener('pilotdeck:close-review', closed);
   });
 
   it('folds the page tabs into a handle and brings them back', () => {
@@ -279,7 +304,8 @@ describe('MainAreaV2 dashboard switcher', () => {
 
     fireEvent(window, new Event('pilotdeck:open-changes'));
     expect(screen.getByRole('button', { name: '成果' }).getAttribute('aria-pressed')).toBe('false');
-    expect(screen.getByRole('button', { name: '对话' }).getAttribute('aria-pressed')).toBe('true');
+    // 「改动」自己就是一页：侧栏把它叫出来，选中态停在「改动」而不是弹回「对话」。
+    expect(screen.getByRole('button', { name: '改动' }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByTestId('main-content').getAttribute('data-review-tab')).toBe('changes');
   });
 

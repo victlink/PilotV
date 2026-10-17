@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatReviewProvider, type ReviewOpenRequest } from './ChatReviewContext';
+import { REVIEW_CLOSE_EVENT } from './reviewEvents';
 import TurnChangesCard from './TurnChangesCard';
 import ChatReviewSidePanel from './ChatReviewSidePanel';
 import type { Project, ProjectSession } from '../../types/app';
@@ -204,4 +205,30 @@ it('clears the previous file diff immediately while the next file is loading', a
   expect(screen.queryByText('first-version')).toBeNull();
   await act(async () => { finishNext(result('conflict.txt', 'second-version')); });
   expect(await screen.findByText('second-version')).toBeTruthy();
+});
+
+it('closes the panel with Escape and when the page tabs leave it, keeping the draft', async () => {
+  setup(); await screen.findByTestId('turn-changes-card');
+  const draft = screen.getByLabelText('聊天草稿');
+  fireEvent.change(draft, { target: { value: '草稿要留住' } });
+  const open = () => fireEvent.click(within(screen.getByTestId('turn-changes-card')).getByText('查看变更'));
+
+  open();
+  expect(await screen.findByTestId('chat-review-panel')).toBeTruthy();
+  // 页面标签条切到别的页面时递过来的事件。
+  fireEvent(window, new Event(REVIEW_CLOSE_EVENT));
+  expect(screen.queryByTestId('chat-review-panel')).toBeNull();
+
+  open();
+  expect(await screen.findByTestId('chat-review-panel')).toBeTruthy();
+  fireEvent.keyDown(window, { key: 'Escape' });
+  expect(screen.queryByTestId('chat-review-panel')).toBeNull();
+
+  // 正在输入框里打字时 Esc 归输入框，面板不抢。
+  open();
+  expect(await screen.findByTestId('chat-review-panel')).toBeTruthy();
+  fireEvent.keyDown(draft, { key: 'Escape' });
+  expect(screen.getByTestId('chat-review-panel')).toBeTruthy();
+
+  expect((draft as HTMLTextAreaElement).value).toBe('草稿要留住');
 });

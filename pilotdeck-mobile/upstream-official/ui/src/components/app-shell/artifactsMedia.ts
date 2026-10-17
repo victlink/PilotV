@@ -81,6 +81,40 @@ export function mediaType(artifact: Artifact): MediaType {
   return 'unsupported';
 }
 
+/** 类型下拉里的固定顺序：先看图，再看文，最后才是兜底的「其他」。 */
+const TYPE_ORDER: readonly MediaType[] = ['image', 'drawing', 'iframe', 'video', 'audio', 'model3d', 'unsupported'];
+
+const TYPE_LABELS: Record<MediaType, string> = {
+  image: '图片',
+  drawing: '手绘',
+  iframe: '网页 / 文档',
+  video: '视频',
+  audio: '音频',
+  model3d: '三维模型',
+  unsupported: '其他',
+};
+
+export function artifactTypeLabel(type: MediaType): string {
+  return TYPE_LABELS[type] || type;
+}
+
+/**
+ * 一批成果里各有几份、分别是什么类型，顺序固定、带数量。
+ *
+ * 判定只认 mediaType：它已经按 mime + 扩展名兜过一遍（kind 与后缀对不上时，
+ * 复杂格式优先），所以这里不另写一套映射，免得两份规则越改越不一样。
+ */
+export function artifactTypeFacets(items: readonly Artifact[]): { value: MediaType; label: string; count: number }[] {
+  const counts = new Map<MediaType, number>();
+  for (const item of items) {
+    const type = mediaType(item);
+    counts.set(type, (counts.get(type) || 0) + 1);
+  }
+  return TYPE_ORDER
+    .filter(type => counts.has(type))
+    .map(type => ({ value: type, label: artifactTypeLabel(type), count: counts.get(type) as number }));
+}
+
 type WorkspaceProject = { id?: string | null; sessions?: WorkspaceSession[] | null };
 type WorkspaceSession = { id?: string | null; artifacts?: Artifact[] | null };
 

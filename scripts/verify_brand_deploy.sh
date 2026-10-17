@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 部署后实况校验：网关(HTTPS 5186) 与 artifacts(8799) 实际吐出的品牌资源
 set -uo pipefail
-BRAND=/home/marc/PilotV/brand
+# 品牌素材已于 2026-10-17 迁至推广项目目录，此处仅用于比对哈希，故只读引用新路径
+BRAND="/home/marc/项目/VICTLINK 推广/brand"
 DIST=/home/marc/PilotV/pilotdeck-mobile/upstream-official/ui/dist
 GW="https://127.0.0.1:5186"
 AR="http://127.0.0.1:8799"

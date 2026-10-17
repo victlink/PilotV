@@ -8,6 +8,7 @@ import {
   BarChart3,
   Database,
   Folder,
+  GitBranch,
   Library,
   PanelsTopLeft,
   PanelLeftOpen,
@@ -34,6 +35,7 @@ import {
 import { isImeEnterEvent } from '../../utils/ime';
 import { FindShortcutProvider } from '../../contexts/FindShortcutContext';
 import { isGeneralProject } from './appShellSelection';
+import { REVIEW_CLOSE_EVENT } from '../chat-review/reviewEvents';
 
 const CronV2 = lazy(() => import('../main-content-v2/CronV2'));
 const SkillsV2 = lazy(() => import('../main-content-v2/SkillsV2'));
@@ -140,6 +142,9 @@ type Tab = { id: AppTab; labelKey: string; icon: LucideIcon };
 // Files is the only primary work mode; the remaining management dashboards
 // live behind the compact overflow trigger and open beside the conversation.
 const FILES_TAB: Tab = { id: 'files', labelKey: 'tabs.files', icon: Folder };
+// 「改动」这一页就是对话旁的评审面板（变更 / Git / 历史）。AppTab 里的 'git'
+// 是它早年的名字，管线（MainContent → ChatReviewProvider）一直都在。
+const REVIEW_TAB: Tab = { id: 'git', labelKey: 'dashboardSwitcher.changes', icon: GitBranch };
 const DASHBOARD_TABS: Tab[] = [
   { id: 'dashboard', labelKey: 'tabs.dashboard', icon: BarChart3 },
   { id: 'memory',    labelKey: 'tabs.memory',    icon: Database },
@@ -220,21 +225,29 @@ function MainAreaV2Content(props: MainAreaV2Props) {
     }
   }, [activeTab, activeTabIsUnavailable, setActiveTab]);
 
-  // 「改动」现在住在侧栏的探索菜单里，而评审面板在对话内部，两者不在同一棵子树：
-  // 侧栏用这个事件把请求递进来，序号每次加一，面板才会重新弹一次。
-  useEffect(() => {
-    const openChanges = () => {
-      setShowArtifacts(false);
-      setActiveTab('chat');
-      setReviewOpenRequest(previous => ({
-        tab: 'changes',
-        sequence: (Number(previous?.sequence) || 0) + 1,
-      }));
-    };
-
-    window.addEventListener('pilotdeck:open-changes', openChanges);
-    return () => window.removeEventListener('pilotdeck:open-changes', openChanges);
+  // 「改动」是独立的一页，评审面板住在对话内部，两棵子树互不相通：
+  // 侧栏的探索菜单用 pilotdeck:open-changes 把请求递进来，序号每次加一，
+  // 面板才会重新弹一次（否则已经在这一页时再点一次没反应）。
+  const openChangesPage = useCallback(() => {
+    setShowArtifacts(false);
+    // 落在「改动」这一页，标签条上的选中态才不会跳回对话。
+    setActiveTab(REVIEW_TAB.id);
+    setReviewOpenRequest(previous => ({
+      tab: 'changes',
+      sequence: (Number(previous?.sequence) || 0) + 1,
+    }));
   }, [setActiveTab]);
+
+  useEffect(() => {
+    window.addEventListener('pilotdeck:open-changes', openChangesPage);
+    return () => window.removeEventListener('pilotdeck:open-changes', openChangesPage);
+  }, [openChangesPage]);
+
+  // 离开评审面板：切到别的页面时递个事件过去。少了这一步，面板的开合和
+  // activeTab 是两份互不相干的状态，标签条点「对话」只能换主区、面板还开着。
+  const leaveReviewPanel = useCallback(() => {
+    window.dispatchEvent(new Event(REVIEW_CLOSE_EVENT));
+  }, []);
 
   // Re-render breadcrumb when the user renames a project/session via the
   // sidebar overlay (subscribes to localStorage + custom event).
@@ -405,10 +418,12 @@ function MainAreaV2Content(props: MainAreaV2Props) {
           />
           </FileConversationContext.Provider>
         </div>
-        {/* 悬浮抽屉式页面标签。三个页面依旧各自整窗显示，不把窗口分成两半；
+        {/* 悬浮抽屉式页面标签。四个页面依旧各自整窗显示，不把窗口分成两半；
             标签本身是一层浮在主区右缘的抽屉：absolute 定位，不占主区宽度，
             右侧圆角 + 投影让它读起来是「浮在上面」而不是「右边栏」。
-            底部有收起按钮，收起后只留右缘一枚小把手，点把手再展开。 */}
+            底部有收起按钮，收起后只留右缘一枚小把手，点把手再展开。
+            抽屉上沿压在面板标题栏之下：侧面板的关闭按钮就在右上角，
+            两者重叠的话面板一旦打开就点不掉了。 */}
         <div className="pd-page-drawer">
           {pageTabsOpen ? (
             <nav aria-label="页面切换" className="right-rail pd-page-drawer-panel">
@@ -416,7 +431,7 @@ function MainAreaV2Content(props: MainAreaV2Props) {
                 type="button"
                 aria-pressed={!showArtifacts && displayActiveTab === 'chat'}
                 data-pane-state={!showArtifacts && displayActiveTab === 'chat' ? 'on' : 'off'}
-                onClick={() => { setShowArtifacts(false); setActiveTab('chat'); }}
+                onClick={() => { setShowArtifacts(false); setActiveTab('chat'); leaveReviewPanel(); }}
                 className={!showArtifacts && displayActiveTab === 'chat' ? 'active' : ''}
               >
                 <span>对话</span>
@@ -426,7 +441,7 @@ function MainAreaV2Content(props: MainAreaV2Props) {
                   type="button"
                   aria-pressed={!showArtifacts && displayActiveTab === FILES_TAB.id}
                   data-pane-state={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'on' : 'off'}
-                  onClick={() => { setShowArtifacts(false); setActiveTab(FILES_TAB.id); }}
+                  onClick={() => { setShowArtifacts(false); setActiveTab(FILES_TAB.id); leaveReviewPanel(); }}
                   className={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'active' : ''}
                 >
                   <span>文件</span>
@@ -434,9 +449,18 @@ function MainAreaV2Content(props: MainAreaV2Props) {
               ) : null}
               <button
                 type="button"
+                aria-pressed={!showArtifacts && displayActiveTab === REVIEW_TAB.id}
+                data-pane-state={!showArtifacts && displayActiveTab === REVIEW_TAB.id ? 'on' : 'off'}
+                onClick={openChangesPage}
+                className={!showArtifacts && displayActiveTab === REVIEW_TAB.id ? 'active' : ''}
+              >
+                <span>改动</span>
+              </button>
+              <button
+                type="button"
                 aria-pressed={showArtifacts}
                 data-pane-state={showArtifacts ? 'on' : 'off'}
-                onClick={() => setShowArtifacts(true)}
+                onClick={() => { leaveReviewPanel(); setShowArtifacts(true); }}
                 className={showArtifacts ? 'active' : ''}
               >
                 <span>成果</span>

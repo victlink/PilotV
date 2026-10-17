@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { loadSessionArtifacts, type Artifact } from './artifactsMedia';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { artifactTypeFacets, loadSessionArtifacts, mediaType, type Artifact, type MediaType } from './artifactsMedia';
 import { finalArtifacts } from './artifactRounds';
 import {
   createAnnotation,
@@ -14,6 +14,14 @@ import { appendInkToComposer, appendToComposer, attachInkAndSubmit, buildCompose
 function notePosition(notes: Annotation[]): number {
   const seqs = notes.map(note => Number(note.seq) || 0);
   return seqs.length ? Math.max(...seqs) + 1 : 1;
+}
+
+/** 类型筛选的选择记在这里：成果一多，每次进来都要重挑一遍是白费事。 */
+const TYPE_FILTER_KEY = 'pdconsole.artifacttype.v1';
+
+function readStoredType(): string {
+  try { return typeof window === 'undefined' ? '' : (window.localStorage.getItem(TYPE_FILTER_KEY) || ''); }
+  catch { return ''; }   // 隐私模式下不让读就算了，只是这次不记住
 }
 
 async function readJson(response: Response, what: string): Promise<any> {
@@ -64,6 +72,7 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [syncState, setSyncState] = useState('');
   const [noteError, setNoteError] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string>(readStoredType);
   const syncedNotes = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -85,12 +94,28 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
     return () => controller.abort();
   }, [sessionId, refresh]);
 
+  // 类型筛选只在这一批成果里生效：记住的类型在这个会话没有对应成果时，
+  // 悄悄退回「全部」，而不是给一块空白画面 + 一句「没有成果」。这样 activeType
+  // 一定至少命中一份成果，下面也不需要「筛空了」的兜底画面。
+  const facets = useMemo(() => artifactTypeFacets(artifacts), [artifacts]);
+  const activeType: MediaType | '' = facets.some(facet => facet.value === typeFilter)
+    ? typeFilter as MediaType : '';
+  const visible = useMemo(
+    () => (activeType ? artifacts.filter(item => mediaType(item) === activeType) : artifacts),
+    [artifacts, activeType],
+  );
+
+  useEffect(() => {
+    try { if (typeof window !== 'undefined') window.localStorage.setItem(TYPE_FILTER_KEY, typeFilter); }
+    catch { /* 存不进去就算了，这次照样筛 */ }
+  }, [typeFilter]);
+
   // 刷新后列表可能变短（新一轮的中间过程被收起来了），别停在空位上。
   useEffect(() => {
-    setIndex(current => Math.min(current, Math.max(artifacts.length - 1, 0)));
-  }, [artifacts.length]);
+    setIndex(current => Math.min(current, Math.max(visible.length - 1, 0)));
+  }, [visible.length]);
 
-  const selected = artifacts[index];
+  const selected = visible[Math.min(index, Math.max(visible.length - 1, 0))];
 
   // Notes live on the artifact record, so one read covers new and resolved notes.
   useEffect(() => {
@@ -188,7 +213,9 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
     setSyncState(appendToComposer(buildComposerText(title, open)) ? '已把标注同步到对话输入' : '未找到对话输入框，标注未同步');
   };
 
-  const move = (direction: number) => setIndex(current => Math.min(artifacts.length - 1, Math.max(0, current + direction)));
+  const move = (direction: number) => setIndex(current => Math.min(visible.length - 1, Math.max(0, current + direction)));
+
+  const pickType = (value: string) => { setTypeFilter(value); setIndex(0); };
 
   // No artifact yet is a normal state, not an error: the stage renders a blank
   // sheet and the first stroke creates the whiteboard it is saved on.
@@ -208,10 +235,19 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
     <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
       {artifacts.length ? (
         <>
+          {/* 只剩一种类型时也摆出来：同一个位置、同一套交互，才不会让用户以为
+              「这个会话的筛选坏了」。选项里本来就写着数量，一眼能看出只有这一类。 */}
+          <label className="shrink-0"><span className="sr-only">按类型筛选</span>
+            <select aria-label="按类型筛选" value={activeType} onChange={event => pickType(event.target.value)}
+              className="max-w-40 rounded border border-border bg-background px-1.5 py-1 text-xs">
+              <option value="">全部类型（{artifacts.length}）</option>
+              {facets.map(facet => <option key={facet.value} value={facet.value}>{facet.label}（{facet.count}）</option>)}
+            </select>
+          </label>
           <label className="min-w-0 flex-1"><span className="sr-only">选择成果</span>
             <select aria-label="选择成果" className="w-full truncate rounded border border-border bg-background px-2 py-1 text-xs"
-              value={selected?.id || ''} onChange={event => setIndex(artifacts.findIndex(item => item.id === event.target.value))}>
-              {artifacts.map((item, position) => <option key={`${item.id}-${position}`} value={item.id}>{position + 1}. {item.title || item.file_name || item.id}</option>)}
+              value={selected?.id || ''} onChange={event => setIndex(visible.findIndex(item => item.id === event.target.value))}>
+              {visible.map((item, position) => <option key={`${item.id}-${position}`} value={item.id}>{position + 1}. {item.title || item.file_name || item.id}</option>)}
             </select>
           </label>
         </>
@@ -233,8 +269,12 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
           navigation={<>
             <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
             <button type="button" className="min-h-9 rounded-full border border-transparent px-2.5 text-xs hover:bg-muted disabled:opacity-40" disabled={status !== 'ready' || index <= 0} onClick={() => move(-1)}>上一步</button>
-            <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground" aria-live="polite">{artifacts.length ? `${index + 1} / ${artifacts.length}` : '0 / 0'}</span>
-            <button type="button" className="min-h-9 rounded-full border border-transparent px-2.5 text-xs hover:bg-muted disabled:opacity-40" disabled={status !== 'ready' || index >= artifacts.length - 1} onClick={() => move(1)}>下一步</button>
+            {/* 筛着看时补上总数，免得「2 / 3」被当成整个会话只有 3 份成果。 */}
+            <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground" aria-live="polite">
+              {visible.length ? `${Math.min(index, visible.length - 1) + 1} / ${visible.length}` : '0 / 0'}
+              {activeType ? `（共 ${artifacts.length}）` : ''}
+            </span>
+            <button type="button" className="min-h-9 rounded-full border border-transparent px-2.5 text-xs hover:bg-muted disabled:opacity-40" disabled={status !== 'ready' || index >= visible.length - 1} onClick={() => move(1)}>下一步</button>
             <button type="button" className="min-h-9 rounded-full border border-transparent px-2.5 text-xs hover:bg-muted" onClick={() => setRefresh(value => value + 1)}>刷新</button>
           </>}
           onDraft={setDraft} onDraftBody={setDraftBody} onSaveDraft={() => { void submitDraft(); }}
