@@ -361,11 +361,16 @@ class ArtifactStore:
             return None
         return self._row_to_artifact(row, with_annotations=with_annotations)
 
-    def list(self, kind=None, status=None, agent=None, run_id=None, limit=200, offset=0) -> list:
+    def list(self, kind=None, status=None, agent=None, run_id=None, unowned=False,
+             limit=200, offset=0) -> list:
         """列成果。run_id 是会话归属（成果台里唯一的归属字段）。
 
         传 run_id 就是「只看这一个会话的成果」——归属过滤必须能在 SQL 里做，
         靠上层拿到全量再筛，既把别人的成果发到了浏览器，又分页/limit 一卡就漏。
+
+        unowned=True 取「一条会话都挂不上」的成果。它必须是一段独立查询，而不是
+        run_id=''：空归属的成果普遍很旧，混在按时间倒序取的那批里会被 limit
+        整个截掉（实测 129 条空归属全在最近 400 条之外），未归属区就会永远是空的。
         """
         sql = "SELECT * FROM artifacts WHERE 1=1"
         args: list = []
@@ -381,6 +386,8 @@ class ArtifactStore:
         if run_id:
             sql += " AND run_id=?"
             args.append(run_id)
+        if unowned:
+            sql += " AND (run_id IS NULL OR run_id='')"
         sql += " ORDER BY ts DESC, rowid DESC LIMIT ? OFFSET ?"
         args += [max(1, min(int(limit), 1000)), max(0, int(offset))]
         with self._lock:

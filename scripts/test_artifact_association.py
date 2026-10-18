@@ -53,6 +53,57 @@ class AssociationTests(unittest.TestCase):
         self.assertTrue(unassigned, "空归属的成果应该有未归属桶")
         self.assertEqual(unassigned[0]['sessions'][0]['artifacts'][0]['id'], 'art_logo')
 
+    def test_unowned_artifacts_survive_the_recency_limit(self):
+        """空归属的成果比有归属的老，不能被「最近 N 条」整个截掉。
+
+        线上 129 条空归属成果全在最近 400 条之外，只按时间倒序取的话，未归属区
+        永远显示 0 条 —— 看着就像成果被删干净了，正是这次要修的那个误会。
+        """
+        project = {'name': '3d', 'fullPath': '/work/3d',
+                   'sessions': [{'id': 'web:new', 'live': True}]}
+        tree = {'pilot_home': '/fake', 'projects': [project]}
+
+        recent = {'id': 'art_fresh', 'run_id': 'web:new', 'source': {'path': '/work/3d/a.png'}}
+        old_unowned = {'id': 'art_old', 'run_id': '',
+                       'source': {'path': '/work/3d/logo.svg'}}
+
+        def fake_list(**kw):
+            if kw.get('unowned'):
+                return [old_unowned]
+            return [recent]
+
+        store = SimpleNamespace(list=fake_list)
+        with patch.object(console, '_store_of', return_value=store), \
+             patch.object(workspace, 'scan_projects', return_value=tree), \
+             patch.object(workspace, 'find_project_for_path', return_value=project):
+            response = asyncio.run(console.api_workspace(
+                SimpleNamespace(query={}, remote="127.0.0.1", headers={})))
+        data = json.loads(response.body)
+        unassigned = [p for p in data['projects'] if p['name'] == '__unassigned__']
+        self.assertTrue(unassigned, "老的空归属成果也必须出现在未归属桶里")
+        self.assertEqual(unassigned[0]['sessions'][0]['artifacts'][0]['id'], 'art_old')
+
+    def test_session_filter_skips_the_unowned_top_up(self):
+        """带 ?session= 时不需要补空归属：面板只关心当前会话。"""
+        project = {'name': '3d', 'fullPath': '/work/3d',
+                   'sessions': [{'id': 'web:new', 'live': True}]}
+        tree = {'pilot_home': '/fake', 'projects': [project]}
+        calls = []
+
+        def fake_list(**kw):
+            calls.append(kw)
+            return [{'id': 'art_fresh', 'run_id': 'web:new',
+                     'source': {'path': '/work/3d/a.png'}}]
+
+        store = SimpleNamespace(list=fake_list)
+        with patch.object(console, '_store_of', return_value=store), \
+             patch.object(workspace, 'scan_projects', return_value=tree):
+            asyncio.run(console.api_workspace(
+                SimpleNamespace(query={'session': 'web:new'},
+                                remote="127.0.0.1", headers={})))
+        self.assertFalse([c for c in calls if c.get('unowned')],
+                         "会话过滤视图不该再拉一遍空归属")
+
     def test_empty_run_id_in_project_without_sessions_stays_project_direct(self):
         """项目下没有任何会话时，落「项目直属」——这条路径不能被改坏。"""
         project = {'name': '3d', 'fullPath': '/work/3d', 'sessions': []}

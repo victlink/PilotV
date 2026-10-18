@@ -1501,6 +1501,20 @@ async def api_workspace(request):
 
     tree = ws.scan_projects(session_limit=session_limit)
     artifacts = store.list(limit=artifact_limit)
+    session_filter = (q.get("session") or "").strip()
+
+    if not session_filter:
+        # 空归属的成果统一进「未归属」，那必须是个**看得见**的去处。
+        # 只按时间倒序取最近 artifact_limit 条是不够的：这些成果没有 run_id，
+        # 发布时猜不到会话，往往比有归属的成果老得多（线上 129 条空归属全在
+        # 最近 400 条之外）。结果就是左栏「未归属」永远显示 0 条，看着就像
+        # 成果被删干净了 —— 而这正是这次要修的那个误会。
+        # 所以不带会话过滤时，额外按「空归属」再取一批，按 id 去重。
+        seen = {a["id"] for a in artifacts}
+        for art in store.list(unowned=True, limit=artifact_limit):
+            if art["id"] not in seen:
+                seen.add(art["id"])
+                artifacts.append(art)
 
     owner: dict = {}
     aliases: dict = {}
@@ -1574,7 +1588,6 @@ async def api_workspace(request):
     # 成果、每个会话都带），前端再在浏览器里按 id 挑一遍。两个问题：别的会话的
     # 成果真的发到了浏览器（这正是「串会话」的最后一环），以及 limit 一截断，
     # 成果旧的那个会话就凭空显示为空。过滤放到服务端，顺带把体积也降下来。
-    session_filter = (q.get("session") or "").strip()
     if session_filter:
         matched = []
         bare = []
