@@ -113,6 +113,11 @@ export default function ArtifactStage({
   const inkCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const modelRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<{ fromX: number; fromY: number } | null>(null);
+  // 媒体在 1 倍下的实际显示尺寸。上面那个 fit() 算出来的 fitted 与倍率无关，
+  // 但它写进 media.style.width 之后就变成了「已乘过倍率」的大小；夹取平移范围
+  // 时再乘一次 next.zoom 等于把内容当成 zoom² 大，4 倍时边界宽出 4 倍 —— 图被拖
+  // 出画面边缘也拉不回来。夹取要用这个基准尺寸自己乘倍率。
+  const fitBaseRef = useRef<{ width: number; height: number } | null>(null);
   const [viewerError, setViewerError] = useState('');
   const [videoTime, setVideoTime] = useState(0);
   const [videoLength, setVideoLength] = useState(0);
@@ -129,7 +134,7 @@ export default function ArtifactStage({
   // 抢它们的手只会让两边都不灵。
   const [viewport, setViewport] = useState<StageViewport>({ zoom: MIN_ZOOM, panX: 0, panY: 0 });
   const pinchRef = useRef<PinchStart | null>(null);
-  const panTouchRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const panTouchRef = useRef<{ x: number; y: number; zoom: number; panX: number; panY: number } | null>(null);
 
   // A session with no artifact gets a sheet of paper instead of a media viewer.
   const blank = !artifact;
@@ -173,6 +178,8 @@ export default function ArtifactStage({
     // 换一份成果就回到「适应屏幕」：上一份的倍率对这份没有意义，
     // 而且倍率留在那儿会让新内容被推到屏幕外，看起来像没加载出来。
     setViewport({ zoom: MIN_ZOOM, panX: 0, panY: 0 });
+    // 基准尺寸也跟着清掉：留上一页的会让夹取范围按别人的长宽比算。
+    fitBaseRef.current = null;
     // 看成果默认就是浏览：一看就带着一支随时会落下的笔不是好默认，要标注的人
     // 自己点「框选」或「手绘」。唯一例外是空纸 —— 那张纸本来就是用来画的。
     setTool(blank ? 'ink' : 'browse');
@@ -200,6 +207,8 @@ export default function ArtifactStage({
       // 宽高各自都不能超：图比框「瘦」就按宽贴，图比框「胖」就按高贴。
       // zoom=1 时就是原来的「适应屏幕」；放大之后按倍率放大，画面就真的变大了。
       const fitted = ratio > availableWidth / availableHeight ? availableWidth : availableHeight * ratio;
+      // 记下 1 倍下的尺寸：夹取平移范围要用它，不能回头去量已经乘过倍率的 media。
+      fitBaseRef.current = { width: fitted, height: fitted / ratio };
       const width = fitted * viewport.zoom;
       media.style.width = `${Math.max(Math.floor(width), 40)}px`;
       media.style.height = `${Math.max(Math.floor(width / ratio), 40)}px`;
@@ -269,13 +278,19 @@ export default function ArtifactStage({
   /** 平移后要把画面拉回可视范围：放大之后总得留一条边能摸到。 */
   const settleViewport = useCallback((next: StageViewport): StageViewport => {
     const frame = scrollerRef.current;
-    const media = mediaRef.current;
     // 量不到尺寸时不能夹取：那会把平移锁死在中心，画面看起来像卡住不动。
-    if (!frame || !media || !frame.clientWidth || !frame.clientHeight) return next;
-    return clampPan(next, {
-      width: media.clientWidth * next.zoom,
-      height: media.clientHeight * next.zoom,
-    }, { width: frame.clientWidth, height: frame.clientHeight });
+    if (!frame || !frame.clientWidth || !frame.clientHeight) return next;
+    // media.clientWidth 已经乘过当前倍率（fit() 直接写 style.width），再乘
+    // next.zoom 就是按 zoom² 算边界，图会被拖到画面外还拉不回来。有基准尺寸
+    // 就用它自己乘；刚挂上还没量出来时退回原来的量法。
+    const base = fitBaseRef.current;
+    const content = base && base.width > 0 && base.height > 0
+      ? { width: base.width * next.zoom, height: base.height * next.zoom }
+      : {
+        width: (mediaRef.current?.clientWidth ?? 0) * next.zoom,
+        height: (mediaRef.current?.clientHeight ?? 0) * next.zoom,
+      };
+    return clampPan(next, content, { width: frame.clientWidth, height: frame.clientHeight });
   }, []);
 
   const zoomBy = useCallback((factor: number, center?: { x: number; y: number }) => {
@@ -314,7 +329,9 @@ export default function ArtifactStage({
     }
     if (points.length === 1 && pannable && canPan(viewport)) {
       const point = localPoint(points[0].clientX, points[0].clientY);
-      panTouchRef.current = { x: point.x, y: point.y, panX: viewport.panX, panY: viewport.panY };
+      // 起手这一刻的倍率和平移要冻住：平移是「相对起手点」的位移，
+      // 中途每一帧都拿它当基准，画面才真正跟着手指走。
+      panTouchRef.current = { x: point.x, y: point.y, zoom: viewport.zoom, panX: viewport.panX, panY: viewport.panY };
     }
   }, [pinchable, pannable, viewport]);
 
@@ -330,7 +347,14 @@ export default function ArtifactStage({
     const pan = panTouchRef.current;
     if (points.length === 1 && pan) {
       const point = localPoint(points[0].clientX, points[0].clientY);
-      setViewport(current => settleViewport(panBy(current, point.x - pan.x, point.y - pan.y)));
+      // 基准必须是起手时冻住的那份，不能是 current：point.x - pan.x 算的是
+      // 「从落手到此刻」的累计位移，叠在已经被推走的 current 上会一次比一次跑得
+      // 远（1 倍、2 倍、3 倍…），手指还在画面中间，图已经飞到边上卡住了。
+      setViewport(() => settleViewport({
+        zoom: pan.zoom,
+        panX: pan.panX + (point.x - pan.x),
+        panY: pan.panY + (point.y - pan.y),
+      }));
     }
   }, [pinchable, settleViewport]);
 

@@ -183,6 +183,28 @@ it('zooms with ctrl + wheel and pans with a plain wheel once enlarged', async ()
     expect((frame as HTMLElement).style.touchAction).toBe('');
   });
 
+  it('pans one-to-one with the finger instead of running away on every frame', async () => {
+    render(<Harness />);
+    const frame = screen.getByTestId('artifact-frame');
+
+    // 用工具栏的＋放大：它围着画面正中缩放，平移量还是 0，后面好按数字对账。
+    fireEvent.click(screen.getByRole('button', { name: '放大' }));
+    const stage = frame.querySelector(':scope > .relative.shrink-0') as HTMLElement;
+    expect(stage).toBeTruthy();
+    await waitFor(() => expect(stage.style.transform).not.toBe(''));
+
+    fireEvent.touchStart(frame, { touches: [{ clientX: 200, clientY: 200 }] });
+    fireEvent.touchMove(frame, { touches: [{ clientX: 190, clientY: 200 }] });
+    fireEvent.touchMove(frame, { touches: [{ clientX: 180, clientY: 200 }] });
+    fireEvent.touchMove(frame, { touches: [{ clientX: 170, clientY: 200 }] });
+
+    // 三帧各往左挪 10px，画面就该正好挪 30px。早先这里把「从落手到此刻」的
+    // 累计位移反复叠在已经推走的当前值上（10+20+30=60px），手还停在画面中间，
+    // 图已经飞到边上卡住不动了。
+    expect(stage.style.transform).toBe('translate(-30px, 0px)');
+    fireEvent.touchEnd(frame, { touches: [] });
+  });
+
   it('resets the ratio when another artifact is selected', async () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: '放大' }));
