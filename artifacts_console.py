@@ -1353,6 +1353,7 @@ async def api_list(request):
     store = _store_of(request)
     q = request.query
     items = store.list(kind=q.get("kind"), status=q.get("status"), agent=q.get("agent"),
+                       run_id=q.get("session") or None,
                        limit=q.get("limit", 200), offset=q.get("offset", 0))
     return _json({"artifacts": items, "total": len(items), "stats": store.stats(),
                   "agents": store.agent_counts()})
@@ -1473,11 +1474,19 @@ async def api_workspace(request):
     自己编的，而是照着 ~/.pilotdeck/projects/ 原样搬过来（见 pilotdeck_workspace.py）。
     成果台只负责把「成果」挂到对应会话底下。
 
-    归属规则，从准到糊：
+    归属规则：
       1. agent 发布时带 run_id（就是 PilotDeck 的会话 id）→ 精确落到那个会话
-      2. 没带 run_id，但成果的源文件在某个项目的工作目录下 → 落到该项目；
-         项目内优先落到「正在实时修改」的会话，没有就落到最近改动的会话
+      2. 没带 run_id → 不猜。只可能落到该项目「直属」（该项目下没有任何会话）
+         或者「未归属」，**绝不会**落到某个具体会话
       3. 两条都不满足 → 进「未归属」，保证成果不会因为归不了属就从左栏消失
+
+    规则 2 是修串会话的关键。原先这里会把空归属的成果临时挂到「当前 live 会话」
+    上，于是同一个文件跟着你打开哪个会话而漂移（A 看着在 A 会话，切到 B 又出现在
+    B 会话）。没有真实归属的成果现在统一待在一个会话都看不到的地方，但它们
+    没丢，都还在「未归属」里。
+
+    ?session=<id> 时只回这一个会话的子树：成果台面板只关心当前会话，没必要把
+    整库发到浏览器（那既漏了隔离，也会被 limit 截断出假的「空会话」）。
 
     排序：live（正在实时写）的会话提到最前，其余按时间倒序 —— 打开页面第一眼
     看到的就是 agent 正在改的东西。
@@ -1515,13 +1524,19 @@ async def api_workspace(request):
                           "sessions": [unassigned],
                           "sessionMeta": {"total": 1, "hasMore": False}}
 
-    # 成果按时间倒序分配：同一项目里最新的成果会落到最活跃的那个会话上。
+    # 成果按归属分桶：每条只进一个桶，且「显式归属」优先。
     #
     # 一条成果只能进一个桶。原来这里对「按路径匹配到项目」的成果，
     # 既 append 进 project["artifacts"]（项目直属）又 append 进会话（:1180），
     # 左栏就会把同一条成果列两遍。真实数据上项目 vol3-1000-Work-00-PilotV
     # 直属 258 / 会话内也是 258 —— 整整一倍，全是重复渲染。
     # 「项目直属」现在的含义收窄为：属于本项目、但项目下一个会话都挂不上。
+    #
+    # 空归属（run_id 为空）**不再**挂到「当前 live 会话」上。
+    # 那条分支让成果跟着你打开哪个会话而漂移：同一个文件 10:00 出现在会话 A、
+    # 10:05 又出现在会话 B，用户看到的正是「这个不是已经移走了吗」。
+    # 现在空归属只会落到项目直属（该项目下没有会话可挂）或「未归属」，
+    # 哪个会话都不会出现 —— 看不到 ≠ 丢数据，未归属里都还在。
     for art in sorted(artifacts, key=lambda a: _ts_key(a.get("updated_at") or a.get("ts")),
                       reverse=True):
         target = None
@@ -1532,17 +1547,15 @@ async def api_workspace(request):
             matches = aliases.get(run_id, [])
             if len(matches) == 1:
                 target = matches[0]
-        # An explicit owner must never drift to whichever conversation is live.
+        # An explicit owner must never drift, and an empty owner must not guess
+        # either: only the project's own bucket stays reachable from here.
         if target is None and not run_id:
             src = (art.get("source") or {}).get("path") or art.get("stored_path") or ""
             project = ws.find_project_for_path(src) if src else None
             if project:
                 sessions = project_sessions.get(project["name"]) or []
-                if sessions:
-                    live = [s for s in sessions if s.get("live")]
-                    target = (live or sessions)[0]
-                else:
-                    # 项目下没有任何会话可挂，才落到「项目直属」，且到此为止
+                # 项目下没有任何会话可挂，才落到「项目直属」，且到此为止
+                if not sessions:
                     project["artifacts"].append(art)
                     continue
         if target is None:
@@ -1554,6 +1567,39 @@ async def api_workspace(request):
     projects = list(tree["projects"])
     if unassigned["artifacts"]:
         projects.append(unassigned_project)
+
+    # ?session=<id>：只回这一个会话。
+    #
+    # 成果台面板只需要「当前会话的成果」，但原来接口永远回整棵树（默认 400 条
+    # 成果、每个会话都带），前端再在浏览器里按 id 挑一遍。两个问题：别的会话的
+    # 成果真的发到了浏览器（这正是「串会话」的最后一环），以及 limit 一截断，
+    # 成果旧的那个会话就凭空显示为空。过滤放到服务端，顺带把体积也降下来。
+    session_filter = (q.get("session") or "").strip()
+    if session_filter:
+        matched = []
+        bare = []
+        for project in projects:
+            for session in project.get("sessions") or []:
+                sid = session.get("id") or ""
+                if sid == session_filter:
+                    matched.append((project, session))
+                elif sid and ":" not in sid and ":" not in session_filter \
+                        and sid.rsplit(":", 1)[-1] == session_filter.rsplit(":", 1)[-1]:
+                    bare.append((project, session))
+        # 裸 id 只有在全树里唯一命中时才认：两个渠道的会话可能共用一个裸 id，
+        # 认错就等于把别的会话的成果发过来，宁可一个都不回。
+        if not matched:
+            matched = bare if len(bare) == 1 else []
+        pruned = []
+        by_project = {}
+        for proj, session in matched:
+            if proj["name"] not in by_project:
+                clipped = dict(proj)
+                clipped["sessions"] = []
+                by_project[proj["name"]] = clipped
+                pruned.append(clipped)
+            by_project[proj["name"]]["sessions"].append(session)
+        projects = pruned
 
     for project in projects:
         sessions = project.get("sessions") or []
@@ -1569,6 +1615,7 @@ async def api_workspace(request):
     return _json({"pilot_home": tree["pilot_home"],
                   "generated_at": artifacts_store.now_iso(),
                   "projects": projects,
+                  "session_filter": session_filter or None,
                   "default_artifact_id": _default_artifact(projects),
                   "live_artifact_id": _live_artifact(projects)})
 

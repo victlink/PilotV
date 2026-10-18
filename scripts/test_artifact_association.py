@@ -35,6 +35,74 @@ class AssociationTests(unittest.TestCase):
         data, _ = self.listing('web:deleted')
         self.assertFalse(data['projects'][0]['sessions'][0]['artifacts'])
 
+    def test_empty_run_id_is_not_pinned_to_live_conversation(self):
+        """空归属的成果不能挂到「当前 live 会话」上。
+
+        挂上去之后，同一个文件会跟着你打开哪个会话而漂移 —— 用户看到的正是
+        「这个不是已经移走了吗」。它应该待在未归属里，谁的会话都不出现。
+        """
+        data, _ = self.listing('')
+        sessions = data['projects'][0]['sessions']
+        for session in sessions:
+            self.assertFalse(session['artifacts'],
+                             f"空归属的成果漏进了会话 {session['id']}")
+
+    def test_empty_run_id_lands_in_unassigned_bucket(self):
+        data, _ = self.listing('')
+        unassigned = [p for p in data['projects'] if p['name'] == '__unassigned__']
+        self.assertTrue(unassigned, "空归属的成果应该有未归属桶")
+        self.assertEqual(unassigned[0]['sessions'][0]['artifacts'][0]['id'], 'art_logo')
+
+    def test_empty_run_id_in_project_without_sessions_stays_project_direct(self):
+        """项目下没有任何会话时，落「项目直属」——这条路径不能被改坏。"""
+        project = {'name': '3d', 'fullPath': '/work/3d', 'sessions': []}
+        tree = {'pilot_home': '/fake', 'projects': [project]}
+        store = SimpleNamespace(list=lambda **kw: [{'id': 'art_logo', 'run_id': '',
+            'source': {'path': '/work/3d/logo.svg'}}])
+        with patch.object(console, '_store_of', return_value=store), \
+             patch.object(workspace, 'scan_projects', return_value=tree), \
+             patch.object(workspace, 'find_project_for_path', return_value=project):
+            response = asyncio.run(console.api_workspace(
+                SimpleNamespace(query={}, remote="127.0.0.1", headers={})))
+        data = json.loads(response.body)
+        self.assertEqual(data['projects'][0]['artifacts'][0]['id'], 'art_logo')
+
+    def test_session_filter_returns_only_that_conversation(self):
+        """?session= 之后别的会话不能再出现在 payload 里。"""
+        project = {'name': '3d', 'fullPath': '/work/3d', 'sessions': [
+            {'id': 'web:new', 'live': True}, {'id': 'web:logo', 'live': False}]}
+        tree = {'pilot_home': '/fake', 'projects': [project]}
+        store = SimpleNamespace(list=lambda **kw: [
+            {'id': 'a1', 'run_id': 'web:new', 'source': {'path': '/work/3d/a.png'}},
+            {'id': 'a2', 'run_id': 'web:logo', 'source': {'path': '/work/3d/b.png'}}])
+        with patch.object(console, '_store_of', return_value=store), \
+             patch.object(workspace, 'scan_projects', return_value=tree), \
+             patch.object(workspace, 'find_project_for_path', return_value=project):
+            response = asyncio.run(console.api_workspace(
+                SimpleNamespace(query={'session': 'web:logo'}, remote="127.0.0.1", headers={})))
+        data = json.loads(response.body)
+        ids = [s['id'] for p in data['projects'] for s in p['sessions']]
+        self.assertEqual(ids, ['web:logo'])
+        artifacts = [a['id'] for p in data['projects'] for s in p['sessions']
+                     for a in s['artifacts']]
+        self.assertEqual(artifacts, ['a2'], "过滤后不该还带着别的会话的成果")
+        self.assertEqual(data['session_filter'], 'web:logo')
+
+    def test_session_filter_rejects_ambiguous_bare_id(self):
+        """两个会话共用一个裸 id 时宁可不回，也不能认错成别人的会话。"""
+        project = {'name': '3d', 'fullPath': '/work/3d', 'sessions': [
+            {'id': 'web:x', 'live': False}, {'id': 'cli:x', 'live': False}]}
+        tree = {'pilot_home': '/fake', 'projects': [project]}
+        store = SimpleNamespace(list=lambda **kw: [])
+        with patch.object(console, '_store_of', return_value=store), \
+             patch.object(workspace, 'scan_projects', return_value=tree), \
+             patch.object(workspace, 'find_project_for_path', return_value=project):
+            response = asyncio.run(console.api_workspace(
+                SimpleNamespace(query={'session': 'x'}, remote="127.0.0.1", headers={})))
+        data = json.loads(response.body)
+        ids = [s['id'] for p in data['projects'] for s in p['sessions']]
+        self.assertEqual(ids, [], "裸 id 有歧义时不该回任何一个会话")
+
     def test_listing_does_not_hide_older_conversations(self):
         _, scan = self.listing('web:logo')
         self.assertEqual(scan.call_args.kwargs['session_limit'], 0)

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { useRef, useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ThemeProvider } from '../../contexts/ThemeContext';
 import ArtifactStage, { type Draft } from './ArtifactStage';
 import type { Artifact } from './artifactsMedia';
 
@@ -16,6 +17,14 @@ if (!('ResizeObserver' in globalThis)) {
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (_key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? _key }),
+}));
+
+// 文档类成果要真去读 /api/artifacts/<id>/text：这里给一份固定正文，
+// 免得测试去碰真网络（jsdom 里相对地址的 fetch 只会失败）。
+const putText = (text: string) => vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+  ok: true,
+  status: 200,
+  json: async () => ({ artifact_id: 'a1', text, bytes: text.length, changed: { edited: false, added: 0, removed: 0 } }),
 }));
 
 const artifact: Artifact = {
@@ -35,7 +44,9 @@ function Harness({ override }: { override?: Partial<Artifact> }) {
   const draft = useRef<Draft | null>(null);
   const [current, setCurrent] = useState<Artifact>({ ...artifact, ...override });
   return (
-    <>
+    // 文档编辑器沿用项目编辑器那套主题/字号设置，所以要 ThemeProvider；
+    // 没有它连渲染都到不了，测的就不是成果台而是抛异常了。
+    <ThemeProvider>
       <button type="button" onClick={() => setCurrent({ ...artifact, id: 'a2' })}>换一份</button>
       <ArtifactStage
         artifact={current}
@@ -51,12 +62,17 @@ function Harness({ override }: { override?: Partial<Artifact> }) {
         onPickNote={() => {}}
         onSendInk={() => {}}
       />
-    </>
+    </ThemeProvider>
   );
 }
 
+beforeEach(() => {
+  putText('');
+});
+
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 describe('ArtifactStage zoom', () => {
@@ -211,5 +227,107 @@ it('zooms with ctrl + wheel and pans with a plain wheel once enlarged', async ()
     );
 
     expect(screen.getByRole('button', { name: '手绘' }).getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+describe('成果台里的文档', () => {
+  const markdown: Partial<Artifact> = { kind: 'doc', file_name: 'README.md', mime: 'text/markdown' };
+
+  it('把 markdown 渲染出来，而不是塞进 iframe 显示源码', async () => {
+    putText('# 设计说明\n\n正文。');
+    render(<Harness override={markdown} />);
+
+    // 浏览器不渲染 text/markdown：源码进 iframe 只会看到一堆 # 和 **。
+    expect(await screen.findByRole('heading', { name: '设计说明' })).toBeTruthy();
+    expect(document.querySelector('iframe')).toBeNull();
+  });
+
+  it('给可改的文档一个「编辑」入口，进编辑态换成保存／退出编辑', async () => {
+    putText('# 设计说明');
+    render(<Harness override={markdown} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
+    expect(await screen.findByRole('button', { name: '保存' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '退出编辑' })).toBeTruthy();
+    // 编辑态下框选／手绘是废键（笔迹会整块盖住编辑器），收起来才对。
+    expect(screen.queryByRole('button', { name: '框选' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '手绘' })).toBeNull();
+  });
+
+  it('图片不摆「编辑」：那不是能改的正文', () => {
+    render(<Harness />);
+    expect(screen.queryByRole('button', { name: '编辑' })).toBeNull();
+  });
+
+  it('保存只写回成果台副本（PUT /text），并说清原项目文件没动', async () => {
+    const requests: Array<[string, RequestInit | undefined]> = [];
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      requests.push([url, init]);
+      return Promise.resolve(init?.method === 'PUT'
+        ? { ok: true, status: 200, json: async () => ({ bytes: 9, changed: { edited: true, added: 2, removed: 1 } }) }
+        : { ok: true, status: 200, json: async () => ({ text: '# 标题\n', bytes: 9, changed: { edited: false, added: 0, removed: 0 } }) });
+    }));
+    render(<Harness override={markdown} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
+    fireEvent.click(await screen.findByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(requests.some(([, init]) => init?.method === 'PUT')).toBe(true));
+    const [url, init] = requests.find(([, request]) => request?.method === 'PUT') as [string, RequestInit];
+    expect(url).toBe('/api/artifacts/a1/text');
+    expect(JSON.parse(String(init.body))).toEqual({ text: '# 标题\n' });
+    // 保存的是成果台的副本：评审改的是「审这一版」，落到项目里要另走应用 AI 修改。
+    expect(await screen.findByText(/已保存到成果台副本（原项目文件未改动）/)).toBeTruthy();
+  });
+
+  it('HTML 仍然在沙箱 iframe 里预览，且不给 allow-same-origin', async () => {
+    putText('<p>hi</p>');
+    render(<Harness override={{ kind: 'iframe', mime: 'text/html', file_name: 'page.html' } as Partial<Artifact>} />);
+
+    const iframe = await waitFor(() => {
+      const node = document.querySelector('iframe');
+      expect(node).toBeTruthy();
+      return node as HTMLIFrameElement;
+    });
+    expect(iframe.getAttribute('src')).toContain('/api/artifacts/a1/raw');
+    // allow-same-origin 和 allow-scripts 同时存在等于没沙箱：成果脚本能从父页面
+    // 把 sandbox 摘掉再 reload。少了它文档才落在「不透明源」。
+    const sandbox = iframe.getAttribute('sandbox') || '';
+    expect(sandbox).toContain('allow-scripts');
+    expect(sandbox).not.toContain('allow-same-origin');
+    // 可改的 HTML 照样给编辑入口。
+    expect(screen.getByRole('button', { name: '编辑' })).toBeTruthy();
+  });
+
+  // /text 会拒收一些文档（超过 2MB、后缀不在可编辑清单里）。这些以前是看得见的
+  // —— 那时走的是 /raw 的 iframe。把这条旧路留着当兜底，成果才不会被「读不出正文」
+  // 说得像是丢了。
+  it('读不到正文时预览退回沙箱 iframe 显示原文件，而不是整块报错', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 415, json: async () => ({ error: '.html 不在可直接编辑的文本类型里' }),
+    }));
+    render(<Harness override={{ kind: 'iframe', mime: 'text/html', file_name: 'page.html' } as Partial<Artifact>} />);
+
+    expect((await screen.findByRole('alert')).textContent).toContain('下面显示的是原文件');
+    const iframe = document.querySelector('iframe');
+    expect(iframe?.getAttribute('src')).toContain('/api/artifacts/a1/raw');
+    // 兜底也不能变成漏气的那条路：allow-same-origin 照样不给。
+    expect(iframe?.getAttribute('sandbox') || '').not.toContain('allow-same-origin');
+  });
+
+  // 就地编辑不进版本链，unified diff 是「在成果台里改了什么」唯一的记录。
+  it('把相对发布时的改动摆出来', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({
+        artifact_id: 'a1', text: '# 标题\n', bytes: 9,
+        changed: { edited: true, added: 1, removed: 1, diff: '--- 发布时\n+++ 成果台内编辑\n-旧\n+新', truncated: false },
+      }),
+    }));
+    render(<Harness override={markdown} />);
+
+    expect(await screen.findByText(/相对发布时的改动/)).toBeTruthy();
+    // diff 是文档正文，拼成文本节点而不是 innerHTML：谁写的标记都不在这里生效。
+    expect(document.querySelector('details pre')?.textContent).toContain('+新');
   });
 });

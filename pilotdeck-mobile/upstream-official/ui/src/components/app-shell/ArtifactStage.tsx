@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { artifactRawUrl, artifactViewerUrl, isCadArtifact, isUnconvertible3d, mediaType, type Artifact } from './artifactsMedia';
+import { artifactRawUrl, artifactViewerUrl, isCadArtifact, isEditableDocument, isUnconvertible3d, mediaType, type Artifact } from './artifactsMedia';
 import {
   annotationRect,
   annotationStrokes,
@@ -11,6 +11,7 @@ import {
 } from './artifactAnnotations';
 import InkOverlay from './InkOverlay';
 import { exportStagePng, type InkStroke } from './artifactInk';
+import ArtifactDocumentEditor from './ArtifactDocumentEditor';
 import {
   MAX_ZOOM,
   MIN_ZOOM,
@@ -121,6 +122,9 @@ export default function ArtifactStage({
   const [tool, setTool] = useState<Tool>('browse');
   const [inkColor, setInkColor] = useState(INK_COLOR);
   const [sending, setSending] = useState(false);
+  // 文档类成果（markdown / HTML / 纯文本）多一档：编辑。默认仍然是预览 ——
+  // 看成果是只读动作，一进来就摆着编辑器只会让人以为这份东西等着被改。
+  const [editing, setEditing] = useState(false);
   // 画面缩放和平移。只有图片／视频走这套：iframe 和三维模型自带手势，
   // 抢它们的手只会让两边都不灵。
   const [viewport, setViewport] = useState<StageViewport>({ zoom: MIN_ZOOM, panX: 0, panY: 0 });
@@ -135,8 +139,18 @@ export default function ArtifactStage({
   const model3dUrl = artifact ? artifactViewerUrl(artifact) : '';
   const cadModel = Boolean(artifact && isCadArtifact(artifact));
   const label = artifact ? (artifact.title || artifact.file_name || artifact.id) : '空白手绘页';
-  const fill = !blank && (type === 'iframe' || type === 'model3d' || type === 'audio'
-    || type === 'drawing' || type === 'unsupported');
+  // 文档类成果（markdown / HTML / 纯文本）走自己那条路：markdown 渲染、
+  // HTML 沙箱 iframe、纯文本照原样，而不是落进下面那个通用 iframe 分支
+  // （那里 markdown 只会显示成源码）。
+  // markdown 无条件走这边：万一后缀认不出来、只有 mime=text/markdown，
+  // 落回通用分支的结果是一块什么都没有的白板。
+  const documentArtifact = artifact && (type === 'markdown' || isEditableDocument(artifact)) ? artifact : null;
+  // 「编辑」入口另算：后缀不在可编辑清单里的文档照样能看，只是别摆出一个
+  // 按下去必然吃 415 的按钮。
+  const documentEditable = Boolean(documentArtifact && isEditableDocument(documentArtifact));
+  // 编辑时同样占满：编辑器要的是整块可用区域，不是按内容缩放的一张小图。
+  const fill = !blank && (editing || type === 'markdown' || type === 'iframe' || type === 'model3d'
+    || type === 'audio' || type === 'drawing' || type === 'unsupported');
   // 双指捏合在所有工具下都该能用：要求先切到浏览才能放大太反直觉，而且
   // 用户看成果时的第一反应就是「放大看细节」。
   const pinchable = !fill;
@@ -162,6 +176,9 @@ export default function ArtifactStage({
     // 看成果默认就是浏览：一看就带着一支随时会落下的笔不是好默认，要标注的人
     // 自己点「框选」或「手绘」。唯一例外是空纸 —— 那张纸本来就是用来画的。
     setTool(blank ? 'ink' : 'browse');
+    // 换一份成果就退出编辑：下一份可能压根不是文本（图片、视频），
+    // 还挂着编辑器只会让人以为它在等保存。
+    setEditing(false);
     onDraft(null);
   }, [blank, artifact?.id, onDraft]);
 
@@ -428,11 +445,21 @@ export default function ArtifactStage({
           className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-full border border-border bg-background/90 px-1.5 py-1 shadow-sm backdrop-blur">
           {([['box', '框选'], ['ink', '手绘'], ['browse', '浏览']] as Array<[Tool, string]>)
             // 草稿纸上没有成果可框，框选在这时候只会画出一个删不掉的空框。
-            .filter(([value]) => !(sketchOnly && value !== 'ink'))
+            // 编辑时也收起来：那三支笔是给成果本体用的，编辑器上是废键，
+            // 还不如把位置让给「编辑」这一个真正有用的动作。
+            .filter(([value]) => !editing && !(sketchOnly && value !== 'ink'))
             .map(([value, text]) => (
             <button key={value} type="button" aria-pressed={tool === value} className="min-h-9 rounded-full border border-transparent px-2.5 text-xs hover:bg-muted aria-pressed:border-primary aria-pressed:bg-primary/10"
               onClick={() => setTool(value)}>{text}</button>
           ))}
+          {/* 「编辑」只在可改的文档上出现，且只在预览态：编辑态下由编辑器自己
+              顶上一排「保存 / 退出编辑」，这里再摆一个同名按钮只会让人分不清
+              按的是退出还是保存。 */}
+          {documentEditable && !editing && <>
+            <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
+            <button type="button" className="min-h-9 rounded-full border border-transparent px-2.5 text-xs hover:bg-muted"
+              onClick={() => setEditing(true)}>编辑</button>
+          </>}
           {/* 颜色只在手绘时出现：框选和浏览都用不着它。放在浮条里是因为浮条已经
               接住了指针事件，色块不会再在成果上顺手画一笔。 */}
           {tool === 'ink' && <span role="group" aria-label="笔迹颜色" className="flex items-center gap-1 border-l border-border pl-1.5">
@@ -465,6 +492,12 @@ export default function ArtifactStage({
       <div ref={stageRef} className={`relative shrink-0 ${fill || blank ? 'h-full w-full' : ''}`}
         style={canPan(viewport) ? { transform: `translate(${viewport.panX}px, ${viewport.panY}px)` } : undefined}>
         {blank && <div className="h-full w-full rounded bg-white" />}
+        {/* 文档类成果（markdown / HTML / 纯文本）走自己的渲染与编辑路，
+            预览和编辑共用同一个组件：切档时不卸载，正文和未保存的改动都留着。 */}
+        {!blank && documentArtifact && <ArtifactDocumentEditor
+          artifact={documentArtifact}
+          mode={editing ? 'edit' : 'preview'}
+          onExit={() => setEditing(false)} />}
         {!blank && type === 'image' && <img ref={mediaRef as { current: HTMLImageElement | null }} src={rawUrl} alt={label} className="block object-contain" draggable={false} />}
         {!blank && type === 'video' && <video ref={mergeRefs(videoRef, mediaRef as { current: HTMLVideoElement | null })} src={rawUrl} className="block object-contain" playsInline
           onTimeUpdate={event => setVideoTime(event.currentTarget.currentTime)}
@@ -482,8 +515,12 @@ export default function ArtifactStage({
             （成果脚本可以从父页面把 sandbox 属性摘掉再 reload）。少了它文档
             落在「不透明源」，脚本照常跑但碰不到 PilotV 的源。
             服务端 artifacts_console.py 的 CSP sandbox 头是同一道锁的另一半，
-            两边都要有 —— 任何一边单独被改回去都不至于失守。 */}
-        {!blank && type === 'iframe' && <iframe src={rawUrl} title={label} className="h-full w-full border-0 bg-background"
+            两边都要有 —— 任何一边单独被改回去都不至于失守。
+
+            能改成文本的 HTML 不再走这里，而是交给 ArtifactDocumentEditor：
+            预览仍然是同样隔离的 iframe（HtmlDocumentPreview，少一个
+            allow-downloads），多出来的是同一个页面里就能改、能存。 */}
+        {!blank && type === 'iframe' && !documentArtifact && <iframe src={rawUrl} title={label} className="h-full w-full border-0 bg-background"
           sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads" />}
         {/* model-viewer 是自定义元素：className 传不进去（DOM 上没有 class 属性），
             只能用行内样式撑满，缺了它元素就停在 300x150 的默认尺寸。 */}
@@ -504,15 +541,18 @@ export default function ArtifactStage({
         {/* Ink sits above the marker layer: numbered notes stay readable on top
             of a busy drawing via z-index, while the canvas wins hit-testing so a
             stroke can cross a marker instead of being swallowed by it. Live
-            strokes are painted by InkOverlay itself until they commit. */}
-        {tool === 'ink' && <div className="absolute inset-0 z-10">
+            strokes are painted by InkOverlay itself until they commit.
+
+            编辑时两层都撤掉：标注框是按成果本体的位置存的，浮在编辑器上只会
+            指着一段不相干的文字；而墨层会整块盖住光标。 */}
+        {tool === 'ink' && !editing && <div className="absolute inset-0 z-10">
           <InkOverlay strokes={visibleStrokes} color={inkColor} width={INK_WIDTH}
             onCanvas={canvas => { inkCanvasRef.current = canvas; }}
             onStroke={() => undefined}
             onCommit={commitStroke} label={`在 ${label} 上手绘标注`} />
         </div>}
 
-        <div className={`absolute inset-0 ${tool === 'box' ? '' : 'z-20 pointer-events-none'}`}
+        {!editing && <div className={`absolute inset-0 ${tool === 'box' ? '' : 'z-20 pointer-events-none'}`}
           style={tool === 'box' ? { touchAction: 'none', cursor: 'crosshair' } : undefined}
           onPointerDown={tool === 'box' ? onPointerDown : undefined}
           onPointerMove={tool === 'box' ? onPointerMove : undefined}
@@ -549,13 +589,14 @@ export default function ArtifactStage({
           {draft?.rect && !draft.strokes && <div aria-hidden
             className="pointer-events-none absolute rounded border-2 border-primary bg-primary/20"
             style={{ left: `${draft.rect.x * 100}%`, top: `${draft.rect.y * 100}%`, width: `${Math.max(draft.rect.w * 100, 0.8)}%`, height: `${Math.max(draft.rect.h * 100, 0.8)}%` }} />}
-        </div>
+        </div>}
 
         {/* The editor rides on the stage instead of the side panel. On a phone
             the panel stacks under a full-height viewer and the save button sat
             below the fold, so a box got drawn and could never be committed.
-            没有选中对话时是草稿纸：不写说明、不存标注，只有清空、撤销和发到新对话。 */}
-        {showDraftBar && <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1 border-t border-border bg-background/95 p-2 backdrop-blur">
+            没有选中对话时是草稿纸：不写说明、不存标注，只有清空、撤销和发到新对话。
+            编辑文档时收起：标注条是给成果本体的，它压在编辑器底部会挡住最后几行。 */}
+        {showDraftBar && !editing && <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1 border-t border-border bg-background/95 p-2 backdrop-blur">
           {!sketchOnly && <>
             <label className="text-xs" htmlFor="artifact-note-draft">新标注（{draftIsInk ? `${draftStrokes.length} 笔` : '框选'}）</label>
             <input id="artifact-note-draft" className="w-full rounded border border-border bg-background p-2 text-sm"

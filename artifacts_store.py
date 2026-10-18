@@ -361,7 +361,12 @@ class ArtifactStore:
             return None
         return self._row_to_artifact(row, with_annotations=with_annotations)
 
-    def list(self, kind=None, status=None, agent=None, limit=200, offset=0) -> list:
+    def list(self, kind=None, status=None, agent=None, run_id=None, limit=200, offset=0) -> list:
+        """列成果。run_id 是会话归属（成果台里唯一的归属字段）。
+
+        传 run_id 就是「只看这一个会话的成果」——归属过滤必须能在 SQL 里做，
+        靠上层拿到全量再筛，既把别人的成果发到了浏览器，又分页/limit 一卡就漏。
+        """
         sql = "SELECT * FROM artifacts WHERE 1=1"
         args: list = []
         if kind and kind != "all":
@@ -373,6 +378,9 @@ class ArtifactStore:
         if agent:
             sql += " AND agent=?"
             args.append(agent)
+        if run_id:
+            sql += " AND run_id=?"
+            args.append(run_id)
         sql += " ORDER BY ts DESC, rowid DESC LIMIT ? OFFSET ?"
         args += [max(1, min(int(limit), 1000)), max(0, int(offset))]
         with self._lock:

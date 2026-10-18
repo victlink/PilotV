@@ -194,7 +194,8 @@ describe('按文件类型筛选', () => {
     render(<ArtifactsConsolePane sessionId="session-1" />);
 
     const filter = await screen.findByLabelText('按类型筛选');
-    expect(optionTexts('按类型筛选')).toEqual(['全部类型（4）', '图片（1）', '网页 / 文档（1）', '视频（1）', '三维模型（1）']);
+    // Markdown 自己一档：它有渲染，不能和网页 / 纯文本混在一格里。
+    expect(optionTexts('按类型筛选')).toEqual(['全部类型（4）', '图片（1）', 'Markdown（1）', '视频（1）', '三维模型（1）']);
 
     fireEvent.change(filter, { target: { value: 'image' } });
     await waitFor(() => expect(optionTexts('选择成果')).toEqual(['1. 封面图']));
