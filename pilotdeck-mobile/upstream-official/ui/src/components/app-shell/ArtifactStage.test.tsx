@@ -47,7 +47,7 @@ function Harness({ override }: { override?: Partial<Artifact> }) {
     // 文档编辑器沿用项目编辑器那套主题/字号设置，所以要 ThemeProvider；
     // 没有它连渲染都到不了，测的就不是成果台而是抛异常了。
     <ThemeProvider>
-      <button type="button" onClick={() => setCurrent({ ...artifact, id: 'a2' })}>换一份</button>
+      <button type="button" onClick={() => setCurrent({ ...artifact, ...override, id: 'a2' })}>换一份</button>
       <ArtifactStage
         artifact={current}
         annotations={[]}
@@ -249,6 +249,100 @@ it('zooms with ctrl + wheel and pans with a plain wheel once enlarged', async ()
     );
 
     expect(screen.getByRole('button', { name: '手绘' }).getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+describe('ArtifactStage 视频时间条', () => {
+  // jsdom 不实现媒体栈：duration 不存在、loadedmetadata 也不会自己来。
+  // 这里把两样都补上，测试才能真正走一遍组件拿到时长的那条路。
+  let mediaDuration = 0;
+  beforeEach(() => {
+    mediaDuration = 0;
+    Object.defineProperty(HTMLMediaElement.prototype, 'duration', {
+      configurable: true,
+      get: () => mediaDuration,
+    });
+    Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
+      configurable: true,
+      get(this: HTMLMediaElement) { return Number(this.dataset.ct ?? 0); },
+      set(this: HTMLMediaElement, value: number) { this.dataset.ct = String(value); },
+    });
+  });
+
+  function videoArtifact(extra?: Partial<Artifact>): Partial<Artifact> {
+    return {
+      kind: 'video',
+      mime: 'video/mp4',
+      file_name: 'clip.mp4',
+      entry: { url: '/api/artifacts/a1/raw' },
+      ...extra,
+    };
+  }
+
+  function renderVideo(extra?: Partial<Artifact>) {
+    const utils = render(<Harness override={videoArtifact(extra)} />);
+    const video = document.querySelector('video')!;
+    mediaDuration = 142.067;
+    fireEvent.loadedMetadata(video);
+    return { ...utils, video };
+  }
+
+  function bar() {
+    return screen.getByLabelText('时间线') as HTMLInputElement;
+  }
+
+  it('shows the real total instead of a 0.1s sliver once metadata arrives', () => {
+    renderVideo();
+
+    expect(screen.getByText('0:00 / 2:22')).toBeTruthy();
+    expect(bar().max).toBe('142.067');
+    expect(bar().disabled).toBe(false);
+  });
+
+  it('keeps the total after switching artifacts (the clobber that broke the seek)', () => {
+    renderVideo();
+
+    // 换一份：元素节点被复用，只换 src。真实浏览器里缓存命中时，新的
+    // loadedmetadata 会赶在本次 effect 之前派发完 —— 于是「换档时清零时长」
+    // 就再也等不到下一个事件，总时长永久停在 0:00、滑块 max 掉到 0.1 秒。
+    // 这里不补发事件，就是那个已经错过事件的现场。
+    fireEvent.click(screen.getByRole('button', { name: '换一份' }));
+
+    expect(screen.getByText('0:00 / 2:22')).toBeTruthy();
+    expect(bar().max).toBe('142.067');
+  });
+
+  it('falls back to the probed duration when the browser reports none', () => {
+    mediaDuration = 30;
+    render(<Harness override={videoArtifact({ entry: { url: '/api/artifacts/a1/raw', meta: { duration: 30 } } } as Partial<Artifact>)} />);
+
+    // 不发 loadedmetadata：浏览器没报出来，但服务端 ffprobe 探到了。
+    expect(screen.getByText('0:00 / 0:30')).toBeTruthy();
+    expect(bar().max).toBe('30');
+  });
+
+  it('says so when the length is genuinely unknown, instead of faking 0.1s', () => {
+    mediaDuration = Number.NaN;
+    render(<Harness override={videoArtifact()} />);
+
+    expect(screen.getByText('0:00 / --:--')).toBeTruthy();
+    expect(bar().disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '播放' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('refuses a media-stream duration (Infinity would leave the slider meaningless)', () => {
+    mediaDuration = Number.POSITIVE_INFINITY;
+    render(<Harness override={videoArtifact()} />);
+
+    expect(screen.getByText('0:00 / --:--')).toBeTruthy();
+    expect(bar().disabled).toBe(true);
+  });
+
+  it('can be dragged all the way to the end', () => {
+    renderVideo();
+
+    fireEvent.change(bar(), { target: { value: '142.067' } });
+    expect(screen.getByText('2:22 / 2:22')).toBeTruthy();
   });
 });
 

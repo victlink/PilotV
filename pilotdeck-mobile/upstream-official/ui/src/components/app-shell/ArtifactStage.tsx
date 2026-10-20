@@ -64,7 +64,29 @@ const INK_WIDTH = 0.005;
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const total = Math.floor(seconds);
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  const hours = Math.floor(total / 3600);
+  const rest = total % 3600;
+  // 过了钟头就别再报「142:07」——那读起来像 142 分钟，不是 2 小时 22 分。
+  const clock = `${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, '0')}`;
+  return hours ? `${hours}:${clock}` : clock;
+}
+
+/**
+ * 元素真正可用的总时长。
+ *
+ * duration 在元数据读出来之前是 NaN，媒体流（没封口的 webm、边录边传）是
+ * Infinity —— 两者都不能直接当总时长用：NaN 会让 max 属性变成非数（浏览器
+ * 退回默认 100），Infinity 会让滑块彻底失去意义。宁可当「还不知道」。
+ */
+function playableDuration(video: HTMLVideoElement | null): number {
+  const value = video?.duration;
+  return value && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/** 服务端 ffprobe 探到的时长（entry.meta.duration），浏览器还没读出来时的底。 */
+function probedDuration(artifact: Artifact | null): number {
+  const value = Number((artifact?.entry?.meta as { duration?: unknown } | null | undefined)?.duration);
+  return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 type Props = {
@@ -144,6 +166,16 @@ export default function ArtifactStage({
   const model3dUrl = artifact ? artifactViewerUrl(artifact) : '';
   const cadModel = Boolean(artifact && isCadArtifact(artifact));
   const label = artifact ? (artifact.title || artifact.file_name || artifact.id) : '空白手绘页';
+  // 时间条要显示的总时长。三个来源按可信度排：
+  //   1. videoLength —— 元数据事件抄进 state 的实测值；
+  //   2. 直接读元素 —— 换 src 时浏览器可能在本轮 effect 之前就把新的
+  //      loadedmetadata 派发掉了（资源多半是缓存命中），那一次事件已经错过，
+  //      state 未必跟得上，读元素是唯一不会漏的兜底；
+  //   3. 服务端 ffprobe 的探测量 —— 浏览器压根报不出 duration 时（媒体流、
+  //      没封口的 webm）至少让总时长显示成真的，而不是 0:00。
+  // 三处都没有就是「还不知道」，这时如实显示 --:-- 并把滑块禁用，
+  // 比摆一条 max=0.1 秒的假时间条强。
+  const totalLength = videoLength || playableDuration(videoRef.current) || probedDuration(artifact);
   // 文档类成果（markdown / HTML / 纯文本）走自己那条路：markdown 渲染、
   // HTML 沙箱 iframe、纯文本照原样，而不是落进下面那个通用 iframe 分支
   // （那里 markdown 只会显示成源码）。
@@ -170,9 +202,25 @@ export default function ArtifactStage({
   const visibleStrokes = useMemo(() => [...savedStrokes, ...draftStrokes], [savedStrokes, draftStrokes]);
   const unplaced = useMemo(() => annotations.filter(note => !annotationRect(note)), [annotations]);
 
+  /**
+   * 总时长只认「元素实测」和「服务端探测」两个来源，且只收有限正值。
+   * 元素为准 —— 它随播放头修正；探测量只在浏览器还没报 duration 时兜底。
+   */
+  const syncVideoLength = useCallback(() => {
+    const measured = playableDuration(videoRef.current);
+    if (measured) setVideoLength(measured);
+  }, []);
+
   useEffect(() => {
     setVideoTime(0);
+    // 这里绝对不能写 setVideoLength(0)。
+    // 换档时 React 复用的是同一个 <video> 节点，只换了 src；资源多半是缓存命中，
+    // 浏览器会在本次 effect 之前就把新的 loadedmetadata 派发掉了。等这里再清零，
+    // 下一个 loadedmetadata 永远不会来 —— 总时长就永久停在 0:00，滑块 max 掉到
+    // 0.1 秒，怎么拖都没反应（实测：切一次成果就再也回不来）。
+    // 该清的是「这一刻」，所以清完立刻按元素实况重新对一次。
     setVideoLength(0);
+    syncVideoLength();
     setVideoPlaying(false);
     setViewerError('');
     // 换一份成果就回到「适应屏幕」：上一份的倍率对这份没有意义，
@@ -525,7 +573,8 @@ export default function ArtifactStage({
         {!blank && type === 'image' && <img ref={mediaRef as { current: HTMLImageElement | null }} src={rawUrl} alt={label} className="block object-contain" draggable={false} />}
         {!blank && type === 'video' && <video ref={mergeRefs(videoRef, mediaRef as { current: HTMLVideoElement | null })} src={rawUrl} className="block object-contain" playsInline
           onTimeUpdate={event => setVideoTime(event.currentTarget.currentTime)}
-          onLoadedMetadata={event => setVideoLength(event.currentTarget.duration)}
+          onLoadedMetadata={event => setVideoLength(playableDuration(event.currentTarget))}
+          onDurationChange={event => setVideoLength(playableDuration(event.currentTarget))}
           onPlay={() => setVideoPlaying(true)} onPause={() => setVideoPlaying(false)} />}
         {!blank && type === 'audio' && <audio src={rawUrl} controls className="w-full" />}
         {/* 页面成果靠自身滚动看下面的内容。之前那个 min-h-[420px] 在矮容器里
@@ -645,10 +694,13 @@ export default function ArtifactStage({
     </div>
 
     {type === 'video' && <div className="flex shrink-0 items-center gap-2 px-1 text-xs">
-      <button type="button" className="min-h-9 rounded border border-border px-3" onClick={togglePlay}>{videoPlaying ? '暂停' : '播放'}</button>
-      <input type="range" className="min-w-0 flex-1" aria-label="时间线" min={0} max={Math.max(videoLength, 0.1)} step={0.05}
-        value={Math.min(videoTime, Math.max(videoLength, 0.1))} onChange={event => seek(Number(event.target.value))} />
-      <span className="tabular-nums">{formatTime(videoTime)} / {formatTime(videoLength)}</span>
+      <button type="button" className="min-h-9 rounded border border-border px-3" onClick={togglePlay} disabled={!totalLength}>{videoPlaying ? '暂停' : '播放'}</button>
+      {/* step="any"：定时步长会把 max 砍到最后一个整步（142.067 → 141.95），
+          拖到底也差着一截，看着就像「拖不到最后」。媒体进度条本来要连续。 */}
+      <input type="range" className="min-w-0 flex-1" aria-label="时间线" min={0} max={totalLength || 1} step="any" disabled={!totalLength}
+        value={totalLength ? Math.min(Math.max(videoTime, 0), totalLength) : 0}
+        onChange={event => seek(Number(event.target.value))} />
+      <span className="tabular-nums whitespace-nowrap">{formatTime(videoTime)} / {totalLength ? formatTime(totalLength) : '--:--'}</span>
     </div>}
   </div>;
 }
