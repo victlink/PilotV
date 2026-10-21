@@ -320,6 +320,50 @@ function sendFile(res, filePath, extraHeaders) {
   stream.pipe(res);
 }
 
+/**
+ * 长连接隧道（/ws、/shell）的空闲上限。
+ *
+ * /ws 通道的前端每 30 秒发一次 ping，服务端也会回 pong，所以一条健康的连接
+ * 最多 30 秒就一定有一个字节流过。超过这个窗口还一个字节都没有的，
+ * 只可能是已经死了：手机切后台换了网络之后，隧道会一直挂着没人回收，
+ * Send-Q 越堆越大，两端却都以为对方还在 —— 用户看到的就是
+ * 「整个 App 卡住，只能重启」。
+ *
+ * 取 150 秒（5 个 ping 周期）是为了留足余量：中间任何一跳（Tailscale、AP）
+ * 抖动一下都不该被判死，但一条真死的连接五分钟内一定会被收走。
+ */
+const WS_TUNNEL_IDLE_MS = 150_000;
+
+/**
+ * 隧道「连不上」的上限。跟空闲超时是两回事：空闲超时管的是连上之后没数据，
+ * 这里管的是握手阶段就卡住 —— 典型场景是手机休眠或 Tailscale 换路径，
+ * SYN 发出去石沉大海，net.connect 既不报错也不回调。
+ * 30 秒是 Tailscale 探测对端唤醒的常见量级，超过就基本可以判定连不上了。
+ */
+const WS_TUNNEL_CONNECT_TIMEOUT_MS = 30_000;
+
+/**
+ * /shell 隧道不设空闲上限。
+ *
+ * 终端通道是另一套协议：它的客户端（useShellConnection）压根没有心跳，
+ * 用户开着一个终端想事情的时候可以几分钟不产生任何字节 —— 那是一条
+ * 完全健康的连接，拿 /ws 的阈值去砍它就是把「正常终端」变成「终端莫名其妙断了」，
+ * 而客户端又没有自动重连，只会更糟。
+ *
+ * 终端隧道的僵尸连接只占一个 fd，PTY 本来就有 30 分钟的回收机制兜着，
+ * 留着这点资源不值得拿功能可用性去换。
+ */
+
+/**
+ * 转发普通 HTTP 请求时，上游允许的最大静默时间。
+ *
+ * 上游挂住时前端的 fetch 会永远不 settle，连带 Service Worker 的
+ * network-first 也永远不返回，页面就一直转圈。默认给到 10 分钟：
+ * 一次长时间的思考/生成中间可以很久没有输出，不能因为这个把流式响应掐断，
+ * 但真挂死的请求一定会在这个时间内拿到 504 而不是无限等待。
+ */
+const UPSTREAM_IDLE_MS = Number(process.env.PILOTV_UPSTREAM_IDLE_MS || 600_000);
+
 function forward(request, response, targetOrigin, pathname, token, stripCallerAuth = false) {
   let target;
   try { target = new URL(targetOrigin); } catch { response.writeHead(502); response.end('bad upstream'); return; }
@@ -352,6 +396,15 @@ function forward(request, response, targetOrigin, pathname, token, stripCallerAu
     response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);
     upstreamResponse.pipe(response);
   });
+  // 上游静默超过上限就掐掉，给前端一个明确的 504，而不是让它无限期转圈。
+  // 用的是「静默」而不是「总时长」：流式响应中间可以长时间没有输出。
+  upstream.setTimeout(UPSTREAM_IDLE_MS, () => {
+    if (!response.headersSent) {
+      response.writeHead(504, { 'content-type': 'text/plain; charset=utf-8' });
+    }
+    response.end(`上游 ${target.host} 超过 ${Math.round(UPSTREAM_IDLE_MS / 1000)} 秒没有任何响应`);
+    upstream.destroy();
+  });
   upstream.on('error', error => {
     if (!response.headersSent) response.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
     response.end(`上游 ${target.host} 无响应：${error.code || error.message}`);
@@ -359,11 +412,18 @@ function forward(request, response, targetOrigin, pathname, token, stripCallerAu
   request.pipe(upstream);
 }
 
-function pipeSocket(request, socket, head, targetOrigin) {
+function pipeSocket(request, socket, head, targetOrigin, idleMs = WS_TUNNEL_IDLE_MS) {
   let target;
   try { target = new URL(targetOrigin); } catch { socket.destroy(); return; }
   const upstream = net.connect(Number(target.port || (target.protocol === 'https:' ? 443 : 80)), target.hostname);
+  const drop = () => { upstream.destroy(); socket.destroy(); };
+  // 连不上就一定要有上限。隧道对端常常是手机：手机休眠、Wi-Fi 切蜂窝、
+  // Tailscale 换路径时，SYN 会石沉大海（内核一直重试，net.connect 不报错也不回调），
+  // 这条隧道就既不建立也不失败，客户端那边看起来就是「连上了但没反应」。
+  // 到点直接拆掉，让客户端重连，而不是留一条永远悬着的隧道。
+  const connectTimer = setTimeout(drop, WS_TUNNEL_CONNECT_TIMEOUT_MS);
   upstream.on('connect', () => {
+    clearTimeout(connectTimer);
     const headers = [`GET ${request.url} HTTP/1.1`];
     for (let index = 0; index < request.rawHeaders.length; index += 2) {
       const name = request.rawHeaders[index];
@@ -376,9 +436,25 @@ function pipeSocket(request, socket, head, targetOrigin) {
     if (head?.length) upstream.write(head);
     socket.pipe(upstream);
     upstream.pipe(socket);
+
+    // 空闲回收。判「客户端还活着」只看客户端→网关这一个方向：
+    // 浏览器每 30 秒发一个 ping，30 秒一个来回，150 秒收不到任何客户端字节
+    // 就说明这条路径已经断了（手机切后台换网络、Wi-Fi 切蜂窝、Tailscale 换路径）。
+    //
+    // 反过来，后端→网关这个方向绝对不能拿来判活：故障现场正是后端在往一个
+    // 没人读的 socket 里猛推数据（Send-Q 堆到 2.4MB 且不下降），
+    // 拿它当活性信号，死隧道就永远等不到超时，只会被越撑越大。
+    if (idleMs > 0) {
+      let idleTimer = setTimeout(drop, idleMs);
+      const touch = () => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(drop, idleMs);
+      };
+      socket.on('data', touch);
+      socket.on('close', () => clearTimeout(idleTimer));
+    }
   });
-  const drop = () => { upstream.destroy(); socket.destroy(); };
-  upstream.on('error', () => { if (!socket.destroyed) socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); else socket.destroy(); });
+  upstream.on('error', () => { clearTimeout(connectTimer); if (!socket.destroyed) socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); else socket.destroy(); });
   socket.on('error', () => upstream.destroy());
   socket.on('close', () => upstream.end());
 }
@@ -619,7 +695,9 @@ export function createGateway(config) {
     const backend = resolveBackend(request, config, devices);
     const upstream = route === 'artifacts' ? resolveArtifactsOrigin(backend.origin, config, devices) : backend.origin;
     if (upstream === null) { socket.end('HTTP/1.1 503 Service Unavailable\r\n\r\n'); return; }
-    pipeSocket(request, socket, head, upstream);
+    // /shell 通道的客户端没有心跳，不能套用 /ws 的空闲阈值（见 WS_TUNNEL_IDLE_MS 的说明）。
+    const idleMs = pathname.startsWith('/shell') ? 0 : WS_TUNNEL_IDLE_MS;
+    pipeSocket(request, socket, head, upstream, idleMs);
   });
 
   return server;
