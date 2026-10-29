@@ -29,9 +29,25 @@ async def browser_token():
     except Exception:
         pass
     return None
+def ui_pid():
+    """找到正在跑的 UI server 进程。
+
+    以前这里写死了一个 pid，那个进程一重启就失效 —— 脚本直接 AssertionError，
+    看起来像"部署验证失败"，其实只是没找到进程。动态找更耐重启。
+    """
+    for entry in pathlib.Path('/proc').iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            cmdline = (entry / 'cmdline').read_bytes()
+        except OSError:
+            continue
+        if b'/home/marc/.pilotdeck/app/ui/server/index.js' in cmdline:
+            return int(entry.name)
+    raise RuntimeError('找不到 UI server 进程（/home/marc/.pilotdeck/app/ui/server/index.js）')
 try:
     token = asyncio.run(browser_token())
-    pid = 2555035
+    pid = ui_pid()
     cmd = pathlib.Path(f'/proc/{pid}/cmdline').read_bytes()
     assert b'/home/marc/.pilotdeck/app/ui/server/index.js' in cmd
     env = dict(part.split(b'=', 1) for part in pathlib.Path(f'/proc/{pid}/environ').read_bytes().split(b'\0') if b'=' in part)
