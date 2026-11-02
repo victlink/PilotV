@@ -13,6 +13,7 @@ import type {
   RefObject,
 } from "react";
 import {
+  Bot,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -27,6 +28,7 @@ import {
   Play,
   Search,
   ShieldAlert,
+  Sparkles,
   Square,
   type LucideIcon,
 } from "lucide-react";
@@ -61,6 +63,8 @@ import ReplyQuoteChip from "./ReplyQuoteChip";
 import WorkspacePickerBar from "./WorkspacePickerBar";
 import { getComposerPrimaryAction } from "./composerPrimaryAction";
 import type { Project } from "../../types/app";
+import type { ProjectTeamAgent } from "../../lib/projectTeam";
+import { agentRoleLabelKey } from "./agentRoleLabel";
 
 interface MentionableFile {
   id?: string;
@@ -168,6 +172,9 @@ export type ComposerV2Props = {
   canSubmitWithoutModel?: boolean;
   modelCatalogError?: string | null;
   projectKey: string;
+  agents?: ProjectTeamAgent[];
+  selectedAgentId?: string | null;
+  onAgentSelectionChange?: (agentId: string | null) => void;
   onModelSelectionChange: (selection: ChatModelSelection) => void;
 
   pendingPermissionRequests: PendingPermissionRequest[];
@@ -524,6 +531,9 @@ export default function ComposerV2({
   canSubmitWithoutModel = false,
   modelCatalogError,
   projectKey,
+  agents = [],
+  selectedAgentId = null,
+  onAgentSelectionChange,
   onModelSelectionChange,
   pendingPermissionRequests,
   handlePermissionDecision,
@@ -543,7 +553,7 @@ export default function ComposerV2({
   onCreateWorkspaceProject,
   queueTray,
 }: ComposerV2Props) {
-  const { t } = useTranslation("chat");
+  const { t } = useTranslation(["chat", "projectTeam"]);
   const reasoningLabels = useMemo(() => new Map<number, string>([
     [0.4, t("input.models.reasoningLevels.low", { defaultValue: "Low" }) as string],
     [0.6, t("input.models.reasoningLevels.medium", { defaultValue: "Medium" }) as string],
@@ -566,6 +576,7 @@ export default function ComposerV2({
   const [isContextPopoverOpen, setIsContextPopoverOpen] = useState(false);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
   const [advancedModelId, setAdvancedModelId] = useState<string | null>(null);
   const [modelQuery, setModelQuery] = useState("");
   const [skillQuery, setSkillQuery] = useState("");
@@ -575,9 +586,11 @@ export default function ComposerV2({
   const addTriggerRef = useRef<HTMLButtonElement>(null);
   const permissionTriggerRef = useRef<HTMLButtonElement>(null);
   const contextTriggerRef = useRef<HTMLButtonElement>(null);
+  const agentTriggerRef = useRef<HTMLButtonElement>(null);
   const addMenu = useFloatingPanel(isAddMenuOpen, addTriggerRef, () => setIsAddMenuOpen(false), { matchComposer: true });
   const permissionMenu = useFloatingPanel(isPermissionMenuOpen, permissionTriggerRef, () => setIsPermissionMenuOpen(false), { width: 220 });
   const contextMenu = useFloatingPanel(isContextPopoverOpen, contextTriggerRef, () => setIsContextPopoverOpen(false), { width: 256 });
+  const agentMenu = useFloatingPanel(isAgentMenuOpen, agentTriggerRef, () => setIsAgentMenuOpen(false), { width: 240, maxHeight: 320 });
   const fileMenu = useFloatingPanel(showFileDropdown, textareaRef, undefined, { matchComposer: true, maxHeight: 320 });
   const permissionSelectorDisabled = runMode === "plan";
   const [workspaceMenuForceOpen, setWorkspaceMenuForceOpen] = useState(false);
@@ -699,6 +712,23 @@ export default function ComposerV2({
       ? reasoningLabels.get(selectedReasoning!)
       : null
     : null;
+  const selectedAgent = agents.find((agent) => agent.id === selectedAgentId) || null;
+  // The trigger shows the current pick; without a pick it falls back to the
+  // default agent, exactly like the old native <select> did.
+  const selectedAgentLabel = selectedAgent?.name || (t("input.agents.default", { defaultValue: "Default agent" }) as string);
+  /**
+   * The agent role is shown next to the agent name so the members of a project
+   * team can be told apart. The role names live in the `projectTeam` namespace.
+   */
+  const agentRoleLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const agent of agents) {
+      const roleKey = agentRoleLabelKey(agent.role);
+      const roleLabel = roleKey ? (t(roleKey, { defaultValue: "" }) as string) : "";
+      if (roleLabel) labels.set(agent.id, roleLabel);
+    }
+    return labels;
+  }, [agents, t]);
   const selectedModelLabel =
     modelSelection?.mode === "auto"
       ? (t("input.models.auto", { defaultValue: "Auto" }) as string)
@@ -1445,7 +1475,7 @@ export default function ComposerV2({
                           className="h-3.5 w-3.5 shrink-0"
                           strokeWidth={1.8}
                         />
-                        <span className="min-w-0 truncate">{label}</span>
+                        <span className="pd-composer-run-mode-label min-w-0 truncate">{label}</span>
                         <button
                           type="button"
                           className="pointer-events-none ml-0 grid h-[18px] w-0 flex-[0_0_0] place-items-center overflow-hidden border-0 bg-transparent p-0 text-[18px] font-normal leading-none text-current opacity-0 outline-none transition-[width,flex-basis,margin-left,opacity] duration-[140ms] group-focus-within/chip:pointer-events-auto group-focus-within/chip:ml-1 group-focus-within/chip:w-[18px] group-focus-within/chip:flex-[0_0_18px] group-focus-within/chip:opacity-100 group-hover/chip:pointer-events-auto group-hover/chip:ml-1 group-hover/chip:w-[18px] group-hover/chip:flex-[0_0_18px] group-hover/chip:opacity-100"
@@ -1475,7 +1505,7 @@ export default function ComposerV2({
                     compact && "relative",
                   )}
                 >
-                  <div className="pd-composer-model-control min-w-0">
+                <div className="pd-composer-model-control min-w-0">
                     <button
                       type="button"
                       disabled={!isModelCatalogLoading && modelCatalog.length === 0 && !modelCatalogError}
@@ -1483,7 +1513,7 @@ export default function ComposerV2({
                       onClick={() => { setIsModelMenuOpen((open) => !open); setAdvancedModelId(null); }}
                       className={cn(
                         "disabled:cursor-not-allowed disabled:opacity-40",
-                        "pd-composer-icon-button inline-flex h-8 max-w-[220px] items-center justify-center gap-1.5 rounded-lg border border-transparent px-2 text-[13px] font-medium text-neutral-700 transition-colors hover:border-[var(--pd-border,#ddd9f2)] hover:bg-[var(--pd-accent-soft,#f7f6ff)] hover:text-[var(--pd-accent-strong,#4440a8)] dark:text-neutral-200 dark:hover:border-violet-800 dark:hover:bg-violet-950/40 dark:hover:text-violet-200",
+                        "pd-composer-icon-button pd-composer-select-trigger inline-flex h-8 max-w-[220px] items-center justify-center gap-1.5 rounded-lg border border-transparent px-2 text-[13px] font-medium text-neutral-700 transition-colors hover:border-[var(--pd-border,#ddd9f2)] hover:bg-[var(--pd-accent-soft,#f7f6ff)] hover:text-[var(--pd-accent-strong,#4440a8)] dark:text-neutral-200 dark:hover:border-violet-800 dark:hover:bg-violet-950/40 dark:hover:text-violet-200",
                         isModelMenuOpen &&
                           "border-[var(--pd-border,#ddd9f2)] bg-[var(--pd-accent-soft,#f7f6ff)] text-[var(--pd-accent-strong,#4440a8)] dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200",
                       )}
@@ -1495,6 +1525,7 @@ export default function ComposerV2({
                       aria-haspopup="dialog"
                       aria-expanded={isModelMenuOpen}
                     >
+                      <Sparkles className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
                       <span className="min-w-0 truncate">{selectedModelLabel}</span>
                       {selectedReasoningLabel && (
                         <span className="pd-composer-thinking-label shrink-0 font-normal text-neutral-400 dark:text-neutral-500">
@@ -1758,7 +1789,9 @@ export default function ComposerV2({
                       aria-expanded={isContextPopoverOpen}
                     >
                       <CircleGauge className="h-4 w-4" strokeWidth={1.75} />
-                      <span>{contextStatus.known ? contextStatus.percentLabel : "--"}</span>
+                      <span className="pd-composer-context-value">
+                        {contextStatus.known ? contextStatus.percentLabel : "--"}
+                      </span>
                     </button>
                     {isContextPopoverOpen ? createPortal(
                       <div ref={contextMenu.panelRef} style={contextMenu.style}
