@@ -28,6 +28,7 @@ vi.mock('lucide-react', () => ({
   BookOpen: () => null,
   Sparkles: () => null,
   CalendarClock: () => null,
+  PanelLeftClose: () => null,
 }));
 
 const general: Project = {
@@ -190,6 +191,16 @@ describe('SidebarV2 layout', () => {
     expandExplore();
     expect(screen.getByText('Skills').closest('button')?.getAttribute('aria-current')).toBe('page');
     expect(screen.getByText('Scheduled Tasks').closest('button')?.getAttribute('aria-current')).toBeNull();
+  });
+
+  it('no longer offers a project rooms entry', () => {
+    const onSelectTab = vi.fn();
+    renderSidebar(null, { onSelectTab });
+
+    // 项目室撤掉了：每个对话自己就是一个项目室，侧栏不再单开一页。
+    expect(screen.queryByRole('button', { name: 'Project Rooms' })).toBeNull();
+    expect(screen.queryByText('Project Rooms')).toBeNull();
+    expect(onSelectTab).not.toHaveBeenCalled();
   });
 
   it('hides dashboard and weknora from explore for projects without explore', () => {

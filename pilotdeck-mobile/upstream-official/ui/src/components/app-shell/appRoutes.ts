@@ -3,6 +3,12 @@ export const SKILLS_PATH = '/skills';
 export const SETTINGS_PATH = '/settings';
 export const SETTINGS_SECTION_PATH = '/settings/:section';
 
+// 会话的两种 URL 形状。整条壳只挂一条通配路由，这些形状由 AppShellV2
+// 用 useMatch 认出来 —— 换成专门的 <Route> 会把壳整个卸载，状态就丢了。
+export const PROJECT_CHAT_PATH = '/p/:projectName/c/:sessionId';
+export const PROJECT_PATH = '/p/:projectName';
+export const LEGACY_SESSION_PATH = '/session/:sessionId';
+
 export const DEDICATED_TAB_PATHS = {
   cron: SCHEDULED_TASKS_PATH,
   skills: SKILLS_PATH,
@@ -14,4 +20,19 @@ export function getDedicatedTabPath(tab: string): string | undefined {
   return Object.prototype.hasOwnProperty.call(DEDICATED_TAB_PATHS, tab)
     ? DEDICATED_TAB_PATHS[tab as DedicatedTab]
     : undefined;
+}
+
+/**
+ * URL 形状 → 专用页签。
+ *
+ * 顺序就是优先级：几个专用页互斥，同时匹配上时按这里定的来。
+ * AppShellV2 把 useMatch 的结果交给它，认成「当前是哪一个专用页」。
+ */
+export function resolveDedicatedTab(
+  matched: Partial<Record<DedicatedTab, boolean>>,
+): DedicatedTab | null {
+  for (const tab of ['skills', 'cron'] as const) {
+    if (matched[tab]) return tab;
+  }
+  return null;
 }

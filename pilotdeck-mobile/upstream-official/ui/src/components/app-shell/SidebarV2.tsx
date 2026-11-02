@@ -24,6 +24,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronRight,
+  PanelLeftClose,
   Loader2,
   Folder,
   MessageSquarePlus,
@@ -38,6 +39,7 @@ import {
   BookOpen,
   Sparkles,
   CalendarClock,
+  Settings2,
 } from 'lucide-react';
 import type { AppTab, Project, ProjectSession } from '../../types/app';
 import { cn } from '../../lib/utils.js';
@@ -186,6 +188,7 @@ export type SidebarV2Props = {
   onRequestDeleteSession: (project: Project, session: ProjectSession) => void;
   onSelectTab?: (tab: AppTab) => void;
   onShowSettings: () => void;
+  onOpenProjectSettings?: (project: Project) => void;
   onDeselectProject?: () => void;
   onResetProjectSessionPreview?: (projectName: string) => void;
   onCollapse?: () => void;
@@ -329,6 +332,7 @@ export default function SidebarV2({
   onRequestDeleteSession,
   onSelectTab,
   onShowSettings,
+  onOpenProjectSettings,
   onLoadMoreSessions,
   loadingMoreProjectIds,
 }: SidebarV2Props) {
@@ -1241,10 +1245,10 @@ export default function SidebarV2({
         <div className="min-h-[62px] shrink-0 border-b border-neutral-200/80 dark:border-neutral-800">
           {/* logo 变成设置入口：侧栏底部原来那个独立设置按钮的位置让给「探索」，
               三块内容（探索／项目／设置）就这样固定下来。 */}
-          <div className="flex min-h-[61px] items-center gap-2 pl-3"><button type="button" onClick={onShowSettings}
+          <div className="flex min-h-[61px] items-center gap-2 pl-3 pr-2"><button type="button" onClick={onShowSettings}
             aria-label={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
             title={t('sidebar:actions.settings', { defaultValue: 'Settings' }) as string}
-            className="shrink-0 rounded text-left"><PilotVLogo height={17} aria-hidden /><span className="sr-only">PilotV</span></button><div className="min-w-0 flex-1"><DeviceSwitcher compact={false} /></div><DeviceUrlSync /></div>
+            className="shrink-0 rounded text-left"><PilotVLogo height={17} aria-hidden /><span className="sr-only">PilotV</span></button><div className="min-w-0 flex-1"><DeviceSwitcher compact={false} /></div><button type="button" onClick={() => { setSidebarWidth(SIDEBAR_MIN_WIDTH); try { window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(SIDEBAR_MIN_WIDTH)); } catch { /* localStorage may be unavailable. */ } }} aria-label="折叠左侧栏" title="折叠左侧栏" className="shrink-0 rounded-md p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"><PanelLeftClose size={17} /></button><DeviceUrlSync /></div>
         </div>
       )}
       <nav
@@ -1254,6 +1258,7 @@ export default function SidebarV2({
         {/* 新对话按钮撤掉了：没有选中对话时，在输入框写第一条就会建对话，
             项目行右侧的「＋」也还在，这里再摆一个只是重复入口。
             定时任务也撤掉了：它并进了底部的「探索」菜单。 */}
+        {/* 项目室撤掉了：每个对话自己就是一个项目室，不再单开一页。 */}
       </nav>
       {isCompact ? <span className="compact-divider" /> : null}
 
@@ -1400,6 +1405,24 @@ export default function SidebarV2({
               ? t('sidebar:actions.unpin', { defaultValue: 'Unpin' })
               : t('sidebar:actions.pin', { defaultValue: 'Pin' })}</span>
           </button>
+          {!contextMenuProjectIsGeneral && onOpenProjectSettings ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                const project = contextMenu.project;
+                setContextMenu(null);
+                onOpenProjectSettings(project);
+              }}
+              className={cn(
+                'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px]',
+                'text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800',
+              )}
+            >
+              <Settings2 className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+              <span>{t('sidebar:actions.projectSettings', { defaultValue: 'Project settings' })}</span>
+            </button>
+          ) : null}
           {!contextMenuProjectIsGeneral ? <>
             <button
               type="button"

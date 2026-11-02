@@ -122,6 +122,7 @@
     "save": "Save",
     "delete": "Delete",
     "rename": "Rename",
+    "projectSettings": "Project settings",
     "joinCommunity": "Join Community",
     "reportIssue": "Report Issue",
     "starOnGithub": "Star on GitHub"
@@ -186,5 +187,33 @@
     "sessionCount_other": "This project contains {{count}} conversations.",
     "allConversationsDeleted": "All conversations will be permanently deleted.",
     "cannotUndo": "This action cannot be undone."
+  },
+  "tasks": {
+    "title": "Tasks",
+    "toggle": "Tasks",
+    "close": "Close",
+    "empty": "No running tasks and nothing finished in the last day",
+    "untitled": "Untitled task",
+    "summary": "{{running}} running · {{attention}} need you · {{total}} shown",
+    "statusRunning": "Running",
+    "statusFailed": "Failed",
+    "statusDone": "Completed",
+    "statusAttention": "Needs you",
+    "needsYou": "Needs your confirmation ({{count}})",
+    "finishedAgo": "Finished {{time}} ago",
+    "expand": "Show {{count}} more",
+    "collapse": "Collapse",
+    "phase": {
+      "idle": "Running",
+      "starting": "Starting",
+      "working": "Working",
+      "waiting": "Waiting for you",
+      "compacting": "Compacting",
+      "retrying": "Retrying",
+      "finished": "Finished"
+    },
+    "contextOccupancy": "Context {{percent}}%",
+    "activity": "Task activity (no completion percentage available)",
+    "toolsCompleted": "{{count}} tools completed"
   }
 }

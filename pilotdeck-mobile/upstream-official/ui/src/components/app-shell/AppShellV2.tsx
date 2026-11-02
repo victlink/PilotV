@@ -40,6 +40,10 @@ import {
 } from './appShellSelection';
 import {
   getDedicatedTabPath,
+  LEGACY_SESSION_PATH,
+  PROJECT_CHAT_PATH,
+  PROJECT_PATH,
+  resolveDedicatedTab,
   SCHEDULED_TASKS_PATH,
   SETTINGS_PATH,
   SKILLS_PATH,
@@ -56,7 +60,7 @@ type DeleteSessionTarget = {
   session: ProjectSession;
 };
 
-const SettingsComponent = Settings as unknown as (props: TypedSettingsProps) => JSX.Element;
+const SettingsComponent = Settings as unknown as (props: TypedSettingsProps) => React.JSX.Element;
 
 // V2 shell. Reuses the same data hooks as legacy AppContent so chat, discovery,
 // auth, and project plumbing keep working unchanged — V2 just reorganizes the
@@ -66,20 +70,19 @@ export default function AppShellV2() {
   const navigate = useNavigate();
   // Match the V2 URL shapes and hoist params up. A single wildcard route
   // owns this shell so state survives every URL transition.
-  const matchProjectChat = useMatch('/p/:projectName/c/:sessionId');
-  const matchProject = useMatch('/p/:projectName');
-  const matchLegacySession = useMatch('/session/:sessionId');
+  const matchProjectChat = useMatch(PROJECT_CHAT_PATH);
+  const matchProject = useMatch(PROJECT_PATH);
+  const matchLegacySession = useMatch(LEGACY_SESSION_PATH);
   const matchScheduledTasks = useMatch(SCHEDULED_TASKS_PATH);
   const matchSkills = useMatch(SKILLS_PATH);
   const matchSettingsIndex = useMatch({ path: SETTINGS_PATH, end: true });
   const matchSettingsSection = useMatch(`${SETTINGS_PATH}/:section`);
   const isSettingsRoute = Boolean(matchSettingsIndex || matchSettingsSection);
   const settingsSection = matchSettingsSection?.params.section;
-  const dedicatedTab = matchSkills
-    ? 'skills' as const
-    : matchScheduledTasks
-      ? 'cron' as const
-      : null;
+  const dedicatedTab = resolveDedicatedTab({
+    skills: Boolean(matchSkills),
+    cron: Boolean(matchScheduledTasks),
+  });
   const isDedicatedRoute = dedicatedTab !== null || isSettingsRoute;
   const projectNameParam =
     matchProjectChat?.params.projectName ?? matchProject?.params.projectName ?? undefined;
@@ -681,6 +684,7 @@ export default function AppShellV2() {
 	      onRequestDeleteSession={handleRequestDeleteSession}
 	      onSelectTab={handleSelectTab}
 	      onShowSettings={onShowSettings}
+	      onOpenProjectSettings={(project) => navigate(`/settings/project-team?projectRoot=${encodeURIComponent(project.fullPath)}`)}
 	      onDeselectProject={handleDeselectProject}
 	      onResetProjectSessionPreview={handleResetProjectSessionPreview}
 	      onCollapse={onCollapseSidebar}
@@ -765,8 +769,13 @@ export default function AppShellV2() {
           unreadSessionIds={unreadSessionIds}
           onReplaceTemporarySession={handleReplaceTemporarySession}
           onNavigateToSession={(sid: string) => {
-            setSelectedSession((prev) => prev?.id === sid ? prev : { id: sid } as ProjectSession);
-            navigate(`/session/${sid}`);
+            const project = sidebarSharedProps.projects.find(item => item.sessions?.some(session => session.id === sid));
+            if (project) {
+              handleSelectSession(project, sid);
+            } else {
+              setSelectedSession((prev) => prev?.id === sid ? prev : { id: sid } as ProjectSession);
+              navigate(`/session/${sid}`);
+            }
           }}
           onStartNewSession={handleStartNewSession}
           onCreateProject={handleOpenNewProject}
