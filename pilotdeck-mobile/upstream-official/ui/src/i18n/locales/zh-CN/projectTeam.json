@@ -1,0 +1,111 @@
+{
+  "title": "项目团队",
+  "subtitle": "为当前项目配置多个 Agent，区分角色、模型与工具权限。",
+  "project": "项目",
+  "noProjects": "先在项目列表里登记一个项目。",
+  "loading": "正在加载团队配置…",
+  "invalidTools": "请先修正不合法的工具条目再保存。",
+  "conflict": "配置已被其他窗口修改，请重新加载后再保存。",
+  "common": {
+    "agent": "Agent"
+  },
+  "actions": {
+    "save": "保存",
+    "saving": "保存中…",
+    "saved": "团队配置已保存",
+    "reload": "重新加载",
+    "addAgent": "添加 Agent",
+    "editAgent": "编辑 {{name}}",
+    "removeAgent": "删除 {{name}}",
+    "removeAgentTitle": "删除 Agent",
+    "removeAgentConfirm": "确定把「{{name}}」从团队里移除吗？"
+  },
+  "tabs": {
+    "members": "成员",
+    "roles": "角色",
+    "model": "模型",
+    "tools": "工具授权",
+    "collaboration": "协作"
+  },
+  "roles": {
+    "commander": "指挥",
+    "executor": "执行",
+    "reviewer": "审查",
+    "supervisor": "监督",
+    "name": "名称",
+    "nameHint": "显示在成员列表和角色说明里。",
+    "namePlaceholder": "Agent 名称",
+    "role": "角色",
+    "roleHint": "角色决定默认职责与行为规则。",
+    "duty": "职责描述",
+    "dutyHint": "这个 Agent 负责做什么。",
+    "dutyPlaceholder": "用一两句话说明职责",
+    "definition": "角色定义",
+    "definitionHint": "该 Agent 必须遵守的规则。",
+    "definitionPlaceholder": "写下必须遵守的规则",
+    "selectAgent": "请先选择一个 Agent。"
+  },
+  "members": {
+    "hint": "每个 Agent 可以单独设置模型与工具权限。",
+    "empty": "还没有 Agent，先添加一个。",
+    "disabled": "已停用",
+    "enabled": "启用 {{name}}",
+    "modelSummary": "模型：{{model}}",
+    "modelFollowSession": "跟随会话默认模型",
+    "defaultName": "执行者 {{index}}"
+  },
+  "model": {
+    "source": "模型来源",
+    "sourceHint": "为该 Agent 指定模型，或跟随会话。",
+    "followSession": "跟随会话默认模型",
+    "custom": "指定模型",
+    "model": "模型",
+    "libraryHint": "从设置中的模型池选择已接入模型。",
+    "libraryEmpty": "模型池中没有可选模型",
+    "selectAgent": "请先选择一个 Agent。"
+  },
+  "tools": {
+    "toolAccess": "工具范围",
+    "toolAccessHint": "只允许列表内的工具，或放开全部会话工具。",
+    "accessModes": {
+      "allow-list": "仅白名单",
+      "all": "全部会话工具"
+    },
+    "allowList": "允许列表",
+    "allowListHint": "工具名或范围，例如 read_file、bash:git log:*。空白名单将禁用所有工具。",
+    "denyList": "禁止列表",
+    "denyListHint": "这些工具对该 Agent 始终禁用。",
+    "addEntry": "添加条目",
+    "removeEntry": "删除条目",
+    "entryLabel": "工具条目 {{index}}",
+    "network": "联网",
+    "networkHint": "是否允许该 Agent 访问网络。",
+    "networkModes": {
+      "none": "不联网",
+      "ask": "每次询问",
+      "allow": "允许"
+    },
+    "writeScope": "写入范围",
+    "writeScopeHint": "「项目内可写」是硬性边界：项目目录之外的直接文件写入会被拒绝；无法限定写入路径的 Shell、代码执行、子 Agent、后台任务和 MCP 工具将被禁用。",
+    "writeScopes": {
+      "read-only": "只读",
+      "project": "项目内可写",
+      "ask": "每次询问"
+    },
+    "requireApproval": "需要确认",
+    "requireApprovalHint": "高风险操作执行前先征求同意。",
+    "selectAgent": "请先选择一个 Agent。"
+  },
+  "collaboration": {
+    "mode": "协作模式",
+    "modeHint": "Agent 之间如何交接工作。",
+    "modes": {
+      "manual": "手动",
+      "commander": "指挥驱动",
+      "automated": "自动"
+    },
+    "reportsToHint": "该 Agent 向谁汇报。",
+    "reportsToNone": "无",
+    "empty": "先添加一个 Agent。"
+  }
+}

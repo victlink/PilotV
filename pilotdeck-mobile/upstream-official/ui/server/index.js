@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { getProjectParticipants } from './pilotdeck-bridge.js';
 import { createWorkspaceFileUploadHandler, createWorkspaceUploadCheckHandler } from './services/workspaceFileUpload.js';
 import { createBackgroundSessionForwarder, createSessionActivityRegistry } from './session-activity.js';
 import '../../scripts/check-node-runtime.mjs';
@@ -133,6 +134,7 @@ import { getAlwaysOnDashboardEvents } from './services/always-on-events.js';
 import agentRoutes from './routes/agent.js';
 import updateRoutes from './routes/update.js';
 import projectsRoutes, { WORKSPACES_ROOT, validateWorkspacePath } from './routes/projects.js';
+import projectTeamRoutes from './routes/project-team.js';
 import onboardingRoutes from './routes/onboarding.js';
 import userRoutes from './routes/user.js';
 import pluginsRoutes from './routes/plugins.js';
@@ -588,6 +590,11 @@ app.get('/api/projects/files', authenticateToken, async (req, res) => {
 
 // Projects API Routes (protected)
 app.use('/api/projects', authenticateToken, projectsRoutes);
+
+// Project team configuration API (protected). Phase 1 stores the per-project
+// agent team definition only — no agent is started and no permission is
+// granted by this endpoint.
+app.use('/api/project-team', authenticateToken, projectTeamRoutes);
 
 // Git API Routes (protected)
 app.use('/api/git', authenticateToken, gitRoutes);
@@ -2604,6 +2611,7 @@ function handleChatConnection(ws, request) {
                 writer.send({
                     type: 'session-status',
                     sessionId,
+                    projectParticipants: getProjectParticipants(sessionId),
                     provider: data.provider || 'pilotdeck',
                     isProcessing: activity.isProcessing,
                     activeRunId: activity.activeRunId,

@@ -1,3 +1,4 @@
+import { recordProjectParticipant } from './services/projectTeamParticipants.js';
 /**
  * PilotDeck bridge — the only chat-execution entry point in `ui/server/`.
  *
@@ -68,6 +69,7 @@ import { createNormalizedMessage } from './pilotdeck-message.js';
 import { readPermissionSettings } from './services/permissionSettings.js';
 import { createGatewayConnectionCache } from './services/gatewayConnectionCache.js';
 import { ensureGeneralWorkspaceDirectory } from './utils/generalWorkspace.js';
+import { resolveProjectTeamRuntime } from './services/projectTeamRuntime.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -335,6 +337,7 @@ function loadQueueState(state) {
     try {
         const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
         state.lastAcceptedModelSelection = parsed.lastAcceptedModelSelection;
+        state.projectParticipants = Array.isArray(parsed.projectParticipants) ? parsed.projectParticipants : [];
         state.acceptedInputIds = new Set((Array.isArray(parsed.acceptedInputIds) ? parsed.acceptedInputIds : []).filter(id => typeof id === 'string'));
         if (Array.isArray(parsed.items)) {
             state.inputQueue = parsed.items
@@ -493,7 +496,7 @@ function persistQueueState(state, strict = false) {
     if (!filePath) return;
     let tempPath;
     try {
-        if (state.inputQueue.length === 0 && !state.lastAcceptedModelSelection && !state.acceptedInputIds?.size) {
+        if (state.inputQueue.length === 0 && !state.lastAcceptedModelSelection && !state.projectParticipants?.length && !state.acceptedInputIds?.size) {
             fs.rmSync(filePath, { force: true });
             return;
         }
@@ -502,6 +505,7 @@ function persistQueueState(state, strict = false) {
         fs.writeFileSync(tempPath, JSON.stringify({
             version: 2,
             lastAcceptedModelSelection: state.lastAcceptedModelSelection,
+            projectParticipants: state.projectParticipants,
             acceptedInputIds: [...(state.acceptedInputIds || [])],
             revision: state.queueRevision,
             paused: state.queuePaused,
@@ -651,6 +655,7 @@ function ensureSessionState(sessionKey, projectKey, channelKey) {
             activityRevision: 0,
             activitySnapshotSequence: 0,
             pendingGatewayRunId: undefined,
+            agentId: undefined,
         };
         sessionState.set(sessionKey, state);
     } else {
@@ -1595,6 +1600,7 @@ export async function runChatViaGateway(
     hooks = {},
 ) {
     const projectKey = options.projectPath || options.cwd || GENERAL_HOME;
+    let projectRuntime = null;
     const isGeneralConversation = path.resolve(projectKey) === path.resolve(GENERAL_HOME);
     // Never trust a browser-provided cwd for General. Its transcript identity
     // stays under PILOT_HOME, but every turn executes in the managed workspace.
@@ -1663,6 +1669,13 @@ export async function runChatViaGateway(
             return { sessionKey, runId, inputAccepted, sawTurnCompleted, sawGatewayError: true };
         }
 
+        projectRuntime = await resolveProjectTeamRuntime({
+            projectKey,
+            cwd: options.cwd,
+            agentId: options.agentId,
+        });
+        state.agentId = projectRuntime?.agentId;
+
         const stream = gw.submitTurn({
             sessionKey,
             channelKey,
@@ -1672,17 +1685,28 @@ export async function runChatViaGateway(
             mode: resolvedMode,
             runId,
             ...(Array.isArray(options?.uploadedAttachments) ? { uploadedAttachments: options.uploadedAttachments } : {}),
-            ...(options?.modelOverride ? { modelOverride: options.modelOverride } : {}),
-            ...(options?.modelSelection ? { modelSelection: options.modelSelection } : {}),
+            ...(!projectRuntime?.modelSelection && options?.modelOverride ? { modelOverride: options.modelOverride } : {}),
+            ...(projectRuntime?.modelSelection
+                ? { modelSelection: projectRuntime.modelSelection }
+                : (options?.modelSelection ? { modelSelection: options.modelSelection } : {})),
             ...(basePermissionMode ? { basePermissionMode } : {}),
+            ...(projectRuntime ? { toolPolicy: projectRuntime.toolPolicy } : {}),
             ...(attachments.length > 0 ? { attachments } : {}),
             ...(workspaceCwd ? { workspaceCwd } : {}),
-            ...(Array.isArray(options?.syntheticMessages) ? { syntheticMessages: options.syntheticMessages } : {}),
+            ...(projectRuntime
+                ? { syntheticMessages: [
+                    ...projectRuntime.syntheticMessages,
+                    ...(Array.isArray(options?.syntheticMessages) ? options.syntheticMessages : []),
+                ] }
+                : (Array.isArray(options?.syntheticMessages) ? { syntheticMessages: options.syntheticMessages } : {})),
         });
 
         for await (const event of stream) {
             if (event && event.type === 'input_accepted') {
                 inputAccepted = true;
+                recordProjectParticipant(state, projectRuntime);
+                persistQueueState(state, true);
+                writer.send({ type: 'project-participants', sessionId: sessionKey, projectRoot: projectKey, participants: state.projectParticipants ?? [] });
                 writer.send({ type: 'session-input-accepted', sessionId: sessionKey, runId });
                 // Queue acceptance already recorded this choice; execution must
                 // never replace a newer accepted message's model preference.
@@ -1920,6 +1944,7 @@ async function dispatchNextQueuedInput(state, writer, provider = 'pilotdeck') {
                 sessionId: state.sessionKey,
                 sessionKey: state.sessionKey,
                 runId,
+                agentId: hydratedItem.agentId ?? hydratedItem.options?.agentId,
             },
             writer,
             provider,
@@ -2112,6 +2137,7 @@ export async function enqueueInputViaGateway(sessionId, item, writer, provider =
         displayText: String(item.displayText || item.command).trim(),
         createdAt: item.createdAt || new Date().toISOString(),
         options: item.options || {},
+        agentId: item.options?.agentId,
         status: submitting ? 'submitting' : 'queued',
     });
     captureAcceptedModel(state, item.options?.modelSelection, item.id);
@@ -2267,6 +2293,9 @@ export async function steerQueuedInputViaGateway(sessionId, itemId, writer, prov
     if (stateError) return { ok: false, error: stateError, state: inputQueueSnapshot(state) };
     if (!state.active || !state.runId) {
         return { ok: false, error: 'The active turn has already ended; the message remains queued.' };
+    }
+    if ((item.agentId ?? item.options?.agentId ?? null) !== (state.agentId ?? null)) {
+        return { ok: false, error: 'This queued message belongs to a different project agent.' };
     }
     const targetRunId = state.runId;
     item.status = 'steering';
@@ -3530,4 +3559,8 @@ export async function elicitationRespondViaGateway(requestId, answer) {
         }
     }
     return false;
+}
+
+export function getProjectParticipants(sessionId) {
+    return sessionState.get(sessionId)?.projectParticipants ?? [];
 }

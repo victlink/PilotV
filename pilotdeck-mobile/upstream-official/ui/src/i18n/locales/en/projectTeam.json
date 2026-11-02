@@ -1,0 +1,111 @@
+{
+  "title": "Project team",
+  "subtitle": "Give this project several agents with different roles, models, and tool permissions.",
+  "project": "Project",
+  "noProjects": "Add a project in the project list first.",
+  "loading": "Loading team configuration...",
+  "invalidTools": "Fix the invalid tool entries before saving.",
+  "conflict": "The configuration was changed in another window. Reload it before saving.",
+  "common": {
+    "agent": "Agent"
+  },
+  "actions": {
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "Team configuration saved",
+    "reload": "Reload",
+    "addAgent": "Add agent",
+    "editAgent": "Edit {{name}}",
+    "removeAgent": "Remove {{name}}",
+    "removeAgentTitle": "Remove agent",
+    "removeAgentConfirm": "Remove \"{{name}}\" from the team?"
+  },
+  "tabs": {
+    "members": "Members",
+    "roles": "Roles",
+    "model": "Model",
+    "tools": "Tool access",
+    "collaboration": "Collaboration"
+  },
+  "roles": {
+    "commander": "Commander",
+    "executor": "Executor",
+    "reviewer": "Reviewer",
+    "supervisor": "Supervisor",
+    "name": "Name",
+    "nameHint": "Shown in the member list and in the role briefing.",
+    "namePlaceholder": "Agent name",
+    "role": "Role",
+    "roleHint": "The role sets the default duties and rules.",
+    "duty": "Responsibilities",
+    "dutyHint": "What this agent is responsible for.",
+    "dutyPlaceholder": "Describe the duties in one or two sentences",
+    "definition": "Role definition",
+    "definitionHint": "Rules the agent has to follow.",
+    "definitionPlaceholder": "Write the rules the agent has to follow",
+    "selectAgent": "Select an agent first."
+  },
+  "members": {
+    "hint": "Every agent can use its own model and tool permissions.",
+    "empty": "No agents yet. Add one to start configuring the team.",
+    "disabled": "Disabled",
+    "enabled": "Enable {{name}}",
+    "modelSummary": "Model: {{model}}",
+    "modelFollowSession": "Follows the session model",
+    "defaultName": "Executor {{index}}"
+  },
+  "model": {
+    "source": "Model source",
+    "sourceHint": "Pick a model for this agent, or let it follow the session.",
+    "followSession": "Follow session model",
+    "custom": "Use a specific model",
+    "model": "Model",
+    "libraryHint": "Choose a connected model from Settings → Model Pool.",
+    "libraryEmpty": "No selectable models in the model pool",
+    "selectAgent": "Select an agent first."
+  },
+  "tools": {
+    "toolAccess": "Tool access",
+    "toolAccessHint": "Allow only the listed tools, or all session tools.",
+    "accessModes": {
+      "allow-list": "Allow list only",
+      "all": "All session tools"
+    },
+    "allowList": "Allowed tools",
+    "allowListHint": "Tool names or scopes, for example read_file or bash:git log:*. An empty allow list blocks every tool.",
+    "denyList": "Denied tools",
+    "denyListHint": "These tools stay blocked for this agent.",
+    "addEntry": "Add entry",
+    "removeEntry": "Remove entry",
+    "entryLabel": "Tool entry {{index}}",
+    "network": "Network",
+    "networkHint": "Whether the agent may reach the network.",
+    "networkModes": {
+      "none": "No network",
+      "ask": "Ask each time",
+      "allow": "Allowed"
+    },
+    "writeScope": "Write scope",
+    "writeScopeHint": "Inside the project is a hard boundary: direct file writes outside the project root are denied. Shell, code execution, subagents, background tasks and MCP tools are blocked because their writes cannot be confined.",
+    "writeScopes": {
+      "read-only": "Read only",
+      "project": "Inside the project",
+      "ask": "Ask each time"
+    },
+    "requireApproval": "Require approval",
+    "requireApprovalHint": "Confirm high-risk operations before running them.",
+    "selectAgent": "Select an agent first."
+  },
+  "collaboration": {
+    "mode": "Collaboration mode",
+    "modeHint": "How agents hand work to each other.",
+    "modes": {
+      "manual": "Manual",
+      "commander": "Commander driven",
+      "automated": "Automated"
+    },
+    "reportsToHint": "Who this agent reports to.",
+    "reportsToNone": "No one",
+    "empty": "Add an agent first."
+  }
+}
