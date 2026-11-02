@@ -106,6 +106,24 @@ const TOOLS = [
         project: { type: "string", description: "Project slug, to group artifacts from several tasks." },
         notes: { type: "string", description: "Free-form note stored in source.notes." },
         agent: { type: "string", description: "Producing agent name (default: pilotdeck)." },
+        deliverable: {
+          type: "string",
+          enum: ["final", "aux"],
+          description:
+            "Usually omit this — the console judges. Pass \"aux\" to FORCE-COLLECT a file the "
+            + "heuristic would reject as a web from-asset (element screenshot, thumbnail, slice, "
+            + "a file sitting in a public/ or assets/ dir). The name reads backwards: \"aux\" here "
+            + "means \"I know it's an aux, collect it anyway\". Wrong guesses cost the user a "
+            + "deliverable they never see, so prefer publishing over staying silent.",
+        },
+        compare_group: {
+          type: "string",
+          description:
+            "Declare that these files are meant to be compared side by side: publish every member "
+            + "with the SAME group name. The console keeps the whole group visible — by default it "
+            + "shows only the last result of each publishing round. Omit it unless you really "
+            + "produced alternatives (e.g. three logo directions).",
+        },
       },
       required: ["kind", "title", "path"],
     },
@@ -168,6 +186,51 @@ const TOOLS = [
       required: ["artifact_id"],
     },
   },
+  {
+    name: "post_room_message",
+    description: "把一条明文消息发到项目房间。会被房间成员和网页上的人看到。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        room_id: { type: "string", description: "房间 ID" },
+        text: { type: "string", description: "消息正文（明文）" },
+        author: { type: "string", description: "发言人显示名，例如 worker、评审官" },
+        role: { type: "string", enum: ["user", "bot"], description: "发言人角色，默认 bot" },
+        kind: { type: "string", enum: ["text", "activity", "status"], description: "消息类型，默认 text" },
+        mentions: { type: "array", items: { type: "string" }, description: "被 @ 的成员显示名数组" },
+        reply_to: { type: "integer", description: "被回复消息的 seq" },
+        idempotency_key: { type: "string", description: "幂等键，重复提交同一键只落一条" },
+        task_id: { type: "string", description: "钉住当前任务线程" },
+      },
+      required: ["room_id", "text"],
+    },
+  },
+  {
+    name: "read_room_messages",
+    description: "读取项目房间的明文消息转录，按 seq 递增返回。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        room_id: { type: "string", description: "房间 ID" },
+        after_seq: { type: "integer", description: "只返回 seq 大于该值的消息" },
+        limit: { type: "integer", minimum: 1, maximum: 200, description: "返回条数，默认 30" },
+      },
+      required: ["room_id"],
+    },
+  },
+  {
+    name: "wait_room_message",
+    description: "等待房间里出现新的明文消息（长轮询），最多等待 timeout 秒。适合 agent 阻塞等待评审结果。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        room_id: { type: "string", description: "房间 ID" },
+        after_seq: { type: "integer", description: "只等待 seq 大于该值的消息" },
+        timeout: { type: "integer", minimum: 1, maximum: 60, description: "等待秒数，默认 25" },
+      },
+      required: ["room_id"],
+    },
+  },
 ];
 
 const HANDLERS = {
@@ -176,7 +239,8 @@ const HANDLERS = {
     return ok({
       artifact_id: out.id,
       version: out.version,
-      kind: out.kind,
+      // kind 嵌在 artifact 里，顶层没有 —— 照旧读 out.kind 会得到 undefined。
+      kind: (out.artifact && out.artifact.kind) || out.kind,
       status: out.status,
       review_url: out.review_url || `http://${API.replace(/^https?:\/\//, "")}/`,
       hint: "把它给用户看，并说明可以在成果台上框选标注。",
@@ -231,6 +295,31 @@ const HANDLERS = {
         ? "还有意见没解决，别急着交付。"
         : "这一版的意见都处理完了。",
     });
+  },
+
+  async post_room_message(args) {
+    const { room_id, ...body } = args;
+    const out = await call("POST", `/api/artifacts/rooms/${encodeURIComponent(room_id)}/messages`, body);
+    return ok(out);
+  },
+
+  async read_room_messages(args) {
+    const qs = new URLSearchParams();
+    if (args.after_seq !== undefined) qs.set("after_seq", String(args.after_seq));
+    if (args.limit !== undefined) qs.set("limit", String(args.limit));
+    const q = qs.size ? `?${qs}` : "";
+    const out = await call("GET", `/api/artifacts/rooms/${encodeURIComponent(args.room_id)}/messages${q}`);
+    return ok(out);
+  },
+
+  async wait_room_message(args) {
+    const qs = new URLSearchParams();
+    qs.set("wait", "1");
+    if (args.after_seq !== undefined) qs.set("after_seq", String(args.after_seq));
+    qs.set("timeout", String(args.timeout ?? 25));
+    // call 未设置客户端中止计时器，允许服务端完成最长 60 秒的长轮询。
+    const out = await call("GET", `/api/artifacts/rooms/${encodeURIComponent(args.room_id)}/messages?${qs}`);
+    return ok(out);
   },
 };
 

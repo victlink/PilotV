@@ -267,7 +267,8 @@ def scan_projects(session_limit: int = 20) -> dict:
     """扫出 PilotDeck 的全部项目与会话。带短 TTL 缓存，别把每请求变成全盘 stat。"""
     now = time.monotonic()
     cached = _tree_cache.get("value")
-    if cached and now - _tree_cache["ts"] < CACHE_TTL:
+    if (cached and _tree_cache.get("session_limit") == session_limit
+            and now - _tree_cache["ts"] < CACHE_TTL):
         return cached
 
     root = os.path.join(pilot_home(), "projects")
@@ -292,6 +293,7 @@ def scan_projects(session_limit: int = 20) -> dict:
     value = {"pilot_home": pilot_home(), "projects": projects}
     _tree_cache["ts"] = now
     _tree_cache["value"] = value
+    _tree_cache["session_limit"] = session_limit
     return value
 
 

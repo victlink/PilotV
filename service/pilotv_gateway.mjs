@@ -154,6 +154,10 @@ export function adminCookieHeader(config) {
  * artifacts 必须排在 /api 前面：成果台自己的路由同样挂在 /api/artifacts 下面。
  */
 export function classifyPath(pathname) {
+  // 项目室 API 在 NAS 本机部署；普通成果继续按原有目标转发。
+  if (pathname === '/api/artifacts/rooms' || pathname.startsWith('/api/artifacts/rooms/')) {
+    return 'room';
+  }
   // 独立成果台页面已删除，只剩成果页要用的静态资源（vendor 三维渲染器、图标）和 API。
   if (pathname.startsWith('/artifacts-static/') || pathname.startsWith('/artifacts/')
     || pathname === '/api/artifacts' || pathname.startsWith('/api/artifacts/')) {
@@ -339,6 +343,7 @@ function forward(request, response, targetOrigin, pathname, token, stripCallerAu
     // 换成网关的，没有就光秃秃过去让上游自己拒。
     delete headers.authorization;
     delete headers['x-artifacts-token'];
+    delete headers.cookie;
     if (token) headers.authorization = `Bearer ${token}`;
   }
   const upstream = http.request({
@@ -499,7 +504,7 @@ export function createGateway(config) {
       const cookies = [];
       // 只有通过 ?d= 明确切换时才刷新 Cookie，普通刷新不会覆盖别人的选择。
       if (backend.source === 'query') {
-        cookies.push(`${DEVICE_COOKIE}=${encodeURIComponent(backend.origin)}; Path=/; Max-Age=31536000; SameSite=Lax`);
+        cookies.push(`${DEVICE_COOKIE}=${encodeURIComponent(backend.origin)}; Path=/; SameSite=Lax`);
       }
       // 浏览器打开首页才算「从 PilotV 页面进入」，这个会话 Cookie 就是设备
       // 写操作的凭据。裸 curl / 跨站脚本拿不到它。
@@ -527,6 +532,12 @@ export function createGateway(config) {
 
     const devices = registry ? registry.devices() : config.devices;
     const route = classifyPath(url.pathname);
+
+    if (route === 'room') {
+      // 房间服务只绑定 NAS loopback；不复用远端成果令牌。
+      return forward(request, response, config.roomTarget,
+        url.pathname + url.search, null, true);
+    }
 
     if (route === 'artifacts' || route === 'backend') {
       const backend = resolveBackend(request, config, devices);
@@ -608,6 +619,7 @@ export function loadConfigFromEnv(env = process.env) {
     allowRegistryWrites: env.PILOTV_ALLOW_DEVICE_WRITES === '1',
     defaultBackend,
     artifactsTarget: normalizeOrigin(env.ARTIFACTS_TARGET || env.PILOTV_ARTIFACTS_TARGET || 'http://127.0.0.1:8799') || 'http://127.0.0.1:8799',
+    roomTarget: normalizeOrigin(env.PILOTV_ROOM_TARGET || 'http://127.0.0.1:8799') || 'http://127.0.0.1:8799',
     artifactsPerDevice: env.PILOTV_ARTIFACTS_PER_DEVICE !== '0',
     // 远端成果台的令牌：只存在于网关进程，前端永远看不到。
     artifactsToken: env.PILOTV_ARTIFACTS_TOKEN || '',

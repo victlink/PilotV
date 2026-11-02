@@ -1,0 +1,164 @@
+/* PilotV 项目室 —— 独立静态页样式。
+ * 深色为主：房间页面常常和终端/IDE 并排看，亮色会刺眼。
+ * 颜色语义固定：蓝=链接，灰=次要信息，红=错误，橙=待处理。
+ */
+
+:root {
+  color-scheme: dark;
+  --bg: #10151e;
+  --panel: #1a212d;
+  --panel-2: #212a38;
+  --line: #364154;
+  --text: #e5e9f2;
+  --muted: #a4b3c9;
+  --link: #99c6ff;
+  --danger: #ffb9b9;
+  --warn: #ffcc99;
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--line);
+}
+
+header h1 { font-size: 20px; margin: 0; }
+.brand { color: var(--link); text-decoration: none; font-weight: 600; }
+.brand:hover { text-decoration: underline; }
+
+#connection {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+#connection[data-state="live"] { color: #b7e6b0; border-color: #3d6b39; }
+#connection[data-state="down"] { color: var(--warn); border-color: #7a5c2e; }
+
+#error {
+  margin: 14px 28px 0;
+  padding: 12px 16px;
+  color: var(--danger);
+  background: #2a1c1f;
+  border: 1px solid #6b3a3f;
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+
+main {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 28px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 24px;
+  align-items: start;
+}
+
+aside { border-right: 1px solid var(--line); padding-right: 24px; }
+
+.panel-head { display: flex; align-items: center; gap: 12px; }
+.panel-head h2 { font-size: 19px; margin: 0 0 12px; }
+.panel-head #refresh { margin-left: auto; }
+
+h3 { font-size: 15px; margin: 0 0 4px; color: var(--muted); font-weight: 600; }
+
+form {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
+
+input, textarea, select, button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid #4a5768;
+  border-radius: 6px;
+  padding: 9px 10px;
+}
+
+textarea { resize: vertical; min-height: 72px; }
+button { cursor: pointer; background: #24405f; border-color: #38587f; }
+button:hover:not(:disabled) { background: #2c4d73; }
+button:disabled { opacity: .55; cursor: progress; }
+button.link { background: none; border: none; color: var(--link); padding: 0 4px; text-decoration: underline; }
+
+:focus-visible { outline: 2px solid #a7ceff; outline-offset: 2px; }
+
+.room-button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 8px 0;
+  background: var(--panel);
+}
+.room-button.current { border-color: var(--link); color: #fff; }
+
+.empty {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.muted { color: var(--muted); font-size: 14px; }
+.muted code { font-size: 13px; word-break: break-all; }
+
+.members { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.member { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.member-name { font-weight: 600; }
+.badge {
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #29374b;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+#messages {
+  max-height: 58vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 12px;
+  background: #131924;
+}
+
+.message { border-bottom: 1px solid var(--line); padding: 12px 0; }
+.message:last-child { border-bottom: none; }
+.message .meta { color: var(--muted); display: block; margin-bottom: 4px; }
+.message .body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message .delivery { color: var(--muted); display: block; margin-top: 6px; font-size: 13px; }
+
+a { color: var(--link); }
+
+@media (max-width: 820px) {
+  main { grid-template-columns: 1fr; padding: 16px; gap: 18px; }
+  aside { border-right: none; border-bottom: 1px solid var(--line); padding: 0 0 16px; }
+  header { padding: 12px 16px; gap: 12px; }
+  #error { margin: 12px 16px 0; }
+  #messages { max-height: none; }
+}

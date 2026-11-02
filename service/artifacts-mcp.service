@@ -1,0 +1,37 @@
+[Unit]
+# 成果台 MCP 侧车（Node）。
+#
+# 为什么单独一个单元：MCP 端点由 Node 侧车提供（/api/artifacts-mcp），
+# 而成果台的 REST/UI 由 Python 控制台提供（默认 8799）。两个进程、两个端口：
+#   PilotDeck 插件 ──http──> 127.0.0.1:8801/api/artifacts-mcp（这个单元）
+#                                  └──代理──> 127.0.0.1:8799/api/artifacts/*（Python 控制台）
+#
+# 插件清单里的 url 必须指向本单元的端口。之前清单写成了控制台端口，
+# 而控制台根本没有 MCP 路由 —— 结果是插件连上去只拿到 404，
+# 四个老工具和后来的房间工具全部不可用。
+#
+# 装法（每台设备各一份）：
+#   cp service/artifacts-mcp.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now artifacts-mcp
+#
+# 换设备时改这三行：
+#   ExecStart        侧车 .mjs 的绝对路径
+#   Environment=ARTIFACTS_API   Python 控制台的地址
+#   Environment=PILOTDECK_SRC   装了 @modelcontextprotocol/sdk 的目录
+Description=PilotV 成果台 MCP 侧车
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/marc/PilotV
+Environment=ARTIFACTS_API=http://127.0.0.1:8799
+Environment=ARTIFACTS_PORT=8801
+Environment=ARTIFACTS_HOST=127.0.0.1
+Environment=PILOTDECK_SRC=/home/marc/PilotV/pilotdeck-mobile/upstream-official
+ExecStart=/data/appdata/pilotdeck-node/node-v22.13.0-linux-x64/bin/node /home/marc/pilotv-artifacts/artifacts-mcp.mjs
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

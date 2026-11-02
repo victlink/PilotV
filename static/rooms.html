@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="same-origin">
+<title>PilotV 项目室</title>
+<link rel="stylesheet" href="/artifacts-static/rooms.css">
+<script defer src="/artifacts-static/rooms.js"></script>
+</head>
+<body>
+<header>
+  <a href="/" class="brand">PilotV</a>
+  <h1>项目室</h1>
+  <span id="connection" role="status" aria-live="polite">连接中</span>
+</header>
+
+<p id="error" role="alert" hidden></p>
+
+<main>
+  <aside>
+    <div class="panel-head">
+      <h2>房间</h2>
+      <button id="refresh" type="button">刷新</button>
+    </div>
+    <div id="rooms" role="list"></div>
+    <p id="rooms-empty" class="empty" hidden>还没有房间。先在下面建一个。</p>
+
+    <form id="create">
+      <h3>新房间</h3>
+      <label>名称<input name="name" required maxlength="160" autocomplete="off"></label>
+      <label>公告（给每个成员的固定说明）
+        <textarea name="bulletin" rows="2" maxlength="2000"></textarea>
+      </label>
+      <label>路由策略
+        <select name="respond_policy">
+          <option value="mentions">mentions — 只有被 @ 的成员收到</option>
+          <option value="everyone">everyone — 所有成员都收到</option>
+          <option value="member">member — 成员发言才触发</option>
+          <option value="off">off — 只记录，不自动投递（急停）</option>
+        </select>
+      </label>
+      <button type="submit">创建房间</button>
+    </form>
+  </aside>
+
+  <section>
+    <div class="panel-head">
+      <h2 id="title">选择或创建房间</h2>
+      <span id="room-id" class="muted"></span>
+    </div>
+    <p id="bulletin" class="muted"></p>
+
+    <div id="room-empty" class="empty" hidden>
+      选一个房间看转录，或者在左边新建一个。<br>
+      房间转录是<strong>明文</strong>的：agent 用 MCP 的 post_room_message 回写什么，这里就显示什么。
+    </div>
+
+    <div id="room-detail" hidden>
+      <h3>成员</h3>
+      <ul id="members" class="members"></ul>
+      <p id="members-empty" class="empty" hidden>这个房间还没有成员。worker 和 reviewer 各加一个，各用各的会话。</p>
+
+      <form id="member">
+        <h3>添加成员</h3>
+        <label>显示名（@ 它就能寻址）<input name="display_name" required maxlength="80" autocomplete="off"></label>
+        <label>角色
+          <select name="role">
+            <option value="worker">worker — 干活的人</option>
+            <option value="reviewer">reviewer — 评审的人</option>
+            <option value="human">human — 只看不自动收指令</option>
+          </select>
+        </label>
+        <label>会话 session key（worker/reviewer 必填，且不能和别人共用）
+          <input name="session_key" maxlength="200" autocomplete="off">
+        </label>
+        <label>模型（可选）<input name="model" maxlength="120" autocomplete="off"></label>
+        <button type="submit">添加成员</button>
+      </form>
+
+      <h3>转录</h3>
+      <p id="messages-empty" class="empty" hidden>还没有消息。发一条 @某成员 的消息试试。</p>
+      <div id="messages" aria-label="有序房间转录" role="log"></div>
+
+      <form id="send">
+        <h3>发言</h3>
+        <label>署名<input name="author" value="人类" required maxlength="80" autocomplete="off"></label>
+        <label>消息（用 @显示名 触发投递）
+          <textarea name="text" required maxlength="20000" rows="3"></textarea>
+        </label>
+        <p id="mention-hint" class="muted"></p>
+        <button type="submit">发送</button>
+      </form>
+    </div>
+  </section>
+</main>
+</body>
+</html>

@@ -17,8 +17,10 @@ import json
 import os
 import random
 import sqlite3
+import re
 import threading
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
 # --------------------------------------------------------------------- 常量
@@ -42,6 +44,22 @@ ALLOWED_TRANSITIONS = {
 }
 
 RING_SIZE = 500
+
+# 项目室（room）：成员 = PilotDeck 会话，转录 = append-only 明文日志。
+#
+# respond_policy 的含义（编排器按这个决定谁会被叫醒）：
+#   mentions  只有被 @ 的成员会收到指令（默认）
+#   everyone  房间里所有非 human 成员都会收到
+#   member    只有「房间里成员发的消息」才触发（人发的必须显式 @）
+#   off       只记录明文，不做任何自动投递（人手动刹车，防止互相 @ 死循环）
+ROOM_POLICIES = ("everyone", "mentions", "member", "off")
+ROOM_KINDS = ("text", "activity", "status")
+ROOM_ROLES = ("worker", "reviewer", "human")
+# 消息来源盖章：agent=agent 自己回写，human=网页上的人，api=脚本/MCP 调用。
+ROOM_SOURCES = ("agent", "human", "api")
+# 需要独立会话的成员角色：worker / reviewer 各自一个 sessionKey，
+# 两个人共用一个会话就分不清是谁说的话了，所以 store 层直接拒。
+ROOM_NEEDS_SESSION = ("worker", "reviewer")
 
 
 def now_iso() -> str:
@@ -231,6 +249,65 @@ class ArtifactStore:
                     payload_json TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_audit_art ON audit(artifact_id, id);
+
+                -- 项目室：房间 / 成员 / 明文转录。
+                -- 转录 append-only：seq 在房间内递增。
+                -- 幂等键防重发；投递状态单独记 room_deliveries，
+                -- 重启后不重复投递，也不把「已入队」当成「已生效」。
+                CREATE TABLE IF NOT EXISTS rooms (
+                    id             TEXT PRIMARY KEY,
+                    name           TEXT NOT NULL,
+                    respond_policy TEXT NOT NULL DEFAULT 'mentions',
+                    bulletin       TEXT,
+                    task_id        TEXT,
+                    created_at     TEXT,
+                    updated_at     TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS room_members (
+                    member_id    TEXT PRIMARY KEY,
+                    room_id      TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    role         TEXT NOT NULL DEFAULT 'worker',
+                    session_key  TEXT,
+                    model        TEXT,
+                    created_at   TEXT,
+                    UNIQUE(room_id, display_name)
+                );
+
+                CREATE TABLE IF NOT EXISTS room_messages (
+                    room_id         TEXT NOT NULL,
+                    seq             INTEGER NOT NULL,
+                    task_id         TEXT,
+                    role            TEXT NOT NULL DEFAULT 'bot',
+                    author          TEXT,
+                    member_id       TEXT,
+                    text            TEXT NOT NULL,
+                    kind            TEXT NOT NULL DEFAULT 'text',
+                    source          TEXT NOT NULL DEFAULT 'agent',
+                    reply_to        INTEGER,
+                    mentions_json   TEXT,
+                    idempotency_key TEXT,
+                    state           TEXT NOT NULL DEFAULT 'visible',
+                    created_at      TEXT,
+                    PRIMARY KEY (room_id, seq)
+                );
+                CREATE INDEX IF NOT EXISTS idx_room_msg_seq
+                    ON room_messages(room_id, seq);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_room_msg_idem
+                    ON room_messages(room_id, idempotency_key)
+                    WHERE idempotency_key IS NOT NULL;
+
+                CREATE TABLE IF NOT EXISTS room_deliveries (
+                    room_id    TEXT NOT NULL,
+                    msg_seq    INTEGER NOT NULL,
+                    member_id  TEXT NOT NULL,
+                    state      TEXT NOT NULL,
+                    item_id    TEXT,
+                    reason     TEXT,
+                    created_at TEXT,
+                    PRIMARY KEY (room_id, msg_seq, member_id)
+                );
                 """
             )
             self._db.commit()
@@ -361,7 +438,17 @@ class ArtifactStore:
             return None
         return self._row_to_artifact(row, with_annotations=with_annotations)
 
-    def list(self, kind=None, status=None, agent=None, limit=200, offset=0) -> list:
+    def list(self, kind=None, status=None, agent=None, run_id=None, unowned=False,
+             limit=200, offset=0) -> list:
+        """列成果。run_id 是会话归属（成果台里唯一的归属字段）。
+
+        传 run_id 就是「只看这一个会话的成果」——归属过滤必须能在 SQL 里做，
+        靠上层拿到全量再筛，既把别人的成果发到了浏览器，又分页/limit 一卡就漏。
+
+        unowned=True 取「一条会话都挂不上」的成果。它必须是一段独立查询，而不是
+        run_id=''：空归属的成果普遍很旧，混在按时间倒序取的那批里会被 limit
+        整个截掉（实测 129 条空归属全在最近 400 条之外），未归属区就会永远是空的。
+        """
         sql = "SELECT * FROM artifacts WHERE 1=1"
         args: list = []
         if kind and kind != "all":
@@ -373,6 +460,11 @@ class ArtifactStore:
         if agent:
             sql += " AND agent=?"
             args.append(agent)
+        if run_id:
+            sql += " AND run_id=?"
+            args.append(run_id)
+        if unowned:
+            sql += " AND (run_id IS NULL OR run_id='')"
         sql += " ORDER BY ts DESC, rowid DESC LIMIT ? OFFSET ?"
         args += [max(1, min(int(limit), 1000)), max(0, int(offset))]
         with self._lock:
@@ -891,6 +983,416 @@ class ArtifactStore:
             row = self._db.execute(
                 "SELECT thumb_path FROM artifacts WHERE id=?", (artifact_id,)).fetchone()
         return (row["thumb_path"] or "") if row else ""
+
+    # -------------------------------------------------------------- 项目室
+    # 房间 = 一条 append-only 明文转录 + 一组可 @ 寻址的成员。
+    # 成员对应 PilotDeck 会话（session_key），投递走 gateway 的 steer/submit。
+    # 明文由发言者自己盖章（post_room_message），这里只管路由与记账。
+
+    def create_room(self, payload: dict) -> dict:
+        p = dict(payload or {})
+        name = (p.get("name") or "").strip()
+        if not name:
+            raise ValueError("房间名不能为空")
+        policy = p.get("respond_policy") or "mentions"
+        if policy not in ROOM_POLICIES:
+            raise ValueError(f"未知 respond_policy: {policy}")
+        rid = p.get("id") or f"room_{uuid.uuid4().hex[:12]}"
+        ts = now_iso()
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO rooms (id,name,respond_policy,bulletin,task_id,created_at,updated_at)"
+                " VALUES (?,?,?,?,?,?,?)",
+                (rid, name, policy, p.get("bulletin"), p.get("task_id"), ts, ts))
+            self._db.commit()
+        self._audit("room.created", artifact_id=rid, actor=p.get("actor") or name,
+                    payload={"name": name, "respond_policy": policy})
+        return self.get_room(rid)
+
+    def list_rooms(self) -> list:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM rooms ORDER BY created_at DESC").fetchall()
+        return [self._row_to_room(r) for r in rows]
+
+    def get_room(self, room_id: str):
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM rooms WHERE id=?", (room_id,)).fetchone()
+        if not row:
+            return None
+        room = self._row_to_room(row)
+        room["members"] = self.list_room_members(room_id)
+        return room
+
+    def add_room_member(self, room_id: str, payload: dict) -> dict:
+        if not self.get_room(room_id):
+            raise KeyError(room_id)
+        p = dict(payload or {})
+        name = (p.get("display_name") or "").strip()
+        if not name:
+            raise ValueError("display_name 不能为空")
+        role = p.get("role") or "worker"
+        if role not in ROOM_ROLES:
+            raise ValueError(f"未知 role: {role}")
+        session_key = (p.get("session_key") or "").strip() or None
+        # worker / reviewer 必须各自绑定一个独立的会话。
+        # 共用一个会话就分不清「谁在说话」，而且投递状态会互相覆盖，
+        # 所以在存储层就拒掉，而不是等到编排器那里才发现。
+        if role in ROOM_NEEDS_SESSION and not session_key:
+            raise ValueError(f"{role} 成员必须给一个自己的 session_key")
+        mid = p.get("member_id") or f"m_{uuid.uuid4().hex[:10]}"
+        ts = now_iso()
+        with self._lock:
+            dup = self._db.execute(
+                "SELECT member_id FROM room_members WHERE room_id=? AND display_name=?",
+                (room_id, name)).fetchone()
+            if dup:
+                raise ValueError(f"成员已存在: {name}")
+            if session_key:
+                same = self._db.execute(
+                    "SELECT display_name FROM room_members"
+                    " WHERE room_id=? AND session_key=?",
+                    (room_id, session_key)).fetchone()
+                if same:
+                    raise ValueError(
+                        f"session_key 已被成员「{same['display_name']}」占用，"
+                        "每个成员要用自己的会话")
+            self._db.execute(
+                "INSERT INTO room_members"
+                " (member_id,room_id,display_name,role,session_key,model,created_at)"
+                " VALUES (?,?,?,?,?,?,?)",
+                (mid, room_id, name, role, session_key, p.get("model"), ts))
+            self._db.commit()
+        self._audit("room.member_added", artifact_id=room_id, actor=name,
+                    payload={"member_id": mid, "role": role})
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM room_members WHERE member_id=?", (mid,)).fetchone()
+        return self._row_to_member(row)
+
+    def update_room_member(self, room_id: str, member_id: str, payload: dict) -> dict:
+        """改成员（换会话、换角色、改名）。会话仍然必须是自己独占的。"""
+        if not self.get_room(room_id):
+            raise KeyError(room_id)
+        p = dict(payload or {})
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM room_members WHERE room_id=? AND member_id=?",
+                (room_id, member_id)).fetchone()
+            if not row:
+                raise KeyError(member_id)
+            name = (p.get("display_name") or row["display_name"]).strip()
+            role = p.get("role") or row["role"]
+            if role not in ROOM_ROLES:
+                raise ValueError(f"未知 role: {role}")
+            session_key = p.get("session_key")
+            session_key = (session_key if session_key is not None else row["session_key"])
+            session_key = (session_key or "").strip() or None
+            if role in ROOM_NEEDS_SESSION and not session_key:
+                raise ValueError(f"{role} 成员必须给一个自己的 session_key")
+            other = self._db.execute(
+                "SELECT display_name FROM room_members"
+                " WHERE room_id=? AND session_key=? AND member_id<>?",
+                (room_id, session_key, member_id)).fetchone()
+            if session_key and other:
+                raise ValueError(
+                    f"session_key 已被成员「{other['display_name']}」占用，"
+                    "每个成员要用自己的会话")
+            dup = self._db.execute(
+                "SELECT member_id FROM room_members"
+                " WHERE room_id=? AND display_name=? AND member_id<>?",
+                (room_id, name, member_id)).fetchone()
+            if dup:
+                raise ValueError(f"成员已存在: {name}")
+            self._db.execute(
+                "UPDATE room_members SET display_name=?, role=?, session_key=?, model=?"
+                " WHERE room_id=? AND member_id=?",
+                (name, role, session_key, p.get("model", row["model"]),
+                 room_id, member_id))
+            self._db.commit()
+            out = self._db.execute(
+                "SELECT * FROM room_members WHERE member_id=?", (member_id,)).fetchone()
+        self._audit("room.member_updated", artifact_id=room_id, actor=name,
+                    payload={"member_id": member_id, "role": role})
+        return self._row_to_member(out)
+
+    def remove_room_member(self, room_id: str, member_id: str) -> bool:
+        """移除成员。已发的消息留在转录里（append-only，不追溯）。"""
+        if not self.get_room(room_id):
+            raise KeyError(room_id)
+        with self._lock:
+            row = self._db.execute(
+                "SELECT display_name FROM room_members WHERE room_id=? AND member_id=?",
+                (room_id, member_id)).fetchone()
+            if not row:
+                return False
+            self._db.execute(
+                "DELETE FROM room_members WHERE room_id=? AND member_id=?",
+                (room_id, member_id))
+            self._db.commit()
+        self._audit("room.member_removed", artifact_id=room_id,
+                    actor=row["display_name"], payload={"member_id": member_id})
+        return True
+
+    def update_room(self, room_id: str, payload: dict) -> dict:
+        """改房间设置（目前是 respond_policy / bulletin / task_id / name）。"""
+        if not self.get_room(room_id):
+            raise KeyError(room_id)
+        p = dict(payload or {})
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM rooms WHERE id=?", (room_id,)).fetchone()
+            policy = p.get("respond_policy")
+            if policy is not None and policy not in ROOM_POLICIES:
+                raise ValueError(f"未知 respond_policy: {policy}")
+            name = (p.get("name") or row["name"]).strip()
+            if not name:
+                raise ValueError("房间名不能为空")
+            bulletin = p.get("bulletin", row["bulletin"])
+            task_id = p.get("task_id", row["task_id"])
+            self._db.execute(
+                "UPDATE rooms SET name=?, respond_policy=?, bulletin=?, task_id=?,"
+                " updated_at=? WHERE id=?",
+                (name, policy or row["respond_policy"], bulletin, task_id,
+                 now_iso(), room_id))
+            self._db.commit()
+        self._audit("room.updated", artifact_id=room_id, actor=name,
+                    payload={"respond_policy": policy or row["respond_policy"]})
+        return self.get_room(room_id)
+
+    def list_room_members(self, room_id: str) -> list:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM room_members WHERE room_id=? ORDER BY created_at",
+                (room_id,)).fetchall()
+        return [self._row_to_member(r) for r in rows]
+
+    def find_member(self, room_id: str, name: str):
+        """按显示名找成员（@ 寻址用）。找不到返回 None。"""
+        want = (name or "").strip().lstrip("@")
+        if not want:
+            return None
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM room_members WHERE room_id=? AND display_name=?",
+                (room_id, want)).fetchone()
+        return self._row_to_member(row) if row else None
+
+    def post_room_message(self, room_id: str, payload: dict):
+        """落一条明文消息，返回 (message, created)。
+
+        created=False 表示命中幂等键：没重复写库，也没重复发事件。
+        """
+        room = self.get_room(room_id)
+        if not room:
+            raise KeyError(room_id)
+        p = dict(payload or {})
+        text = (p.get("text") or "").strip()
+        if not text:
+            raise ValueError("消息正文不能为空")
+        role = p.get("role") or "bot"
+        if role not in ("user", "bot"):
+            raise ValueError(f"未知 role: {role}")
+        kind = p.get("kind") or "text"
+        if kind not in ROOM_KINDS:
+            raise ValueError(f"未知 kind: {kind}")
+        idem = p.get("idempotency_key") or None
+        member_id = p.get("member_id") or None
+        author = p.get("author") or None
+        if member_id and not author:
+            with self._lock:
+                row = self._db.execute(
+                    "SELECT display_name FROM room_members WHERE member_id=?",
+                    (member_id,)).fetchone()
+            if row:
+                author = row["display_name"]
+        mentions = p.get("mentions")
+        if mentions is None:
+            mentions = self._auto_mentions(room_id, text)
+        elif isinstance(mentions, str):
+            mentions = [mentions]
+        else:
+            mentions = [str(m) for m in mentions]
+        if idem:
+            with self._lock:
+                row = self._db.execute(
+                    "SELECT * FROM room_messages WHERE room_id=? AND idempotency_key=?",
+                    (room_id, idem)).fetchone()
+            if row:
+                return self._row_to_message(row), False
+        ts = now_iso()
+        with self._lock:
+            seq = int(self._db.execute(
+                "SELECT COALESCE(MAX(seq),0)+1 FROM room_messages WHERE room_id=?",
+                (room_id,)).fetchone()[0] or 1)
+            self._db.execute(
+                "INSERT INTO room_messages (room_id,seq,task_id,role,author,member_id,text,"
+                "kind,source,reply_to,mentions_json,idempotency_key,state,created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (room_id, seq, p.get("task_id") or room.get("task_id"), role, author,
+                 member_id, text, kind, p.get("source") or "agent", p.get("reply_to"),
+                 _jdump(mentions), idem, p.get("state") or "visible", ts))
+            self._db.commit()
+            row = self._db.execute(
+                "SELECT * FROM room_messages WHERE room_id=? AND seq=?",
+                (room_id, seq)).fetchone()
+        msg = self._row_to_message(row)
+        self._audit("room.message", artifact_id=room_id, actor=author or role,
+                    payload={"seq": msg["seq"], "kind": kind, "mentions": mentions})
+        self.bus.publish("room.message", {"room_id": room_id, "message": msg})
+        return msg, True
+
+    def room_messages(self, room_id: str, after_seq: int = 0, limit: int = 30,
+                      before_seq: int = 0) -> list:
+        """读一段转录，按 seq 升序。
+
+        两个方向：
+          after_seq  给它 → 取 seq > after_seq 的（向前翻，尾巴方向）
+          before_seq 给它 → 取 seq < before_seq 的（往回翻历史）
+
+        翻页用游标，不要用「消息条数」：房间里可能正有人在发言，
+        用条数当游标会漏消息。这里的游标永远是 seq。
+        """
+        after_seq = int(after_seq or 0)
+        before_seq = int(before_seq or 0)
+        with self._lock:
+            if before_seq > 0:
+                rows = self._db.execute(
+                    "SELECT * FROM room_messages WHERE room_id=? AND seq<?"
+                    " ORDER BY seq DESC LIMIT ?",
+                    (room_id, before_seq, int(limit))).fetchall()
+                rows = list(reversed(rows))
+            else:
+                rows = self._db.execute(
+                    "SELECT * FROM room_messages WHERE room_id=? AND seq>?"
+                    " ORDER BY seq LIMIT ?",
+                    (room_id, after_seq, int(limit))).fetchall()
+        messages = [self._row_to_message(r) for r in rows]
+        for msg in messages:
+            with self._lock:
+                msg["deliveries"] = [dict(r) for r in self._db.execute(
+                    "SELECT * FROM room_deliveries WHERE room_id=? AND msg_seq=?",
+                    (room_id, msg["seq"])).fetchall()]
+        return messages
+
+    def room_message_bounds(self, room_id: str) -> dict:
+        """这个房间的消息范围：最早/最新的 seq、总数。
+
+        网页拿它来画「还有更早的消息吗」和「转录是空的吗」。
+        """
+        with self._lock:
+            row = self._db.execute(
+                "SELECT COALESCE(MIN(seq),0) lo, COALESCE(MAX(seq),0) hi,"
+                " COUNT(*) n FROM room_messages WHERE room_id=?",
+                (room_id,)).fetchone()
+        return {"oldest_seq": int(row["lo"] or 0), "latest_seq": int(row["hi"] or 0),
+                "count": int(row["n"] or 0)}
+
+    def room_deliveries(self, room_id: str, limit: int = 200) -> list:
+        """房间里的投递记录（带成员显示名），给网页显示「投递到哪一步了」。"""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT d.*, m.display_name FROM room_deliveries d"
+                " LEFT JOIN room_members m ON m.member_id = d.member_id"
+                " WHERE d.room_id=? ORDER BY d.created_at DESC, d.msg_seq DESC"
+                " LIMIT ?",
+                (room_id, int(limit))).fetchall()
+        out = []
+        for r in rows:
+            item = dict(r)
+            item.pop("created_at", None)
+            out.append(item)
+        return out
+
+    def room_delivery_count(self, room_id):
+        """这个房间已经用掉多少次自动投递预算。
+
+        只数**真的投出去过**的那些（submitted/accepted/completed/failed/rejected）。
+        skipped 不算：策略关掉、成员没会话、任务不匹配这些「本来就没投」的情况
+        不该消耗预算 —— 否则房间空转几次就把额度用光了。
+        """
+        with self._lock:
+            return self._db.execute(
+                "SELECT COUNT(*) FROM room_deliveries"
+                " WHERE room_id=? AND state<>'skipped'", (room_id,)).fetchone()[0]
+
+    def room_next_seq(self, room_id: str) -> int:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT COALESCE(MAX(seq),0) FROM room_messages WHERE room_id=?",
+                (room_id,)).fetchone()
+        return int(row[0] or 0)
+
+    def delivery_state(self, room_id: str, seq: int, member_id: str):
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM room_deliveries"
+                " WHERE room_id=? AND msg_seq=? AND member_id=?",
+                (room_id, int(seq), member_id)).fetchone()
+        return dict(row) if row else None
+
+    def record_delivery(self, room_id: str, seq: int, member_id: str, state: str,
+                        item_id=None, reason=None):
+        """记一次投递结果。
+
+        state 描述的是「投递动作本身」：submitted/accepted/skipped/rejected/
+        completed/failed。它**不代表** agent 真的照做了 —— 那是 agent 自己
+        回写房间消息才算数。
+        """
+        ts = now_iso()
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO room_deliveries"
+                " (room_id,msg_seq,member_id,state,item_id,reason,created_at)"
+                " VALUES (?,?,?,?,?,?,?)"
+                " ON CONFLICT(room_id,msg_seq,member_id) DO UPDATE SET"
+                " state=excluded.state, item_id=excluded.item_id,"
+                " reason=excluded.reason, created_at=excluded.created_at",
+                (room_id, int(seq), member_id, state, item_id, reason, ts))
+            self._db.commit()
+        self.bus.publish("room.delivery", {"room_id": room_id, "seq": int(seq),
+                                           "member_id": member_id, "state": state,
+                                           "reason": reason})
+
+    # ---- 项目室 · 内部小工具
+
+    def _auto_mentions(self, room_id: str, text: str) -> list:
+        """没显式给 mentions 时，从正文里认 @显示名。
+
+        @名字 后面不能再紧跟 ASCII 字母/数字/下划线：
+        "@workerb" 不该命中 "worker"，而 "@worker 看一下"（后面跟中文）要命中。
+        """
+        out = []
+        for m in self.list_room_members(room_id):
+            name = m.get("display_name") or ""
+            if not name:
+                continue
+            if re.search(re.escape("@" + name) + r"(?![A-Za-z0-9_])", text):
+                out.append(name)
+        return out
+
+    def _row_to_room(self, row) -> dict:
+        return {"id": row["id"], "name": row["name"],
+                "respond_policy": row["respond_policy"],
+                "bulletin": row["bulletin"] or "", "task_id": row["task_id"],
+                "created_at": row["created_at"], "updated_at": row["updated_at"]}
+
+    def _row_to_member(self, row) -> dict:
+        return {"member_id": row["member_id"], "room_id": row["room_id"],
+                "display_name": row["display_name"], "role": row["role"],
+                "session_key": row["session_key"] or "", "model": row["model"],
+                "created_at": row["created_at"]}
+
+    def _row_to_message(self, row) -> dict:
+        return {"seq": row["seq"], "room_id": row["room_id"], "task_id": row["task_id"],
+                "role": row["role"], "author": row["author"] or "",
+                "member_id": row["member_id"] or "", "text": row["text"],
+                "kind": row["kind"], "source": row["source"],
+                "reply_to": row["reply_to"],
+                "mentions": _jload(row["mentions_json"], []) or [],
+                "idempotency_key": row["idempotency_key"],
+                "state": row["state"], "created_at": row["created_at"]}
 
     # -------------------------------------------------------------- 统计
 

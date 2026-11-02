@@ -41,6 +41,7 @@ MATER_WORKERS = int(os.environ.get("ARTIFACTS_MATERIALIZE_WORKERS", "2"))
 _store = None
 _mat = None
 _watcher = None
+_ingester = None
 
 
 # --------------------------------------------------------------------- 基础工具
@@ -311,8 +312,19 @@ class Materializer:
                         "bytes": os.path.getsize(stored)}
                 if ext in (".dxf", ".dwg"):
                     meta["render_hint"] = "CAD 原生格式需要转换器；导出 PDF/SVG 再发布可直接显示"
-                elif ext in (".step", ".stp", ".iges", ".igs"):
-                    meta["render_hint"] = "STEP/IGES 需要先转成 glb/obj；导出 glb 再发布可直接显示"
+                elif ext in (".step", ".stp", ".iges", ".igs", ".stl", ".obj", ".ply"):
+                    # 这几个能转：页面打 /viewer，现转成 glb 给 model-viewer。
+                    # 转换器装没装上不影响登记，所以这里只说事实，不承诺一定能显示。
+                    try:
+                        import artifacts_cad
+                        meta["cad"] = artifacts_cad.converter_status()
+                        meta["render_hint"] = "STEP/IGES/STL/OBJ/PLY 打开时转成 glb 预览"
+                    except Exception as exc:
+                        meta["render_hint"] = f"三维转换器不可用：{exc}"[:120]
+                elif ext in (".3ds", ".dae", ".3mf"):
+                    # 这几个本机没有转换器。与其让 model-viewer 静默画一块空白，
+                    # 不如登记时就说明只能下载原文件。
+                    meta["render_hint"] = "这个三维格式浏览器不能直接显示，先下载原文件"
             elif kind == "page":
                 url = self._measure_url(art)
                 if url:
@@ -549,6 +561,18 @@ def html_title(path: str) -> str:
     return ""
 
 
+def _env_flag(name: str, default: bool = True) -> bool:
+    """读布尔开关型环境变量。没设置就用默认值。
+
+    刻意不认「空字符串为真」：部署脚本里 `FOO=` 拼出来很容易，
+    结果用户以为关掉了其实还开着，这种坑比少个开关难查得多。
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 def sha1_of(path: str) -> str:
     h = hashlib.sha1()
     try:
@@ -622,9 +646,17 @@ class Watcher:
                 yield full, st
 
     def _prime(self, root):
-        """首次登记目录：存量文件直接标成「见过」，不回灌历史产物。"""
+        """首次登记目录：存量文件标成「这份内容已经处理过」，不回灌历史。
+
+        这里必须打第 4 个标记（settled=True），不能拿「稳定计数=2」代替：
+        计数=2 的话，下一轮 scan_once 只会把计数再加一次（→3），照样 >= 2
+        就把文件发出去。实测把项目目录自动挂上以后，这一行直接把
+        VICTLINK-AI / CAD 两个老项目的 5600 多个历史产物一次性倒灌进成果台，
+        顺带把启动卡到健康检查超时。settled 的语义是「这份内容已经处理过了
+        （登记时就在，或刚发过），除非它再变，否则别再动它」。
+        """
         for full, st in self._iter_files(root):
-            self.seen[full] = [st.st_mtime, st.st_size, 2]
+            self.seen[full] = [st.st_mtime, st.st_size, 0, True]
 
     async def start(self):
         if self._task is None and self.dirs:
@@ -656,17 +688,17 @@ class Watcher:
             for full, st in self._iter_files(root):
                 stamp = (st.st_mtime, st.st_size)
                 prev = self.seen.get(full)
-                if prev is None:
-                    # 第一次看见：先记下，不急着发（可能正写到一半）
-                    self.seen[full] = [stamp[0], stamp[1], 0]
+                if prev is None or (prev[0], prev[1]) != stamp:
+                    # 第一次看见 / 内容变了：先记下，不急着发（可能正写到一半）
+                    self.seen[full] = [stamp[0], stamp[1], 0, False]
                     continue
-                if (prev[0], prev[1]) != stamp:
-                    self.seen[full] = [stamp[0], stamp[1], 0]   # 变了，重新计稳定
-                    continue
+                if prev[3]:
+                    continue            # 这份内容已经处理过了，不重复发
                 prev[2] += 1
                 if prev[2] < 2:
                     continue            # 连续两轮没变才发
                 self.seen[full][2] = 2
+                self.seen[full][3] = True
                 aid = self.ingest(full)
                 if aid:
                     out.append(aid)
@@ -683,7 +715,7 @@ class Watcher:
         parent = prev["artifact_id"] if prev else None
         name = os.path.basename(path)
         ext = os.path.splitext(name)[1].lower()
-        kind = KIND_BY_EXT.get(ext, "doc")
+        kind = _kind_for(path, ext)
         # watcher 原来直接 POST /api/artifacts，那条路有判定、这条路没有 ——
         # 结果一次目录导入就把项目里所有 png/svg/pdf 都发成成果（真实实例上
         # 735 条里绝大多数是这么灌进来的）。这里补上判定，让 watcher 和
@@ -742,6 +774,262 @@ class Watcher:
         return art["id"]
 
 
+class SessionIngester:
+    """读会话 transcript，把 agent 做出来的文件自动登记成成果。
+
+    为什么需要它（这是「成果没显示」的头号原因）：
+        agent 经常把东西做完了却没登记 —— 要么它不知道有成果台，要么压根
+        没调用 publish_artifact。但运行时本身**已经把这份记录写在会话里
+        了**：`file_artifacts` 行逐条记着本轮动了哪些文件（名字、路径、
+        操作、大小、sha256）。这份记录就躺在手边，不用重扫文件系统。
+
+    与 Watcher 的分工（两者都留着，缺一不可）：
+        Watcher      盯目录，靠「文件变了」发现问题。它能兜住远程工具
+                     直接往磁盘写、运行时压根没跟踪到的文件（Blender 走
+                     ssh 渲染就是这个典型），但前提是把项目目录挂上去，
+                     且归属靠猜「哪个会话正在改」。
+        SessionIngester 读会话自己的记录，归属**精确到 run_id**，不猜。
+                     但它只认运行时跟踪过的文件。
+
+    两边共用 store.watch_sources 去重，所以同一个文件不会被发两次。
+
+    为什么不全交给「扫项目目录里新出现的文件」：
+        一个会话顺手改个 README、建个截图、导个中间文件，都会命中目录扫描；
+        而 file_artifacts 是运行时明确认定的「这轮产出」，信噪比高得多。
+        宁可漏收，也不要把成果台灌成垃圾 —— 灌满了人就不看了。
+    """
+
+    # transcript 只读增量，所以这里记每个文件读到哪了
+    _state: dict[str, list]
+
+    def __init__(self, store, submit, *, interval=20.0, min_bytes=512,
+                 max_files=400, max_age_days=14):
+        self.store = store
+        self._submit = submit
+        self.interval = interval
+        self.min_bytes = min_bytes
+        self.max_files = max_files
+        # 只有回灌历史时才生效（live 收录的东西刚生成，必然是新的）。
+        # 见 start()：回灌默认关，开也要限龄，不然会把几个月前的构建产物
+        # 一次性倒灌进来，把用户真正在做的成果淹掉。
+        self.max_age_days = max_age_days
+        self._age_limit = 0
+        self._seen: dict[str, tuple] = {}   # abs_path -> (mtime, size, sha1)，避免每轮重算哈希
+        self._state = {}                    # transcript 路径 -> [已读字节数]
+        self._task = None
+        self.published = 0
+        self.skipped = 0
+        self.projects_root = os.environ.get("PILOTDECK_HOME") or os.path.join(
+            os.path.expanduser("~"), ".pilotdeck")
+
+    # ---------- transcript 侧 ----------
+
+    def _iter_transcripts(self):
+        """产出 (transcript 路径, 会话 id, 会话 cwd)。"""
+        root = os.path.join(self.projects_root, "projects")
+        try:
+            projects = sorted(os.listdir(root))
+        except OSError:
+            return
+        for proj in projects:
+            pdir = os.path.join(root, proj)
+            try:
+                with open(os.path.join(pdir, ".cwd"), "r", encoding="utf-8") as fh:
+                    cwd = fh.read().strip()
+            except OSError:
+                continue          # 没有 .cwd 的不是 PilotDeck 认的项目，跳过
+            if not cwd:
+                continue
+            chat_dir = os.path.join(pdir, "chats")
+            try:
+                names = sorted(os.listdir(chat_dir))
+            except OSError:
+                continue
+            for name in names:
+                if not name.endswith(".jsonl"):
+                    continue
+                sid = name[:-len(".jsonl")]
+                if re.match(r"^always-on-(discovery|workspace|report)[:\-]", sid):
+                    continue      # 内部会话，不是人看的对话
+                yield os.path.join(chat_dir, name), sid, cwd
+
+    def _read_new_rows(self, path: str):
+        """增量读 transcript，返回新出现的 file_artifacts 行。
+
+        增量是必须的：这些 jsonl 有几十 MB，每轮全读一遍光 IO 就把进程拖死了。
+        只认读到 '\n' 的完整行 —— 文件尾巴那行可能正写到一半。
+        """
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            return []
+        off = self._state.get(path, [0])[0]
+        if size < off:
+            # 截断了（轮转/重建）→ 从头再来。
+            # 注意是 < 不是 <=：size == off 是「这轮没有新内容」的最常见情况，
+            # 用 <= 会把它误判成截断，于是每轮都从头重读几十 MB 的 transcript。
+            off = 0
+            self._state[path] = [0]
+        if size == off:
+            return []
+        rows = []
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(off)
+                buf = fh.read(size - off)
+        except OSError:
+            return []
+        cut = buf.rfind(b"\n")
+        if cut < 0:
+            return []            # 只有半行，等下一轮
+        self._state[path] = [off + cut + 1]
+        for line in buf[:cut].split(b"\n"):
+            line = line.strip()
+            if not line or b'"file_artifacts"' not in line:
+                continue          # 快筛：绝大多数行都不是它，省一次 json 解析
+            try:
+                row = json.loads(line.decode("utf-8", "replace"))
+            except Exception:
+                continue
+            if row.get("type") == "file_artifacts" and row.get("artifacts"):
+                rows.append(row)
+        return rows
+
+    # ---------- 产出侧 ----------
+
+    async def scan_once(self) -> list:
+        """扫一轮，返回本次新发布的成果 id 列表（测试直接调它，不等 interval）。"""
+        out = []
+        for path, sid, cwd in self._iter_transcripts():
+            for row in self._read_new_rows(path):
+                for entry in row.get("artifacts") or []:
+                    aid = self.ingest(entry, sid, cwd)
+                    if aid:
+                        out.append(aid)
+        return out
+
+    def ingest(self, entry: dict, session_id: str, cwd: str) -> str:
+        """把 transcript 里记的一条文件产出发成成果（已发过就跳过）。"""
+        name = entry.get("name") or ""
+        rel = entry.get("path") or name
+        op = (entry.get("operation") or "").lower()
+        if op == "deleted":
+            return ""
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in KIND_BY_EXT:
+            return ""            # 源码/配置/临时文件，本来就不是成果
+        # 扩展名级别的从属资源（.ico/.ttf/.map…）交给 _classify 统一判，
+        # 别在这儿再抄一份规则 —— 抄一份就多一处会漂移的判据。
+
+        src = rel if os.path.isabs(rel) else os.path.join(cwd, rel)
+        src = os.path.abspath(src)
+        try:
+            st = os.stat(src)
+        except OSError:
+            return ""            # 运行时记了但文件已不在（临时文件），不追
+        if st.st_size < self.min_bytes:
+            return ""
+        if self._age_limit and (time.time() - st.st_mtime) > self._age_limit:
+            # 回灌时才可能触发：太老的历史产物不要倒灌进来。
+            self.skipped += 1
+            return ""
+
+        kind = KIND_BY_EXT[ext]
+        verdict, _why = _classify(kind, src)
+        if verdict != "final":
+            return ""            # 从属资源/中间产物，成果台不收
+
+        # 内容没变就别重发。会话里同一个文件可能被反复记到。
+        prev = self._seen.get(src)
+        if prev and prev[0] == st.st_mtime and prev[1] == st.st_size:
+            return ""
+        digest = sha1_of(src)
+        if not digest:
+            return ""
+
+        parent = None
+        seen = self.store.watch_lookup(src)
+        if seen and seen.get("sha1") == digest:
+            self._seen[src] = (st.st_mtime, st.st_size, digest)
+            return ""            # 已发过，且内容没变
+
+        import artifacts_store
+        aid = artifacts_store.new_artifact_id()
+        payload = {
+            "id": aid,
+            "kind": kind,
+            "title": html_title(src) or name,
+            "tool": "session_ingester",
+            "path": src,
+            "run_id": session_id,
+            "agent": "pilotdeck",
+            "project": _project_of(src, {}),
+        }
+        if seen and seen.get("artifact_id"):
+            payload["parent_id"] = seen["artifact_id"]
+        staged = _stage_file(src, aid)
+        payload.update(staged)
+        payload["status"] = "pending" if staged["stored_path"] else "ready"
+        try:
+            art = self.store.create(payload)
+        except ValueError as exc:
+            print(f"[artifacts] 会话收录失败 {name}: {exc}", flush=True)
+            return ""
+        self.store.watch_remember(src, digest, art["id"])
+        self._seen[src] = (st.st_mtime, st.st_size, digest)
+        try:
+            self._submit(art["id"])
+        except Exception:
+            pass
+        self.published += 1
+        pilotdeck_workspace_invalidate()
+        print(f"[artifacts] 会话收录 {name} → {art['id']}（{session_id}）", flush=True)
+        return art["id"]
+
+    # ---------- 生命周期 ----------
+
+    async def _loop(self):
+        while True:
+            try:
+                await self.scan_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(f"[artifacts] 会话收录出错: {type(exc).__name__}: {exc}", flush=True)
+            await asyncio.sleep(self.interval)
+
+    async def start(self, *, backfill: bool = True):
+        if self._task is not None:
+            return
+        if not backfill:
+            # 只看新增：把已有 transcript 标成「读到末尾」，不回灌历史。
+            # 首屏就倒灌几百条历史成果，比不收还糟 —— 实测这台机器的历史
+            # 里有 2452 个文件可收，但 p50 年龄 83 天、p90 618 天，多半是
+            # VICTLINK-AI / CAD 两个老项目的构建产物。收进来就是噪声。
+            for path, _sid, _cwd in self._iter_transcripts():
+                try:
+                    self._state[path] = [os.path.getsize(path)]
+                except OSError:
+                    pass
+            self._age_limit = 0
+        else:
+            self._age_limit = self.max_age_days * 86400
+        self._task = asyncio.create_task(self._loop())
+
+    async def stop(self):
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._task = None
+
+    def stats(self) -> dict:
+        return {"published": self.published, "skipped": self.skipped,
+                "tracked_transcripts": len(self._state)}
+
+
 # --------------------------------------------------------------------- REST
 
 
@@ -770,7 +1058,16 @@ async def api_create(request):
         if verdict == "aux":
             return _err("这不是一份独立最终成果", 409,
                         verdict="aux", reason=why, path=src_path or "",
-                        hint='确实要收就加 deliverable="aux"，或改用 deliverable="final" 强制收')
+                        hint='确实要收就加 deliverable="final" 声明它是一份独立成果；'
+                             'deliverable="aux" 则是直接跳过判定')
+
+    # 发布方通常照着扩展名把 .svg 报成 drawing（CAD 图纸那一类），而 logo 的
+    # svg 到了成果页就会落进「图纸」，正是用户反馈「只看到手绘界面」的样子。
+    # 只在这一种情况下纠正 —— 其余一律尊重发布方声明的 kind。
+    if kind == "drawing" and os.path.splitext(src_path or "")[1].lower() == ".svg":
+        remapped = _kind_for(src_path, ".svg")
+        if remapped != kind:
+            kind = remapped
 
     import artifacts_store
     # 先占 id，文件名带 id 前缀 —— 便于 _stored_path 直接定位，避免并发重名
@@ -791,12 +1088,28 @@ async def api_create(request):
         body["meta"] = {**(payload.get("meta") or {}), "parts": parts_meta}
     if parts_warn:
         body["meta"] = {**(body.get("meta") or {}), "parts_warn": parts_warn}
+    # 多结果对比声明：写同一个 compare_group 的几份成果会整组保留在成果列表里
+    # （默认每轮只留最后一份，对比组是刻意的例外 —— 收成一份等于把对比抹掉）。
+    # MCP/CLI 传过来可能是数字或 list，统一 str()，别让 .strip() 抛 500。
+    compare_group = str(payload.get("compare_group") or "").strip()
+    if compare_group:
+        body["meta"] = {**(body.get("meta") or {}), "compare_group": compare_group[:80]}
     if not (body.get("project") or "").strip():
         body["project"] = _project_of(src_path, payload)
     try:
         art = store.create(body)
     except ValueError as exc:
         return _err(str(exc))
+    # 登记进 watch_sources：这张表是「哪个源文件已经发成哪个成果」的总账，
+    # 自动收录（SessionIngester / Watcher）靠它去重。不记的话，同一个文件
+    # 会先被人手动 publish 一次、又被自动收录再发一次，左栏出现两条一样的。
+    if stored_path and os.path.isfile(src_path):
+        digest = sha1_of(src_path)
+        if digest:
+            try:
+                store.watch_remember(src_path, digest, art["id"])
+            except Exception:
+                pass
     # 目录树（GET /api/artifacts/workspace）带 15s 缓存。不在这里失效的话，
     # 刚发布的成果在列表接口里已经有了，左栏树里却要等十几秒才冒出来 ——
     # 需求 1 改的就是「树上该显示什么」，这条缓存直接决定用户第一眼看到什么。
@@ -814,6 +1127,21 @@ def _classify(kind: str, src_path: str, explicit=None):
     """需求 1 的判定入口。规则全在 artifacts_deliver.classify，这里只做转发。"""
     import artifacts_deliver
     return artifacts_deliver.classify(kind, src_path, explicit)
+
+
+def _kind_for(path: str, ext: str) -> str:
+    """扩展名决定类型，但品牌/标识类的 SVG 是设计稿，不是图纸。
+
+    .svg 同时被当成图纸（CAD 导出）和设计稿（logo）两种东西，光看扩展名分不开。
+    沿用 classify 的那套品牌判定：logo 落到成果页后应该出现在图片里，
+    而不是被归进「图纸」—— 后者正是用户反馈「只看到手绘界面」的原因。
+    """
+    kind = KIND_BY_EXT.get(ext, "doc")
+    if kind == "drawing" and ext == ".svg":
+        import artifacts_deliver
+        if artifacts_deliver.is_brand_deliverable(path):
+            return "image"
+    return kind
 
 
 def _stage_parts(aid: str, src_path: str, inline_parts=None):
@@ -916,7 +1244,8 @@ async def api_import(request):
         for path, kind in _iter_import_files(directory, bool(payload.get("recursive", True))):
             candidates.append({"path": path, "kind": kind,
                                "title": html_title(path) or os.path.splitext(os.path.basename(path))[0],
-                               "agent": agent})
+                               "agent": agent, "run_id": payload.get("run_id"),
+                               "project": payload.get("project")})
     for item in (payload.get("items") or []):
         if not isinstance(item, dict):
             continue
@@ -930,7 +1259,9 @@ async def api_import(request):
         candidates.append({"path": src, "kind": kind,
                            "title": (item.get("title") or "").strip()
                                      or html_title(src) or os.path.splitext(os.path.basename(src))[0],
-                           "agent": item.get("agent") or agent})
+                           "agent": item.get("agent") or agent,
+                           "run_id": item.get("run_id", payload.get("run_id")),
+                           "project": item.get("project", payload.get("project"))})
     candidates = candidates[:limit]
 
     # 2) 去重 + 冲突判定：sha1 相同 = 同一份东西；标题相同内容不同 = 冲突
@@ -992,7 +1323,8 @@ async def api_import(request):
                 "stored_path": staged["stored_path"], "file_name": staged["file_name"],
                 "mime": staged["mime"], "size": staged["size"],
                 "status": "pending" if staged["stored_path"] else "ready",
-                "path": cand["path"], "tool": "import", "meta": meta}
+                "path": cand["path"], "tool": "import", "meta": meta,
+                "run_id": cand.get("run_id"), "project": cand.get("project")}
         if cand.get("parent_id"):
             body["parent_id"] = cand["parent_id"]
         try:
@@ -1021,6 +1353,7 @@ async def api_list(request):
     store = _store_of(request)
     q = request.query
     items = store.list(kind=q.get("kind"), status=q.get("status"), agent=q.get("agent"),
+                       run_id=q.get("session") or None,
                        limit=q.get("limit", 200), offset=q.get("offset", 0))
     return _json({"artifacts": items, "total": len(items), "stats": store.stats(),
                   "agents": store.agent_counts()})
@@ -1141,11 +1474,19 @@ async def api_workspace(request):
     自己编的，而是照着 ~/.pilotdeck/projects/ 原样搬过来（见 pilotdeck_workspace.py）。
     成果台只负责把「成果」挂到对应会话底下。
 
-    归属规则，从准到糊：
+    归属规则：
       1. agent 发布时带 run_id（就是 PilotDeck 的会话 id）→ 精确落到那个会话
-      2. 没带 run_id，但成果的源文件在某个项目的工作目录下 → 落到该项目；
-         项目内优先落到「正在实时修改」的会话，没有就落到最近改动的会话
+      2. 没带 run_id → 不猜。只可能落到该项目「直属」（该项目下没有任何会话）
+         或者「未归属」，**绝不会**落到某个具体会话
       3. 两条都不满足 → 进「未归属」，保证成果不会因为归不了属就从左栏消失
+
+    规则 2 是修串会话的关键。原先这里会把空归属的成果临时挂到「当前 live 会话」
+    上，于是同一个文件跟着你打开哪个会话而漂移（A 看着在 A 会话，切到 B 又出现在
+    B 会话）。没有真实归属的成果现在统一待在一个会话都看不到的地方，但它们
+    没丢，都还在「未归属」里。
+
+    ?session=<id> 时只回这一个会话的子树：成果台面板只关心当前会话，没必要把
+    整库发到浏览器（那既漏了隔离，也会被 limit 截断出假的「空会话」）。
 
     排序：live（正在实时写）的会话提到最前，其余按时间倒序 —— 打开页面第一眼
     看到的就是 agent 正在改的东西。
@@ -1155,13 +1496,28 @@ async def api_workspace(request):
 
     store = _store_of(request)
     q = request.query
-    session_limit = _int_arg(q.get("sessions"), 20, 0, 200)
+    session_limit = _int_arg(q.get("sessions"), 0, 0, 200)
     artifact_limit = _int_arg(q.get("limit"), 400, 1, 2000)
 
     tree = ws.scan_projects(session_limit=session_limit)
     artifacts = store.list(limit=artifact_limit)
+    session_filter = (q.get("session") or "").strip()
+
+    if not session_filter:
+        # 空归属的成果统一进「未归属」，那必须是个**看得见**的去处。
+        # 只按时间倒序取最近 artifact_limit 条是不够的：这些成果没有 run_id，
+        # 发布时猜不到会话，往往比有归属的成果老得多（线上 129 条空归属全在
+        # 最近 400 条之外）。结果就是左栏「未归属」永远显示 0 条，看着就像
+        # 成果被删干净了 —— 而这正是这次要修的那个误会。
+        # 所以不带会话过滤时，额外按「空归属」再取一批，按 id 去重。
+        seen = {a["id"] for a in artifacts}
+        for art in store.list(unowned=True, limit=artifact_limit):
+            if art["id"] not in seen:
+                seen.add(art["id"])
+                artifacts.append(art)
 
     owner: dict = {}
+    aliases: dict = {}
     project_sessions: dict = {}
     by_project: dict = {}
     for project in tree["projects"]:
@@ -1171,6 +1527,7 @@ async def api_workspace(request):
         for session in project["sessions"]:
             session["artifacts"] = []
             owner[session["id"]] = session
+            aliases.setdefault(session["id"].rsplit(":", 1)[-1], []).append(session)
             bucket.append(session)
         project_sessions[project["name"]] = bucket
 
@@ -1181,29 +1538,38 @@ async def api_workspace(request):
                           "sessions": [unassigned],
                           "sessionMeta": {"total": 1, "hasMore": False}}
 
-    # 成果按时间倒序分配：同一项目里最新的成果会落到最活跃的那个会话上。
+    # 成果按归属分桶：每条只进一个桶，且「显式归属」优先。
     #
     # 一条成果只能进一个桶。原来这里对「按路径匹配到项目」的成果，
     # 既 append 进 project["artifacts"]（项目直属）又 append 进会话（:1180），
     # 左栏就会把同一条成果列两遍。真实数据上项目 vol3-1000-Work-00-PilotV
     # 直属 258 / 会话内也是 258 —— 整整一倍，全是重复渲染。
     # 「项目直属」现在的含义收窄为：属于本项目、但项目下一个会话都挂不上。
+    #
+    # 空归属（run_id 为空）**不再**挂到「当前 live 会话」上。
+    # 那条分支让成果跟着你打开哪个会话而漂移：同一个文件 10:00 出现在会话 A、
+    # 10:05 又出现在会话 B，用户看到的正是「这个不是已经移走了吗」。
+    # 现在空归属只会落到项目直属（该项目下没有会话可挂）或「未归属」，
+    # 哪个会话都不会出现 —— 看不到 ≠ 丢数据，未归属里都还在。
     for art in sorted(artifacts, key=lambda a: _ts_key(a.get("updated_at") or a.get("ts")),
                       reverse=True):
         target = None
         run_id = art.get("run_id") or ""
         if run_id and run_id in owner:
             target = owner[run_id]
-        if target is None:
+        if target is None and run_id and ":" not in run_id:
+            matches = aliases.get(run_id, [])
+            if len(matches) == 1:
+                target = matches[0]
+        # An explicit owner must never drift, and an empty owner must not guess
+        # either: only the project's own bucket stays reachable from here.
+        if target is None and not run_id:
             src = (art.get("source") or {}).get("path") or art.get("stored_path") or ""
             project = ws.find_project_for_path(src) if src else None
             if project:
                 sessions = project_sessions.get(project["name"]) or []
-                if sessions:
-                    live = [s for s in sessions if s.get("live")]
-                    target = (live or sessions)[0]
-                else:
-                    # 项目下没有任何会话可挂，才落到「项目直属」，且到此为止
+                # 项目下没有任何会话可挂，才落到「项目直属」，且到此为止
+                if not sessions:
                     project["artifacts"].append(art)
                     continue
         if target is None:
@@ -1215,6 +1581,38 @@ async def api_workspace(request):
     projects = list(tree["projects"])
     if unassigned["artifacts"]:
         projects.append(unassigned_project)
+
+    # ?session=<id>：只回这一个会话。
+    #
+    # 成果台面板只需要「当前会话的成果」，但原来接口永远回整棵树（默认 400 条
+    # 成果、每个会话都带），前端再在浏览器里按 id 挑一遍。两个问题：别的会话的
+    # 成果真的发到了浏览器（这正是「串会话」的最后一环），以及 limit 一截断，
+    # 成果旧的那个会话就凭空显示为空。过滤放到服务端，顺带把体积也降下来。
+    if session_filter:
+        matched = []
+        bare = []
+        for project in projects:
+            for session in project.get("sessions") or []:
+                sid = session.get("id") or ""
+                if sid == session_filter:
+                    matched.append((project, session))
+                elif sid and ":" not in sid and ":" not in session_filter \
+                        and sid.rsplit(":", 1)[-1] == session_filter.rsplit(":", 1)[-1]:
+                    bare.append((project, session))
+        # 裸 id 只有在全树里唯一命中时才认：两个渠道的会话可能共用一个裸 id，
+        # 认错就等于把别的会话的成果发过来，宁可一个都不回。
+        if not matched:
+            matched = bare if len(bare) == 1 else []
+        pruned = []
+        by_project = {}
+        for proj, session in matched:
+            if proj["name"] not in by_project:
+                clipped = dict(proj)
+                clipped["sessions"] = []
+                by_project[proj["name"]] = clipped
+                pruned.append(clipped)
+            by_project[proj["name"]]["sessions"].append(session)
+        projects = pruned
 
     for project in projects:
         sessions = project.get("sessions") or []
@@ -1230,6 +1628,7 @@ async def api_workspace(request):
     return _json({"pilot_home": tree["pilot_home"],
                   "generated_at": artifacts_store.now_iso(),
                   "projects": projects,
+                  "session_filter": session_filter or None,
                   "default_artifact_id": _default_artifact(projects),
                   "live_artifact_id": _live_artifact(projects)})
 
@@ -1983,8 +2382,45 @@ async def api_raw(request):
     })
 
 
-_BASE_TAG_RE = re.compile(r"<base\b", re.I)
+@_guard
+async def api_viewer(request):
+    """GET /api/artifacts/<id>/viewer —— 给 model-viewer 用的 glTF。
 
+    STEP/IGES/STL/OBJ/PLY 这类格式 model-viewer 根本认不出来，喂进去是一块空白。
+    这里现转成 GLB 再回给页面，转好的按源文件摘要缓存：同一份成果反复打开只转
+    一次，返工发了新版本（内容变了、摘要也变）自动吃新的，不会拿到旧网格。
+
+    其他成果原样回传，这样调用方可以把 /viewer 当成「一定能显示的那一份」
+    直接喂给三维渲染器，不必自己在前端按扩展名分叉。
+    """
+    import artifacts_cad
+    aid = request.match_info["aid"]
+    path = _stored_path(aid)
+    if not path or not os.path.isfile(path):
+        return _err("file not found", 404)
+    if not artifacts_cad.needs_conversion(path):
+        mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        return web.FileResponse(path, headers={"Content-Type": mime, "Accept-Ranges": "bytes"})
+
+    loop = asyncio.get_running_loop()
+    try:
+        out = await loop.run_in_executor(None, artifacts_cad.convert, path)
+    except artifacts_cad.CadUnavailable as exc:
+        # 这台机器没装转换器：如实说，别返回空白 GLB 让人以为模型是空的。
+        return _err(str(exc), 503,
+                    hint="在这台机器上装一次即可："
+                         "python3 -m venv .artifacts-data/venvs/cad && "
+                         ".artifacts-data/venvs/cad/bin/pip install cadquery-ocp vtk")
+    except artifacts_cad.CadError as exc:
+        return _err(str(exc), 422, hint="可以先用 CAD 软件导出 glb/stl 再发布，或下载原文件")
+    return web.FileResponse(out["path"], headers={
+        "Content-Type": "model/gltf-binary",
+        # 缓存文件名带源文件内容摘要，内容不变就是同一个文件，可以放心长缓存。
+        "Cache-Control": "public, max-age=86400, immutable",
+    })
+
+
+_BASE_TAG_RE = re.compile(r"<base\b", re.I)
 
 def _html_with_base(aid: str, path: str):
     """给 HTML 成果的正文注入 base，好让 iframe 里的相对素材能取到。
@@ -2088,8 +2524,260 @@ async def api_events(request):
             except asyncio.TimeoutError:
                 await resp.write(b": ping\n\n")
                 continue
+            # 只推这个房间的事件。早先只过滤了 room.message，
+            # 结果别的房间的 room.delivery（成员 id、失败原因）会流进来，
+            # 也把完全无关的 artifact 事件灌给了房间页面。
+            if (data or {}).get("room_id") != rid:
+                continue
             payload = json.dumps(data, ensure_ascii=False)
+
             await resp.write(f"id: {eid}\nevent: {event}\ndata: {payload}\n\n".encode("utf-8"))
+    except (asyncio.CancelledError, ConnectionResetError, ConnectionError):
+        pass
+    finally:
+        store.bus.unsubscribe(q)
+    return resp
+
+
+# --------------------------------------------------------------------- 项目室
+# 房间 = 一条 append-only 明文转录 + 一组可 @ 寻址的成员（成员 = PilotDeck 会话）。
+# 全部走 _guard：人和 agent 用同一套凭据，权限模型不分人机。
+
+
+@_guard
+async def api_room_create(request):
+    payload = await request.json()
+    store = _store_of(request)
+    try:
+        room = store.create_room(payload)
+    except ValueError as exc:
+        return _err(str(exc), 400)
+    return _json({"room": room, "members": room.get("members", [])})
+
+
+@_guard
+async def api_room_list(request):
+    store = _store_of(request)
+    return _json({"rooms": store.list_rooms()})
+
+
+@_guard
+async def api_room_get(request):
+    store = _store_of(request)
+    rid = request.match_info["rid"]
+    room = store.get_room(rid)
+    if not room:
+        return _err("房间不存在", 404)
+    limit = _int_arg(request.query.get("messages"), 50, 0, 500)
+    # 最近的消息 = 尾巴，不是开头。房间里的 seq 单调递增，
+    # 取前 50 条等于永远只看开场白，后面发生的全看不见。
+    recent = store.room_messages(rid, 0, limit) if limit else []
+    bounds = store.room_message_bounds(rid)
+    return _json({"room": room, "members": room.get("members", []),
+                  "recent_messages": recent, "next_seq": store.room_next_seq(rid),
+                  "bounds": bounds,
+                  "deliveries": store.room_deliveries(rid, limit=200)})
+
+
+@_guard
+async def api_room_update(request):
+    """改房间设置（respond_policy / bulletin / task_id / name）。
+
+    respond_policy='off' 是人手里的急停：房间照常记录明文，
+    但编排器不再自动投递任何指令 —— 防止两个 agent 互相 @ 打成死循环。
+    """
+    payload = await request.json()
+    store = _store_of(request)
+    rid = request.match_info["rid"]
+    try:
+        room = store.update_room(rid, payload)
+    except KeyError:
+        return _err("房间不存在", 404)
+    except ValueError as exc:
+        return _err(str(exc), 400)
+    return _json({"room": room})
+
+
+@_guard
+async def api_room_add_member(request):
+    payload = await request.json()
+    store = _store_of(request)
+    rid = request.match_info["rid"]
+    try:
+        member = store.add_room_member(rid, payload)
+    except KeyError:
+        return _err("房间不存在", 404)
+    except ValueError as exc:
+        return _err(str(exc), 400)
+    return _json({"member": member})
+
+
+@_guard
+async def api_room_update_member(request):
+    payload = await request.json()
+    store = _store_of(request)
+    rid = request.match_info["rid"]
+    mid = request.match_info["mid"]
+    try:
+        member = store.update_room_member(rid, mid, payload)
+    except KeyError:
+        return _err("房间或成员不存在", 404)
+    except ValueError as exc:
+        return _err(str(exc), 400)
+    return _json({"member": member})
+
+
+@_guard
+async def api_room_delete_member(request):
+    store = _store_of(request)
+    rid = request.match_info["rid"]
+    mid = request.match_info["mid"]
+    try:
+        removed = store.remove_room_member(rid, mid)
+    except KeyError:
+        return _err("房间不存在", 404)
+    if not removed:
+        return _err("成员不存在", 404)
+    return _json({"ok": True, "member_id": mid})
+
+
+@_guard
+async def api_room_post_message(request):
+    payload = await request.json()
+    store = _store_of(request)
+    rid = request.match_info["rid"]
+    try:
+        msg, created = store.post_room_message(rid, payload)
+    except KeyError:
+        return _err("房间不存在", 404)
+    except ValueError as exc:
+        return _err(str(exc), 400)
+    return _json({"message": msg, "created": created})
+
+
+@_guard
+async def api_room_messages(request):
+    """读转录。
+
+    游标语义（P6 修的关键）：
+      after_seq  取 seq > after_seq 的消息（往前看新消息）
+      before_seq 取 seq < before_seq 的消息（往回翻历史）
+    返回的 next_seq 是**下一页该用的 after_seq**（= 本页最后一条的 seq），
+    不是房间里的最大 seq。用房间最大 seq 当游标，翻页时会跳过一整页。
+
+    wait=1 时长轮询等新消息（给 MCP 的 wait_room_message 用）。
+    """
+    store = _store_of(request)
+    rid = request.match_info["rid"]
+    if not store.get_room(rid):
+        return _err("房间不存在", 404)
+    q = request.query
+    after = _int_arg(q.get("after_seq"), 0, 0, 10 ** 9)
+    before = _int_arg(q.get("before_seq"), 0, 0, 10 ** 9)
+    limit = _int_arg(q.get("limit"), 30, 1, 200)
+    wait = (q.get("wait") or "").lower() in ("1", "true", "yes")
+    timeout = _int_arg(q.get("timeout"), 25, 1, 60)
+
+    # 先查库，再订阅。订阅时带上「订阅那一刻」的游标，
+    # 然后**再查一次库**：
+    #   消息在「第一次查库」之后、订阅之前落库 → 第二次查库能看见；
+    #   消息在订阅之后落库        → 队列里能收到。
+    # 两个窗口都盖住了，长轮询不会漏消息（早先漏过：消息明明到了，
+    # 客户端却要等到超时才醒）。
+    msgs = store.room_messages(rid, after, limit + 1, before)
+    has_more = len(msgs) > limit
+    msgs = msgs[:limit]
+    woke = False
+    if wait and not msgs:
+        woke = await _wait_room_message(store, rid, after, timeout)
+        msgs = store.room_messages(rid, after, limit + 1, before)
+        has_more = len(msgs) > limit
+        msgs = msgs[:limit]
+    # next_seq = 本页最后一条的 seq：拿它当下一页的 after_seq 正好接着往下读。
+    # 房间最大 seq 单独给 latest_seq —— 两个含义混成一个字段，
+    # 客户端翻页就会漏消息。
+    next_seq = msgs[-1]["seq"] if msgs else after
+    return _json({"messages": msgs, "next_seq": next_seq,
+                  "latest_seq": store.room_next_seq(rid),
+                  "bounds": store.room_message_bounds(rid),
+                  "has_more": has_more, "woke": woke})
+
+
+async def _wait_room_message(store, rid, after_seq, timeout):
+    """等这个房间出现 seq > after_seq 的新消息。
+
+    订阅总线而不是轮询数据库：消息一落库就 publish 了。
+    订阅之后必须再查一次库 —— 见 api_room_messages 里的说明，
+    「查库到订阅之间」的那一小段窗口是漏消息的来源。
+    """
+    q = store.bus.subscribe(store.bus.last_id)
+    deadline = time.monotonic() + timeout
+    try:
+        if store.room_messages(rid, after_seq, 1):
+            return True
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return False
+            try:
+                _, event, data = await asyncio.wait_for(q.get(), timeout=left)
+            except asyncio.TimeoutError:
+                return False
+            if event != "room.message":
+                continue
+            if (data or {}).get("room_id") != rid:
+                continue
+            msg = (data or {}).get("message") or {}
+            if int(msg.get("seq") or 0) > after_seq:
+                return True
+    finally:
+        store.bus.unsubscribe(q)
+
+
+@_guard
+async def api_room_deliveries(request):
+    """房间的投递状态（谁收到了、卡在哪一步、为什么）。"""
+    store = _store_of(request)
+    rid = request.match_info["rid"]
+    if not store.get_room(rid):
+        return _err("房间不存在", 404)
+    limit = _int_arg(request.query.get("limit"), 200, 1, 1000)
+    return _json({"deliveries": store.room_deliveries(rid, limit=limit)})
+
+
+@_guard
+async def api_room_events(request):
+    """房间事件流（只推这个房间的）。"""
+    store = _store_of(request)
+    rid = request.match_info["rid"]
+    if not store.get_room(rid):
+        return _err("房间不存在", 404)
+    try:
+        last_id = int(request.headers.get("Last-Event-ID")
+                      or request.query.get("last_event_id") or 0)
+    except (TypeError, ValueError):
+        last_id = 0
+    q = store.bus.subscribe(last_id)
+    resp = web.StreamResponse(status=200, headers={
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    })
+    await resp.prepare(request)
+    try:
+        await resp.write(b": room stream connected\n\n")
+        while True:
+            try:
+                eid, event, data = await asyncio.wait_for(q.get(), timeout=15)
+            except asyncio.TimeoutError:
+                await resp.write(b": ping\n\n")
+                continue
+            if (data or {}).get("room_id") != rid:
+                continue
+            payload = json.dumps(data, ensure_ascii=False)
+            await resp.write(
+                f"id: {eid}\nevent: {event}\ndata: {payload}\n\n".encode("utf-8"))
     except (asyncio.CancelledError, ConnectionResetError, ConnectionError):
         pass
     finally:
@@ -2323,7 +3011,7 @@ async def _serve_static(request):
 
 
 def mount(app, console_root=None):
-    global _store, _mat, _watcher
+    global _store, _mat, _watcher, _ingester
     if console_root:
         os.environ.setdefault("CONSOLE_ROOT", console_root)
     if HERE not in sys.path:
@@ -2335,20 +3023,46 @@ def mount(app, console_root=None):
         _watch = Watcher(_store, _mat.submit,
                          interval=float(os.environ.get("ARTIFACTS_WATCH_INTERVAL", "15")))
         _watcher = _watch
+        _ing = SessionIngester(
+            _store, _mat.submit,
+            interval=float(os.environ.get("ARTIFACTS_SESSION_INTERVAL", "20")),
+            max_age_days=float(os.environ.get("ARTIFACTS_SESSION_MAX_AGE_DAYS", "14")))
+        _ingester = _ing
     else:
         _watch = _watcher
+        _ing = _ingester
     app["artifacts_store"] = _store
     app["artifacts_materializer"] = _mat
     app["artifacts_watcher"] = _watch
+    app["artifacts_session_ingester"] = _ing
     import artifacts_notify
     _notifier = artifacts_notify.Notifier(store=_store, base_url=os.environ.get(
         "ARTIFACTS_NOTIFY_BASE_URL", "http://127.0.0.1:8799")).start()
     _store.bus.add_listener(_notifier.on_event)
     app["artifacts_notifier"] = _notifier
 
+    # 项目室编排器：默认不开。要让房间里的 @ 指令真的驱动会话，
+    # 才需要 PILOTV_ROOM_ORCHESTRATOR=1（另外得能连上 gateway）。
+    _orch = None
+    if os.environ.get("PILOTV_ROOM_ORCHESTRATOR", "").strip().lower() in (
+            "1", "true", "yes"):
+        try:
+            import room_orchestrator
+            _orch = room_orchestrator.RoomOrchestrator(
+                _store, log=lambda m: print(f"[artifacts] {m}", flush=True))
+            app["artifacts_room_orchestrator"] = _orch
+        except Exception as exc:
+            print(f"[artifacts] 房间编排器加载失败（忽略）: {exc}", flush=True)
+
     async def _startup(a):
         if _mat is not None:
             await _mat.start()
+        _orch = a.get("artifacts_room_orchestrator")
+        if _orch is not None:
+            try:
+                await _orch.start()
+            except Exception as exc:
+                print(f"[artifacts] 房间编排器启动失败（忽略）: {exc}", flush=True)
         # 冷启动扫项目/会话目录要读几十个会话文件，放线程里预热，别让人等首屏
         try:
             import pilotdeck_workspace as _ws
@@ -2366,12 +3080,68 @@ def mount(app, console_root=None):
                     _watch.add_dir(d)
                 except ValueError:
                     print(f"[artifacts] 跳过无效监控目录: {d}", flush=True)
+            # 自动挂上每个项目的工作目录。
+            # 为什么必须自动：远程工具（Blender 走 ssh、MCP server 跑在别的
+            # 机器）会把产物直接写进磁盘，运行时压根没跟踪到，transcript 里
+            # 也没有 file_artifacts —— SessionIngester 抓不到这种文件。
+            # 目录 watcher 正好补这个洞。add_dir 首次登记只把存量文件标成
+            # 「见过」不回灌，所以挂上去不会把历史文件倒灌进成果台，只收
+            # 挂载之后新写/新改的。
+            if _env_flag("ARTIFACTS_AUTOWATCH_PROJECTS", True):
+                try:
+                    # 直接读 projects/*/.cwd，不走 scan_projects()：
+                    # 只需要目录路径，而 scan_projects() 会往它自己的
+                    # _tree_cache 里塞一份 session_limit=1 的树 —— 线上那份
+                    # pilotdeck_workspace.py 的缓存键没带 session_limit，
+                    # 之后成果页要 session_limit=20/50 的全树时会拿到这份
+                    # 被我们改窄的缓存，页面上的会话列表会莫名少一大截。
+                    # 归属是发布时用 scan_projects(20) 重新算的，这里不参与。
+                    root = os.environ.get("PILOTDECK_HOME") or os.path.join(
+                        os.path.expanduser("~"), ".pilotdeck")
+                    pdir = os.path.join(root, "projects")
+                    added = 0
+                    for name in sorted(os.listdir(pdir)):
+                        try:
+                            with open(os.path.join(pdir, name, ".cwd"), encoding="utf-8") as fh:
+                                cwd = fh.read().strip()
+                        except OSError:
+                            continue          # 没有 .cwd / 读不了
+                        if not cwd or not os.path.isdir(cwd):
+                            continue
+                        try:
+                            _watch.add_dir(cwd)
+                            added += 1
+                        except ValueError:
+                            pass               # 目录没了/不可读，跳过
+                    print(f"[artifacts] 自动挂载 {added} 个项目目录为监控目录", flush=True)
+                except Exception as exc:
+                    print(f"[artifacts] 项目目录自动挂载未完成（忽略）: {exc}", flush=True)
             await _watch.start()
             if _watch.dirs:
-                print(f"[artifacts] 目录 watcher 已启动：{_watch.dirs}", flush=True)
+                print(f"[artifacts] 目录 watcher 已启动：{len(_watch.dirs)} 个目录", flush=True)
+        _ingest = a.get("artifacts_session_ingester")
+        if _ingest is not None:
+            # 回灌历史默认关。理由见 SessionIngester.start()：这台机器上
+            # 可回灌的历史有 2452 条，中位年龄 83 天，绝大多数是无关老项目的
+            # 构建产物。要回灌就显式 ARTIFACTS_SESSION_BACKFILL=1，
+            # 并用 ARTIFACTS_SESSION_MAX_AGE_DAYS 限定只收近期的。
+            backfill = _env_flag("ARTIFACTS_SESSION_BACKFILL", False)
+            await _ingest.start(backfill=backfill)
+            print(f"[artifacts] 会话自动收录已启动"
+                  f"（回灌历史={backfill}"
+                  + (f"，限龄={_ingest.max_age_days}天）" if backfill else "）"), flush=True)
         print(f"[artifacts] 成果台就绪：数据目录 {DATA_DIR}", flush=True)
 
     async def _cleanup(a):
+        _orch = a.get("artifacts_room_orchestrator")
+        if _orch is not None:
+            try:
+                await _orch.stop()
+            except Exception:
+                pass
+        _ingest = a.get("artifacts_session_ingester")
+        if _ingest is not None:
+            await _ingest.stop()
         _watch = a.get("artifacts_watcher")
         if _watch is not None:
             await _watch.stop()
@@ -2383,6 +3153,7 @@ def mount(app, console_root=None):
 
     r = app.router
     # 独立成果台页面已删除，这里只剩前端要用的静态资源与 API。
+    r.add_get("/artifacts/rooms", lambda request: web.FileResponse(os.path.join(HERE, "static", "rooms.html")))
     r.add_get("/artifacts-static/{name:.*}", _serve_static)
     r.add_get("/api/artifacts", api_list)
     r.add_post("/api/artifacts", api_create)
@@ -2394,6 +3165,19 @@ def mount(app, console_root=None):
     r.add_post("/api/artifacts/notify/test", api_notify_test)
     r.add_get("/api/artifacts/me", api_me)
     r.add_post("/api/artifacts/password", api_change_password)
+    # 房间路由必须排在 /api/artifacts/{aid} 前面：aiohttp 按注册顺序
+    # 匹配，"/api/artifacts/rooms" 会被 {aid} 吃掉。
+    r.add_post("/api/artifacts/rooms", api_room_create)
+    r.add_get("/api/artifacts/rooms", api_room_list)
+    r.add_get("/api/artifacts/rooms/{rid}", api_room_get)
+    r.add_patch("/api/artifacts/rooms/{rid}", api_room_update)
+    r.add_post("/api/artifacts/rooms/{rid}/members", api_room_add_member)
+    r.add_patch("/api/artifacts/rooms/{rid}/members/{mid}", api_room_update_member)
+    r.add_delete("/api/artifacts/rooms/{rid}/members/{mid}", api_room_delete_member)
+    r.add_post("/api/artifacts/rooms/{rid}/messages", api_room_post_message)
+    r.add_get("/api/artifacts/rooms/{rid}/messages", api_room_messages)
+    r.add_get("/api/artifacts/rooms/{rid}/deliveries", api_room_deliveries)
+    r.add_get("/api/artifacts/rooms/{rid}/events", api_room_events)
     r.add_get("/api/artifacts/{aid}", api_get)
     r.add_get("/api/artifacts/{aid}/feedback", api_feedback)
     r.add_post("/api/artifacts/{aid}/annotations", api_add_annotation)
@@ -2418,5 +3202,6 @@ def mount(app, console_root=None):
     r.add_get("/api/artifacts/{aid}/audit", api_audit)
     r.add_get("/api/artifacts/{aid}/thumb", api_thumb)
     r.add_get("/api/artifacts/{aid}/raw", api_raw)
+    r.add_get("/api/artifacts/{aid}/viewer", api_viewer)
     r.add_get("/api/artifacts/{aid}/file/{relpath:.*}", api_sibling_file)
     return app

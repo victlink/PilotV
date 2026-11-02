@@ -52,6 +52,22 @@ ASSET_DIR_SEGMENTS = {
     ".next", ".output", ".cache", ".venv", "venv",
 }
 
+# 品牌/标识类设计交付物。这些文件**本身就是成果**，不是任何页面的零件。
+#
+# 为什么必须显式放行：下面两条规则合起来会把一整套 logo 交付物误杀 ——
+#   - 文件名里带 "icon" 的按网页小图标丢掉（pilotv-icon-animated.svg 就中招）
+#   - 落在 public/ static/ assets/ 里的一律按从属资源丢掉
+#     （logo 定稿恰恰要拷进 ui/public/brand/ 才生效）
+# 规则本身没错，它们防的是真实的噪音；但把用户的正式成果挡在门外，
+# 比放进一张废图严重得多 —— 成果丢了人根本不知道。所以在启发式之前
+# 先认这类文件。
+BRAND_DIR_SEGMENTS = {"brand", "branding", "logo", "logos", "identity", "wordmark"}
+BRAND_STEM_RE = re.compile(
+    r"(^|[-_.])(?:logo|logos|wordmark|wordmarks|lockup|brandmark|brandmarks|"
+    r"brand|identity|monogram|logotype|logomark|emblem|mark)([-_.]|$)", re.I)
+    # 「mark」只匹配独立的一词：pilotv-mark.svg 收，bookmark.svg / watermark.png 不收
+    # —— 正则要求两边都是分隔符或词边界，复合词里夹着的 mark 碰不到它。
+
 # 文件名里带这些词的，几乎都是中间产物：缩略图、切片、截图、预览、贴图。
 # 注意用了 (^|[-_.]) 分隔，避免把 legit 的 "crop-circle.png" 之外的词误伤；
 # 也刻意不收 "part-01" —— 部件文件应该由 .parts.json 显式声明。
@@ -71,8 +87,14 @@ AUX_STEM_MEDIA = (
     "thumb", "thumbs", "thumbnail", "sprite", "element", "slice", "slices",
     "crop", "crops", "snapshot", "screenshot", "screenshots", "preview",
     "cover", "poster", "og-image", "ogimage", "favicon", "watermark",
-    "placeholder", "loading", "spinner", "avatar", "icon",
+    "placeholder", "loading", "spinner", "avatar",
 )
+# 刻意**不**收 "icon"。它一词两义：「网页引用的那个小图标」是从属资源，
+# 「品牌标志文件」是成果本身 —— 而用户手里的 logo 恰恰常叫 icon。
+# 词表判不出来的时候，交给目录判定：ui/public/icon.svg、static/icon-180.png
+# 落在资源目录里，照样会被下面 ASSET_DIR_SEGMENTS 那条拦下；
+# 而 brand/pilotv-icon-animated.svg 不会被误杀。宁可多收一张小图，
+# 也不能整批丢掉用户的定稿。
 MEDIA_KINDS = {"image", "video", "drawing", "model3d"}
 
 
@@ -81,6 +103,18 @@ def aux_basename_re(kind: str) -> re.Pattern:
     alt = "|".join(re.escape(w) for w in words)
     # 首尾连字符（_detail、draft-）是编辑器/构建留下的中间态记号，所有类型通用。
     return re.compile(rf"^[-_.~]|[_~]$|(^|[-_.])(?:{alt})([-_.]|$)", re.I)
+
+
+def intermediate_re(kind: str) -> re.Pattern:
+    """只匹配「文件名里的中间产物词」，不含首尾连字符那条。
+
+    与 aux_basename_re 分开是有原因的：品牌/标识类交付物要绕开的是
+    「像网页小图标」和「落在资源目录」这两条启发式，而不是中间产物词 ——
+    brand-logo-preview.png 仍然是中间产物，放进 brand/ 也不会变成定稿。
+    """
+    words = AUX_STEM_ALL + (AUX_STEM_MEDIA if kind in MEDIA_KINDS else ())
+    alt = "|".join(re.escape(w) for w in words)
+    return re.compile(rf"(^|[-_.])(?:{alt})([-_.]|$)", re.I)
 
 # 这些后缀天然是「零件」，永远不该独立出现在成果列表里。
 AUX_EXT = {
@@ -91,6 +125,21 @@ AUX_EXT = {
 
 # 入口页面：即使在 dist/build 里也是最终成果（那正是构建产物入口）。
 PAGE_ENTRY_NAMES = {"index.html", "index.htm", "app.html"}
+
+
+def is_brand_deliverable(path: str | None) -> bool:
+    """这份文件是不是品牌/标识类设计交付物。
+
+    判定只看路径与文件名，不看内容 —— classify() 和成果台决定 kind 时共用，
+    避免两处各判一次、判出不同结果。
+    """
+    if not path:
+        return False
+    p = os.path.normpath(path)
+    stem, _ = os.path.splitext(os.path.basename(p))
+    segs = [s for s in p.replace("\\", "/").split("/") if s]
+    dirs = {s.lower() for s in segs[:-1]}
+    return bool(dirs & BRAND_DIR_SEGMENTS) or bool(BRAND_STEM_RE.search(stem))
 
 
 def classify(kind: str, path: str | None, explicit: str | None = None) -> tuple[str, str]:
@@ -121,6 +170,16 @@ def classify(kind: str, path: str | None, explicit: str | None = None) -> tuple[
 
     if ext in AUX_EXT:
         return "aux", f"{ext} 属于网页从属资源，不是独立成果"
+
+    # 中间产物词先判，且不受下面的品牌放行影响：brand-logo-preview.png 放进
+    # brand/ 目录也还是渲染过程中的中间帧，不是定稿。
+    if intermediate_re(kind).search(stem):
+        return "aux", f"文件名带中间产物标记（{base}）"
+
+    # 品牌/标识类交付物：跳过剩下的「像网页小图标」和「落在资源目录里」两条
+    # 启发式。放在 AUX_EXT 之后 —— .css/.woff 这类文件无论叫什么都不是设计稿。
+    if is_brand_deliverable(p):
+        return "final", "品牌/标识类设计交付物"
 
     stem_rx = aux_basename_re(kind)
     if stem_rx.search(base):
