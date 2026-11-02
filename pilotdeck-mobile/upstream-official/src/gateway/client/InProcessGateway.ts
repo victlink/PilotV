@@ -82,7 +82,7 @@ import type {
   CronUpdateInput,
   CronUpdateResult,
 } from "../../cron/protocol/types.js";
-import { permissionEntryToRule, permissionSettingsToRuleSet, readPermissionSettings } from "../../permission/index.js";
+import { permissionEntryToRule, permissionSettingsToRuleSet, readPermissionSettings, toolPolicyToRuleSet } from "../../permission/index.js";
 import type { PermissionRule } from "../../permission/index.js";
 import { SkillManagerError, type SkillManager } from "../../extension/skills/index.js";
 import { getPilotDeckInstallCommand } from "../../mcp/runtime/projectMcpSpec.js";
@@ -544,6 +544,10 @@ export class InProcessGateway implements Gateway {
         const allowPlanModeTools = input.allowPlanModeTools ?? inputMode === "plan";
         const persistedRules = permissionSettingsToRuleSet(permissionSettings);
         const sessionAllowRules = this.sessionPermissionGrants.get(input.sessionKey) ?? [];
+        // Project agent tool authorization. The allow list is exclusive, so it
+        // must not be merged into the plain allow rules: the permission
+        // runtime treats a non-empty allow list as "nothing else may run".
+        const projectRules = input.toolPolicy ? toolPolicyToRuleSet(input.toolPolicy) : undefined;
         this.options.telemetry?.trackFeatureLoopStage({
           module: "session",
           ownerModule: telemetryContext.ownerModule,
@@ -617,6 +621,21 @@ export class InProcessGateway implements Gateway {
             permissionRules: {
               ...persistedRules,
               allow: [...sessionAllowRules, ...persistedRules.allow],
+              // Always clear the previous turn's agent boundary when no
+              // exclusive list is supplied (including switching to no agent).
+              allowList: projectRules?.allowList,
+              // The write scope is a hard boundary for filesystem writes.
+              // Always reset it so a scope from a previous turn cannot leak.
+              writeRoots: projectRules?.writeRoots,
+              ...(projectRules
+                ? {
+                    deny: [...projectRules.deny, ...persistedRules.deny],
+                    ask: [...projectRules.ask, ...persistedRules.ask],
+                    ...(projectRules.allowList !== undefined
+                      ? { allowList: projectRules.allowList }
+                      : {}),
+                  }
+                : {}),
             },
             ...(syntheticMessages.length > 0 ? { syntheticMessages } : {}),
             ...(modelSelection.selection ? {

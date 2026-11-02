@@ -14,7 +14,7 @@ import path from 'node:path';
 const require = createRequire('/home/Marc/PilotDeck-src/node_modules/.pnpm/playwright@1.60.0/node_modules/playwright/');
 const { chromium } = require('playwright');
 
-const PILOTV_URL = process.env.PILOTV_URL || 'http://127.0.0.1:5186/';
+const PILOTV_URL = process.env.PILOTV_URL || 'http://127.0.0.1:5187/';
 const SHOTS = path.resolve('pilotdeck-mobile/scripts/weknora-e2e-shots');
 const STEP_TIMEOUT = Number(process.env.STEP_TIMEOUT_MS || 20000);
 

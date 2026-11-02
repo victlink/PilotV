@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { resolvePilotHome } from "../pilot/paths.js";
 import type { PermissionRule, PermissionRuleSet } from "./protocol/types.js";
 
@@ -70,6 +70,57 @@ export function permissionSettingsToRuleSet(settings: PermissionSettings): Permi
     deny: settings.disallowedTools.map((entry) => permissionEntryToRule(entry, "deny")),
     ask: settings.askTools.map((entry) => permissionEntryToRule(entry, "ask")),
   };
+}
+
+/**
+ * Build the permission rules for a project agent's tool authorization.
+ *
+ * The allow list is exclusive: presence of `allow` is significant. An
+ * explicit empty `allow: []` denies every tool; an absent `allow` leaves the
+ * tool set unrestricted. Deny and ask entries always use the `project` source.
+ *
+ * `writeRoots` confines filesystem writes to the listed directories. It is
+ * carried as absolute paths and de-duplicated so the permission runtime can
+ * compare them without depending on the caller's working directory.
+ */
+export function toolPolicyToRuleSet(policy: {
+  allow?: string[];
+  deny?: string[];
+  ask?: string[];
+  writeRoots?: string[];
+}): PermissionRuleSet {
+  const deny = normalizeStringArray(policy.deny);
+  const ask = normalizeStringArray(policy.ask);
+  const allowList = policy.allow === undefined
+    ? undefined
+    : normalizeStringArray(policy.allow).map((entry) => permissionEntryToRule(entry, "allow", "project"));
+  const writeRoots = normalizeWriteRoots(policy.writeRoots);
+  return {
+    allow: [],
+    deny: deny.map((entry) => permissionEntryToRule(entry, "deny", "project")),
+    ask: ask.map((entry) => permissionEntryToRule(entry, "ask", "project")),
+    ...(allowList !== undefined ? { allowList } : {}),
+    ...(writeRoots.length > 0 ? { writeRoots } : {}),
+  };
+}
+
+/**
+ * Normalize the write scope roots of a tool policy into absolute paths.
+ */
+function normalizeWriteRoots(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const roots: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim();
+    if (!trimmed || trimmed.includes("\0")) continue;
+    const resolved = resolve(trimmed);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    roots.push(resolved);
+  }
+  return roots;
 }
 
 export function normalizePermissionEntry(entry: string): string {

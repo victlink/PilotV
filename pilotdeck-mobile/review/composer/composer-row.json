@@ -1,0 +1,1452 @@
+[
+  {
+    "name": "phone-320",
+    "width": 320,
+    "rows": 1,
+    "controls": [
+      {
+        "label": "Add files or skills",
+        "text": "",
+        "maxWidth": "none",
+        "left": 118,
+        "right": 150,
+        "top": 104,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "label": "Default Permissions",
+        "text": "Default Permissions",
+        "maxWidth": "132px",
+        "left": 152,
+        "right": 182,
+        "top": 105,
+        "width": 30,
+        "height": 30
+      },
+      {
+        "label": "Default agent",
+        "text": "Default agent",
+        "maxWidth": "none",
+        "left": 184,
+        "right": 270,
+        "top": 105,
+        "width": 86,
+        "height": 30
+      },
+      {
+        "label": "Auto",
+        "text": "Auto",
+        "maxWidth": "none",
+        "left": 272,
+        "right": 330,
+        "top": 105,
+        "width": 58,
+        "height": 30
+      },
+      {
+        "label": "Send",
+        "text": "",
+        "maxWidth": "none",
+        "left": 332,
+        "right": 362,
+        "top": 105,
+        "width": 30,
+        "height": 30
+      }
+    ],
+    "overlaps": [],
+    "spill": 0,
+    "dropdowns": [
+      {
+        "name": "agent",
+        "wrapper": {
+          "left": 184,
+          "right": 270,
+          "top": 105,
+          "width": 86,
+          "height": 30
+        },
+        "trigger": {
+          "left": 184,
+          "right": 270,
+          "top": 105,
+          "width": 86,
+          "height": 30
+        },
+        "labelText": "Default agent",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-bot",
+            "left": 190,
+            "right": 204,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 207,
+            "right": 264,
+            "width": 57,
+            "text": "Default agen",
+            "truncated": true,
+            "scrollWidth": 82,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 0,
+            "fontSize": "12px"
+          }
+        ]
+      },
+      {
+        "name": "model",
+        "wrapper": {
+          "left": 272,
+          "right": 330,
+          "top": 105,
+          "width": 58,
+          "height": 30
+        },
+        "trigger": {
+          "left": 272,
+          "right": 329,
+          "top": 105,
+          "width": 57,
+          "height": 30
+        },
+        "labelText": "Auto",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-sparkles",
+            "left": 278,
+            "right": 292,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 295,
+            "right": 323,
+            "width": 28,
+            "text": "Auto",
+            "truncated": false,
+            "scrollWidth": 28,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 0,
+            "fontSize": "12px"
+          }
+        ]
+      }
+    ],
+    "free": 6,
+    "rowBox": {
+      "left": 114,
+      "right": 366,
+      "top": 100,
+      "width": 252,
+      "height": 36
+    },
+    "rowOverflow": false,
+    "containerOverflow": false,
+    "containerBox": {
+      "left": 105,
+      "right": 375,
+      "top": 13,
+      "width": 270,
+      "height": 132
+    },
+    "containerClient": 270,
+    "rowClient": 252,
+    "viewport": {
+      "width": 480,
+      "height": 820
+    },
+    "menu": {
+      "opened": true,
+      "items": [
+        "Default agent",
+        "AdaCommander",
+        "RobReviewer"
+      ],
+      "insideViewport": true
+    },
+    "errors": []
+  },
+  {
+    "name": "phone-366",
+    "width": 366,
+    "rows": 1,
+    "controls": [
+      {
+        "label": "Add files or skills",
+        "text": "",
+        "maxWidth": "none",
+        "left": 95,
+        "right": 127,
+        "top": 104,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "label": "Default Permissions",
+        "text": "Default Permissions",
+        "maxWidth": "132px",
+        "left": 129,
+        "right": 159,
+        "top": 105,
+        "width": 30,
+        "height": 30
+      },
+      {
+        "label": "Default agent",
+        "text": "Default agent",
+        "maxWidth": "none",
+        "left": 161,
+        "right": 265,
+        "top": 105,
+        "width": 104,
+        "height": 30
+      },
+      {
+        "label": "Auto",
+        "text": "Auto",
+        "maxWidth": "none",
+        "left": 267,
+        "right": 325,
+        "top": 105,
+        "width": 58,
+        "height": 30
+      },
+      {
+        "label": "Send",
+        "text": "",
+        "maxWidth": "none",
+        "left": 327,
+        "right": 357,
+        "top": 105,
+        "width": 30,
+        "height": 30
+      }
+    ],
+    "overlaps": [],
+    "spill": 0,
+    "dropdowns": [
+      {
+        "name": "agent",
+        "wrapper": {
+          "left": 161,
+          "right": 265,
+          "top": 105,
+          "width": 104,
+          "height": 30
+        },
+        "trigger": {
+          "left": 161,
+          "right": 265,
+          "top": 105,
+          "width": 104,
+          "height": 30
+        },
+        "labelText": "Default agent",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-bot",
+            "left": 167,
+            "right": 181,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 184,
+            "right": 259,
+            "width": 75,
+            "text": "Default agen",
+            "truncated": true,
+            "scrollWidth": 82,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 0,
+            "fontSize": "12px"
+          }
+        ]
+      },
+      {
+        "name": "model",
+        "wrapper": {
+          "left": 267,
+          "right": 325,
+          "top": 105,
+          "width": 58,
+          "height": 30
+        },
+        "trigger": {
+          "left": 267,
+          "right": 324,
+          "top": 105,
+          "width": 57,
+          "height": 30
+        },
+        "labelText": "Auto",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-sparkles",
+            "left": 273,
+            "right": 287,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 290,
+            "right": 318,
+            "width": 28,
+            "text": "Auto",
+            "truncated": false,
+            "scrollWidth": 28,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 0,
+            "fontSize": "12px"
+          }
+        ]
+      }
+    ],
+    "free": 34,
+    "rowBox": {
+      "left": 91,
+      "right": 389,
+      "top": 100,
+      "width": 298,
+      "height": 36
+    },
+    "rowOverflow": false,
+    "containerOverflow": false,
+    "containerBox": {
+      "left": 82,
+      "right": 398,
+      "top": 13,
+      "width": 316,
+      "height": 132
+    },
+    "containerClient": 316,
+    "rowClient": 298,
+    "viewport": {
+      "width": 480,
+      "height": 820
+    },
+    "menu": {
+      "opened": true,
+      "items": [
+        "Default agent",
+        "AdaCommander",
+        "RobReviewer"
+      ],
+      "insideViewport": true
+    },
+    "errors": []
+  },
+  {
+    "name": "phone-390",
+    "width": 390,
+    "rows": 1,
+    "controls": [
+      {
+        "label": "Add files or skills",
+        "text": "",
+        "maxWidth": "none",
+        "left": 83,
+        "right": 115,
+        "top": 104,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "label": "Default Permissions",
+        "text": "Default Permissions",
+        "maxWidth": "132px",
+        "left": 117,
+        "right": 147,
+        "top": 105,
+        "width": 30,
+        "height": 30
+      },
+      {
+        "label": "Default agent",
+        "text": "Default agent",
+        "maxWidth": "none",
+        "left": 150,
+        "right": 254,
+        "top": 105,
+        "width": 104,
+        "height": 30
+      },
+      {
+        "label": "Auto",
+        "text": "Auto",
+        "maxWidth": "none",
+        "left": 257,
+        "right": 316,
+        "top": 105,
+        "width": 59,
+        "height": 30
+      },
+      {
+        "label": "--",
+        "text": "--",
+        "maxWidth": "none",
+        "left": 319,
+        "right": 347,
+        "top": 105,
+        "width": 28,
+        "height": 30
+      },
+      {
+        "label": "Send",
+        "text": "",
+        "maxWidth": "none",
+        "left": 350,
+        "right": 380,
+        "top": 105,
+        "width": 30,
+        "height": 30
+      }
+    ],
+    "overlaps": [],
+    "spill": 0,
+    "dropdowns": [
+      {
+        "name": "agent",
+        "wrapper": {
+          "left": 150,
+          "right": 254,
+          "top": 105,
+          "width": 104,
+          "height": 30
+        },
+        "trigger": {
+          "left": 150,
+          "right": 254,
+          "top": 105,
+          "width": 104,
+          "height": 30
+        },
+        "labelText": "Default agent",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-bot",
+            "left": 157,
+            "right": 171,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 174,
+            "right": 247,
+            "width": 73,
+            "text": "Default agen",
+            "truncated": true,
+            "scrollWidth": 82,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 0,
+            "fontSize": "12px"
+          }
+        ]
+      },
+      {
+        "name": "model",
+        "wrapper": {
+          "left": 257,
+          "right": 316,
+          "top": 105,
+          "width": 59,
+          "height": 30
+        },
+        "trigger": {
+          "left": 257,
+          "right": 316,
+          "top": 105,
+          "width": 59,
+          "height": 30
+        },
+        "labelText": "Auto",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-sparkles",
+            "left": 264,
+            "right": 278,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 281,
+            "right": 309,
+            "width": 28,
+            "text": "Auto",
+            "truncated": false,
+            "scrollWidth": 28,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 0,
+            "fontSize": "12px"
+          }
+        ]
+      }
+    ],
+    "free": 25,
+    "rowBox": {
+      "left": 79,
+      "right": 401,
+      "top": 100,
+      "width": 322,
+      "height": 36
+    },
+    "rowOverflow": false,
+    "containerOverflow": false,
+    "containerBox": {
+      "left": 70,
+      "right": 410,
+      "top": 13,
+      "width": 340,
+      "height": 132
+    },
+    "containerClient": 340,
+    "rowClient": 322,
+    "viewport": {
+      "width": 480,
+      "height": 820
+    },
+    "menu": {
+      "opened": true,
+      "items": [
+        "Default agent",
+        "AdaCommander",
+        "RobReviewer"
+      ],
+      "insideViewport": true
+    },
+    "errors": []
+  },
+  {
+    "name": "phone-366-plan",
+    "width": 366,
+    "rows": 1,
+    "controls": [
+      {
+        "label": "Add files or skills",
+        "text": "",
+        "maxWidth": "none",
+        "left": 95,
+        "right": 127,
+        "top": 104,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "label": "Default Permissions",
+        "text": "Default Permissions",
+        "maxWidth": "132px",
+        "left": 129,
+        "right": 159,
+        "top": 105,
+        "width": 30,
+        "height": 30
+      },
+      {
+        "label": "Plan×",
+        "text": "Plan×",
+        "maxWidth": "64px",
+        "left": 161,
+        "right": 193,
+        "top": 106,
+        "width": 32,
+        "height": 28
+      },
+      {
+        "label": "Default agent",
+        "text": "Default agent",
+        "maxWidth": "none",
+        "left": 195,
+        "right": 293,
+        "top": 105,
+        "width": 98,
+        "height": 30
+      },
+      {
+        "label": "Auto",
+        "text": "Auto",
+        "maxWidth": "none",
+        "left": 295,
+        "right": 353,
+        "top": 105,
+        "width": 58,
+        "height": 30
+      },
+      {
+        "label": "Send",
+        "text": "",
+        "maxWidth": "none",
+        "left": 355,
+        "right": 385,
+        "top": 105,
+        "width": 30,
+        "height": 30
+      }
+    ],
+    "overlaps": [],
+    "spill": 0,
+    "dropdowns": [
+      {
+        "name": "agent",
+        "wrapper": {
+          "left": 195,
+          "right": 293,
+          "top": 105,
+          "width": 98,
+          "height": 30
+        },
+        "trigger": {
+          "left": 195,
+          "right": 293,
+          "top": 105,
+          "width": 98,
+          "height": 30
+        },
+        "labelText": "Default agent",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-bot",
+            "left": 201,
+            "right": 215,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 218,
+            "right": 287,
+            "width": 69,
+            "text": "Default agen",
+            "truncated": true,
+            "scrollWidth": 82,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 0,
+            "fontSize": "12px"
+          }
+        ]
+      },
+      {
+        "name": "model",
+        "wrapper": {
+          "left": 295,
+          "right": 353,
+          "top": 105,
+          "width": 58,
+          "height": 30
+        },
+        "trigger": {
+          "left": 295,
+          "right": 352,
+          "top": 105,
+          "width": 57,
+          "height": 30
+        },
+        "labelText": "Auto",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-sparkles",
+            "left": 301,
+            "right": 315,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 318,
+            "right": 346,
+            "width": 28,
+            "text": "Auto",
+            "truncated": false,
+            "scrollWidth": 28,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 0,
+            "fontSize": "12px"
+          }
+        ]
+      }
+    ],
+    "free": 6,
+    "rowBox": {
+      "left": 91,
+      "right": 389,
+      "top": 100,
+      "width": 298,
+      "height": 36
+    },
+    "rowOverflow": false,
+    "containerOverflow": false,
+    "containerBox": {
+      "left": 82,
+      "right": 398,
+      "top": 13,
+      "width": 316,
+      "height": 132
+    },
+    "containerClient": 316,
+    "rowClient": 298,
+    "viewport": {
+      "width": 480,
+      "height": 820
+    },
+    "menu": {
+      "opened": true,
+      "items": [
+        "Default agent",
+        "AdaCommander",
+        "RobReviewer"
+      ],
+      "insideViewport": true
+    },
+    "errors": []
+  },
+  {
+    "name": "phone-320-plan",
+    "width": 320,
+    "rows": 1,
+    "controls": [
+      {
+        "label": "Add files or skills",
+        "text": "",
+        "maxWidth": "none",
+        "left": 118,
+        "right": 150,
+        "top": 104,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "label": "Default Permissions",
+        "text": "Default Permissions",
+        "maxWidth": "132px",
+        "left": 152,
+        "right": 182,
+        "top": 105,
+        "width": 30,
+        "height": 30
+      },
+      {
+        "label": "Plan×",
+        "text": "Plan×",
+        "maxWidth": "64px",
+        "left": 184,
+        "right": 216,
+        "top": 106,
+        "width": 32,
+        "height": 28
+      },
+      {
+        "label": "Default agent",
+        "text": "Default agent",
+        "maxWidth": "none",
+        "left": 218,
+        "right": 270,
+        "top": 105,
+        "width": 52,
+        "height": 30
+      },
+      {
+        "label": "Auto",
+        "text": "Auto",
+        "maxWidth": "none",
+        "left": 272,
+        "right": 330,
+        "top": 105,
+        "width": 58,
+        "height": 30
+      },
+      {
+        "label": "Send",
+        "text": "",
+        "maxWidth": "none",
+        "left": 332,
+        "right": 362,
+        "top": 105,
+        "width": 30,
+        "height": 30
+      }
+    ],
+    "overlaps": [],
+    "spill": 0,
+    "dropdowns": [
+      {
+        "name": "agent",
+        "wrapper": {
+          "left": 218,
+          "right": 270,
+          "top": 105,
+          "width": 52,
+          "height": 30
+        },
+        "trigger": {
+          "left": 218,
+          "right": 270,
+          "top": 105,
+          "width": 52,
+          "height": 30
+        },
+        "labelText": "Default agent",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-bot",
+            "left": 224,
+            "right": 238,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 241,
+            "right": 264,
+            "width": 23,
+            "text": "Default agen",
+            "truncated": true,
+            "scrollWidth": 82,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 0,
+            "fontSize": "12px"
+          }
+        ]
+      },
+      {
+        "name": "model",
+        "wrapper": {
+          "left": 272,
+          "right": 330,
+          "top": 105,
+          "width": 58,
+          "height": 30
+        },
+        "trigger": {
+          "left": 272,
+          "right": 329,
+          "top": 105,
+          "width": 57,
+          "height": 30
+        },
+        "labelText": "Auto",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-sparkles",
+            "left": 278,
+            "right": 292,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 295,
+            "right": 323,
+            "width": 28,
+            "text": "Auto",
+            "truncated": false,
+            "scrollWidth": 28,
+            "fontSize": "12px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 0,
+            "fontSize": "12px"
+          }
+        ]
+      }
+    ],
+    "free": 6,
+    "rowBox": {
+      "left": 114,
+      "right": 366,
+      "top": 100,
+      "width": 252,
+      "height": 36
+    },
+    "rowOverflow": false,
+    "containerOverflow": false,
+    "containerBox": {
+      "left": 105,
+      "right": 375,
+      "top": 13,
+      "width": 270,
+      "height": 132
+    },
+    "containerClient": 270,
+    "rowClient": 252,
+    "viewport": {
+      "width": 480,
+      "height": 820
+    },
+    "menu": {
+      "opened": true,
+      "items": [
+        "Default agent",
+        "AdaCommander",
+        "RobReviewer"
+      ],
+      "insideViewport": true
+    },
+    "errors": []
+  },
+  {
+    "name": "tablet-700",
+    "width": 700,
+    "rows": 1,
+    "controls": [
+      {
+        "label": "Add files or skills",
+        "text": "",
+        "maxWidth": "none",
+        "left": 38,
+        "right": 70,
+        "top": 105,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "label": "Default Permissions",
+        "text": "Default Permissions",
+        "maxWidth": "132px",
+        "left": 76,
+        "right": 208,
+        "top": 105,
+        "width": 132,
+        "height": 32
+      },
+      {
+        "label": "Default agent",
+        "text": "Default agent",
+        "maxWidth": "none",
+        "left": 313,
+        "right": 460,
+        "top": 105,
+        "width": 147,
+        "height": 32
+      },
+      {
+        "label": "Auto",
+        "text": "Auto",
+        "maxWidth": "none",
+        "left": 472,
+        "right": 560,
+        "top": 105,
+        "width": 88,
+        "height": 32
+      },
+      {
+        "label": "--",
+        "text": "--",
+        "maxWidth": "none",
+        "left": 572,
+        "right": 616,
+        "top": 105,
+        "width": 44,
+        "height": 32
+      },
+      {
+        "label": "Send",
+        "text": "",
+        "maxWidth": "none",
+        "left": 628,
+        "right": 662,
+        "top": 104,
+        "width": 34,
+        "height": 34
+      }
+    ],
+    "overlaps": [],
+    "spill": 0,
+    "dropdowns": [
+      {
+        "name": "agent",
+        "wrapper": {
+          "left": 313,
+          "right": 460,
+          "top": 105,
+          "width": 147,
+          "height": 32
+        },
+        "trigger": {
+          "left": 313,
+          "right": 460,
+          "top": 105,
+          "width": 147,
+          "height": 32
+        },
+        "labelText": "Default agent",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-bot",
+            "left": 322,
+            "right": 336,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "13px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 342,
+            "right": 431,
+            "width": 89,
+            "text": "Default agen",
+            "truncated": false,
+            "scrollWidth": 89,
+            "fontSize": "13px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 437,
+            "right": 451,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "13px"
+          }
+        ]
+      },
+      {
+        "name": "model",
+        "wrapper": {
+          "left": 472,
+          "right": 560,
+          "top": 105,
+          "width": 88,
+          "height": 32
+        },
+        "trigger": {
+          "left": 472,
+          "right": 560,
+          "top": 105,
+          "width": 88,
+          "height": 32
+        },
+        "labelText": "Auto",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-sparkles",
+            "left": 481,
+            "right": 495,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "13px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 501,
+            "right": 531,
+            "width": 30,
+            "text": "Auto",
+            "truncated": false,
+            "scrollWidth": 30,
+            "fontSize": "13px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 537,
+            "right": 551,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "13px"
+          }
+        ]
+      }
+    ],
+    "free": 8,
+    "rowBox": {
+      "left": 34,
+      "right": 666,
+      "top": 100,
+      "width": 632,
+      "height": 38
+    },
+    "rowOverflow": false,
+    "containerOverflow": false,
+    "containerBox": {
+      "left": 25,
+      "right": 675,
+      "top": 13,
+      "width": 650,
+      "height": 134
+    },
+    "containerClient": 650,
+    "rowClient": 632,
+    "viewport": {
+      "width": 480,
+      "height": 820
+    },
+    "menu": {
+      "opened": true,
+      "items": [
+        "Default agent",
+        "AdaCommander",
+        "RobReviewer"
+      ],
+      "insideViewport": true
+    },
+    "errors": []
+  },
+  {
+    "name": "desktop-1200",
+    "width": 1200,
+    "rows": 1,
+    "controls": [
+      {
+        "label": "Add files or skills",
+        "text": "",
+        "maxWidth": "none",
+        "left": 183,
+        "right": 215,
+        "top": 105,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "label": "Default Permissions",
+        "text": "Default Permissions",
+        "maxWidth": "132px",
+        "left": 221,
+        "right": 353,
+        "top": 105,
+        "width": 132,
+        "height": 32
+      },
+      {
+        "label": "Default agent",
+        "text": "Default agent",
+        "maxWidth": "none",
+        "left": 668,
+        "right": 815,
+        "top": 105,
+        "width": 147,
+        "height": 32
+      },
+      {
+        "label": "Auto",
+        "text": "Auto",
+        "maxWidth": "none",
+        "left": 827,
+        "right": 915,
+        "top": 105,
+        "width": 88,
+        "height": 32
+      },
+      {
+        "label": "--",
+        "text": "--",
+        "maxWidth": "none",
+        "left": 927,
+        "right": 971,
+        "top": 105,
+        "width": 44,
+        "height": 32
+      },
+      {
+        "label": "Send",
+        "text": "",
+        "maxWidth": "none",
+        "left": 983,
+        "right": 1017,
+        "top": 104,
+        "width": 34,
+        "height": 34
+      }
+    ],
+    "overlaps": [],
+    "spill": 0,
+    "dropdowns": [
+      {
+        "name": "agent",
+        "wrapper": {
+          "left": 668,
+          "right": 815,
+          "top": 105,
+          "width": 147,
+          "height": 32
+        },
+        "trigger": {
+          "left": 668,
+          "right": 815,
+          "top": 105,
+          "width": 147,
+          "height": 32
+        },
+        "labelText": "Default agent",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-bot",
+            "left": 677,
+            "right": 691,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "13px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 697,
+            "right": 786,
+            "width": 89,
+            "text": "Default agen",
+            "truncated": false,
+            "scrollWidth": 89,
+            "fontSize": "13px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 792,
+            "right": 806,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "13px"
+          }
+        ]
+      },
+      {
+        "name": "model",
+        "wrapper": {
+          "left": 827,
+          "right": 915,
+          "top": 105,
+          "width": 88,
+          "height": 32
+        },
+        "trigger": {
+          "left": 827,
+          "right": 915,
+          "top": 105,
+          "width": 88,
+          "height": 32
+        },
+        "labelText": "Auto",
+        "kids": [
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-sparkles",
+            "left": 836,
+            "right": 850,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "13px"
+          },
+          {
+            "tag": "span",
+            "cls": "min-w-0 truncate",
+            "left": 856,
+            "right": 886,
+            "width": 30,
+            "text": "Auto",
+            "truncated": false,
+            "scrollWidth": 30,
+            "fontSize": "13px"
+          },
+          {
+            "tag": "svg",
+            "cls": "lucide lucide-chevron-down",
+            "left": 892,
+            "right": 906,
+            "width": 14,
+            "text": "",
+            "truncated": false,
+            "scrollWidth": 14,
+            "fontSize": "13px"
+          }
+        ]
+      }
+    ],
+    "free": 8,
+    "rowBox": {
+      "left": 179,
+      "right": 1021,
+      "top": 100,
+      "width": 842,
+      "height": 38
+    },
+    "rowOverflow": false,
+    "containerOverflow": false,
+    "containerBox": {
+      "left": 170,
+      "right": 1030,
+      "top": 13,
+      "width": 860,
+      "height": 134
+    },
+    "containerClient": 860,
+    "rowClient": 842,
+    "viewport": {
+      "width": 480,
+      "height": 820
+    },
+    "menu": {
+      "opened": true,
+      "items": [
+        "Default agent",
+        "AdaCommander",
+        "RobReviewer"
+      ],
+      "insideViewport": true
+    },
+    "errors": []
+  }
+]

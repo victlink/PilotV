@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 const require = createRequire('/home/Marc/PilotDeck-src/node_modules/.pnpm/playwright@1.60.0/node_modules/playwright/package.json');
 const { chromium } = require('playwright');
 
-const base = process.env.BASE_URL || 'http://127.0.0.1:5186/';
+const base = process.env.BASE_URL || 'http://127.0.0.1:5187/';
 const payload = 'marc-linux-pc|http://100.72.0.111:3001;jx88|http://100.108.86.109:3001';
 const url = `${base}?addDevice=${encodeURIComponent(payload)}`;
 

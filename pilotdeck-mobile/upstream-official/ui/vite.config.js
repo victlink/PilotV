@@ -145,6 +145,13 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: 'jsdom',
+      // e2e/ 里是 Playwright 规格，不是 vitest 用例；交给 playwright 跑，
+      // 否则会被 vitest 按 *.spec.mjs 收集进来并全部报错。
+      include: [
+        'src/**/*.{test,spec}.?(c|m)[jt]s?(x)',
+        'server/**/*.{test,spec}.?(c|m)[jt]s?(x)',
+        'shared/**/*.{test,spec}.?(c|m)[jt]s?(x)'
+      ],
       server: {
         deps: {
           inline: ['react', 'react-dom']

@@ -4,7 +4,7 @@
  */
 import { chromium } from '/vol3/1000/Work/00/PilotV/pilotdeck-mobile/upstream-official/ui/node_modules/playwright-core/index.mjs';
 
-const BASE = process.env.BASE || 'http://127.0.0.1:5186';
+const BASE = process.env.BASE || 'http://127.0.0.1:5187';
 const SESSION = process.env.SESSION || '';
 
 (async () => {

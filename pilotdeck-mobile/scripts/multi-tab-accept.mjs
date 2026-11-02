@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire('/home/Marc/PilotDeck-src/node_modules/.pnpm/playwright@1.60.0/node_modules/playwright/package.json');
 const { chromium } = require('playwright');
 
-const base = process.env.BASE_URL || 'http://127.0.0.1:5186/';
+const base = process.env.BASE_URL || 'http://127.0.0.1:5187/';
 const A = process.env.DEVICE_A || 'http://100.108.86.109:3001';  // jx88，免登录
 const B = process.env.DEVICE_B || 'http://100.72.0.111:3001';    // marc-linux-pc
 const out = { base, deviceA: A, deviceB: B, steps: {}, errors: [] };

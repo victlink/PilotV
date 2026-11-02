@@ -19,7 +19,7 @@ import time
 import urllib.error
 import urllib.request
 
-GATEWAY = os.environ.get("GATEWAY", "http://127.0.0.1:5186")
+GATEWAY = os.environ.get("GATEWAY", "http://127.0.0.1:5187")
 TOKEN = ""
 TOKEN_FILE = os.path.expanduser("~/.config/pilotv/artifacts-token")
 

@@ -1,6 +1,6 @@
 import { chromium } from '/vol3/1000/Work/00/PilotV/pilotdeck-mobile/upstream-official/ui/node_modules/playwright-core/index.mjs';
 
-const BASE = process.env.BASE || 'http://127.0.0.1:5186';
+const BASE = process.env.BASE || 'http://127.0.0.1:5187';
 const SESSION_NAME = process.env.SESSION_NAME || '设计 PilotV logo';
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });

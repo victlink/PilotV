@@ -8,7 +8,7 @@ import { mkdir } from 'node:fs/promises';
 const require = createRequire('/home/Marc/PilotDeck-src/node_modules/.pnpm/playwright@1.60.0/node_modules/playwright/package.json');
 const { chromium } = require('playwright');
 
-const BASE = process.env.PILOTV_BASE || 'http://127.0.0.1:5186/';
+const BASE = process.env.PILOTV_BASE || 'http://127.0.0.1:5187/';
 const PROJECT_TITLE = 'PilotV';
 const SESSION = '询问当前进展';
 const NOTE_TEXT = '成果面板主窗口应铺满，左栏与顶栏已去掉';

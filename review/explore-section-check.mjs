@@ -12,7 +12,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const uiDir = path.resolve(here, '../pilotdeck-mobile/upstream-official/ui');
 const { chromium } = createRequire(path.join(uiDir, 'package.json'))('playwright');
 
-const url = process.argv[2] || process.env.PILOTV_URL || 'http://127.0.0.1:5186/';
+const url = process.argv[2] || process.env.PILOTV_URL || 'http://127.0.0.1:5187/';
 const outDir = `${here}/`;
 
 // playwright 自带的那版 headless shell 没装，直接用缓存里已有的 chromium。

@@ -169,6 +169,17 @@ export type WebGatewayMethod =
   | "always_on_apply"
   | "always_on_rerun_plan";
 
+export type WebGatewayToolPolicy = {
+  allow?: string[];
+  deny?: string[];
+  ask?: string[];
+  /**
+   * Absolute directories that confine filesystem writes. Writes that resolve
+   * outside these roots are denied by the permission runtime.
+   */
+  writeRoots?: string[];
+};
+
 export type WebSubmitTurnInput = {
   sessionKey: string;
   channelKey: WebGatewayChannelKey;
@@ -184,6 +195,7 @@ export type WebSubmitTurnInput = {
   /** Allow model-visible plan mode tools. Defaults to true only for explicit plan-mode turns. */
   allowPlanModeTools?: boolean;
   canPrompt?: boolean;
+  toolPolicy?: WebGatewayToolPolicy;
   runId?: string;
   syntheticMessages?: Array<{ text: string; purpose?: string }>;
 };

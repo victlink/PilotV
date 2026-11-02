@@ -759,6 +759,33 @@ export function truncateHead(messages: CanonicalMessage[], keepRatio: number): C
   return messages.slice(-keep);
 }
 
+/** Fit the newest live suffix to a message-token budget without discarding the
+ * accepted checkpoint or the latest real user request. The caller must still
+ * evaluate the complete request (system prompt and tool schemas included). */
+export function truncateHeadPreservingCheckpointToBudget(
+  messages: CanonicalMessage[],
+  budgetTokens: number,
+  estimate: (messages: CanonicalMessage[]) => number,
+): CanonicalMessage[] {
+  const { stablePrefix, liveMessages } = splitCheckpointPrefix(messages);
+  let anchor = -1;
+  for (let i = liveMessages.length - 1; i >= 0; i--) {
+    if (isRealUserRequestMessage(liveMessages[i]!)) { anchor = i; break; }
+  }
+  const retained: CanonicalMessage[] = [];
+  for (let i = liveMessages.length - 1; i > anchor; i--) {
+    const candidate = [liveMessages[i]!, ...retained];
+    const withAnchor = anchor >= 0 && anchor < i ? [liveMessages[anchor]!, ...candidate] : candidate;
+    if (estimate([...stablePrefix, ...withAnchor]) > budgetTokens) break;
+    retained.unshift(liveMessages[i]!);
+  }
+  if (anchor >= 0) retained.unshift(liveMessages[anchor]!);
+  const resultIds = collectToolResultIds(retained);
+  const pairedCalls = stripUnpairedToolCalls(retained, resultIds);
+  const callIds = collectToolCallIds(pairedCalls);
+  return ensureTrailingUserMessage([...stablePrefix, ...stripUnpairedToolResults(pairedCalls, callIds)]);
+}
+
 /** Emergency projection that keeps accepted checkpoint messages before the
  * newest live suffix. Used only after summary and snip could not fit. */
 export function truncateHeadPreservingCheckpoint(

@@ -180,7 +180,12 @@ function finishToolCalls(
     if (choiceIndex !== undefined && toolCall.choiceIndex !== choiceIndex) {
       continue;
     }
-    const rawArguments = toolCall.argumentsBuffer ?? "{}";
+    // Zero argument bytes means "no arguments": a schema with no parameters
+    // streams an empty string, and some relays drop every argument delta for
+    // parallel tool calls. Only a non-empty buffer that fails to parse is
+    // genuinely broken output. (Mirrors the NAS runtime patch.)
+    const bufferedArguments = toolCall.argumentsBuffer ?? "";
+    const rawArguments = bufferedArguments.trim().length > 0 ? bufferedArguments : "{}";
     let input: unknown;
     let wasRepaired = false;
     try {

@@ -130,6 +130,33 @@ export type GatewaySubmitTurnInput = {
    * so they are visible to the model but hidden from the Web UI.
    */
   syntheticMessages?: Array<{ text: string; purpose?: string }>;
+  /**
+   * Project agent tool authorization for this turn. Produced by the caller
+   * from the project's agent configuration; enforced by the permission
+   * runtime before any tool executes.
+   */
+  toolPolicy?: GatewayToolPolicy;
+};
+
+/**
+ * Tool authorization resolved from a project agent configuration.
+ *
+ * - `allow` is an exclusive allow list: when non-empty, only the listed
+ *   tools may run. Entries use the permission syntax (`read_file`,
+ *   `mcp:github`, `bash:git log:*`).
+ * - `deny` blocks the listed tools outright.
+ * - `ask` requires user confirmation before the listed tools run.
+ * - `writeRoots` confines filesystem writes to the listed directories.
+ */
+export type GatewayToolPolicy = {
+  allow?: string[];
+  deny?: string[];
+  ask?: string[];
+  /**
+   * Absolute directories that confine filesystem writes. Writes that resolve
+   * outside these roots are denied by the permission runtime.
+   */
+  writeRoots?: string[];
 };
 
 export type GatewaySteerTurnInput = {

@@ -43,6 +43,12 @@ dist/
 pilotdeck-mobile/review/artifacts/
 pilotdeck-mobile/scripts/weknora-e2e-shots/
 
+# ── 网关本机备份（部署前快照，不入库）────────────────────────────
+# service/pilotv_gateway.mjs.bak.* / .pre-* 是手工留的旧版本快照，
+# 真要回滚请用 git 历史，别把快照混进版本库。
+service/*.bak.*
+service/*.pre-*
+
 # ── 网关运行时本机状态（含管理密钥，绝不入库）─────────────────────
 # devices.local.json.secret 是网关的设备写操作会话密钥：
 # 拿到它就能通过网关改设备清单、进而决定转发目标。

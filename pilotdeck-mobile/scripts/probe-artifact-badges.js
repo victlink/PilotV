@@ -6,7 +6,7 @@ const calls = [];
 page.on('pageerror', e => errs.push(String(e).slice(0, 160)));
 page.on('request', r => { if (/artifacts/.test(r.url())) calls.push('REQ ' + r.url().slice(-40)); });
 page.on('response', r => { if (/artifacts/.test(r.url())) calls.push('RES ' + r.status() + ' ' + r.url().slice(-40)); });
-await page.goto('http://127.0.0.1:5186', { waitUntil: 'domcontentloaded', timeout: 60000 });
+await page.goto('http://127.0.0.1:5187', { waitUntil: 'domcontentloaded', timeout: 60000 });
 await page.waitForFunction(() => !/Loading\.\.\./.test(document.body.innerText), null, { timeout: 90000 });
 await page.waitForTimeout(2000);
 // 会话是增量加载的，等项目下所有会话都到齐再判断。

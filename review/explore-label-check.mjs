@@ -11,7 +11,7 @@ const browser = await chromium.launch({
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-await page.goto('http://127.0.0.1:5186/', { waitUntil: 'domcontentloaded' });
+await page.goto('http://127.0.0.1:5187/', { waitUntil: 'domcontentloaded' });
 await page.evaluate(() => window.localStorage.setItem('userLanguage', 'zh-CN'));
 await page.reload({ waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(3000);

@@ -14,6 +14,7 @@ export {
   type PermissionRuleSource,
 } from "./protocol/types.js";
 export { matchPermissionRule } from "./policy/matchPermissionRule.js";
+export { findWriteScopeViolation } from "./policy/writeScope.js";
 export { PermissionRuntime } from "./decision/PermissionRuntime.js";
 export {
   DEFAULT_PERMISSION_SETTINGS,
@@ -23,6 +24,7 @@ export {
   permissionEntryToRule,
   permissionSettingsToRuleSet,
   readPermissionSettings,
+  toolPolicyToRuleSet,
   writePermissionSettings,
   type PermissionSettings,
 } from "./settings.js";

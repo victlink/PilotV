@@ -8,6 +8,7 @@ import {
   type CompactionResult,
   buildPostCompactMessages,
   truncateHeadPreservingCheckpoint,
+  truncateHeadPreservingCheckpointToBudget,
 } from "./compaction/CompactionEngine.js";
 import { buildCachePlan, stableSerialize } from "./cache/CachePlan.js";
 import type { MicroCompactionEngine } from "./compaction/MicroCompactionEngine.js";
@@ -743,6 +744,22 @@ export class DefaultContextRuntime implements ContextRuntime {
       snapshot: describeTokenBudgetSnapshot(snapshot),
       keepRatio: EMERGENCY_HEAD_KEEP_RATIO,
     });
+    if (snapshot.ratio >= 1 && this.tokenBudget) {
+      // A percentage of message count is not a percentage of tokens. Reduce
+      // the live suffix to the remaining request budget, including the fixed
+      // system/tool cost reported by the full-request budget evaluator.
+      const estimate = (candidate: CanonicalMessage[]) => this.tokenBudget!.estimateMessagesTokens(candidate);
+      for (let attempt = 0; attempt < 3 && snapshot.ratio >= 1; attempt++) {
+        const fixedTokens = Math.max(0, snapshot.tokens - estimate(messages));
+        const budget = Math.max(0, Math.floor((snapshot.maxContextTokens - fixedTokens) * (0.85 - attempt * 0.2)));
+        const reduced = truncateHeadPreservingCheckpointToBudget(messages, budget, estimate);
+        if (sameMessageSequence(messages, reduced)) break;
+        messages = reduced;
+        changed = true;
+        snapshot = await options.evaluateBudget(messages);
+        options.log("emergency_token_floor", { snapshot: describeTokenBudgetSnapshot(snapshot), budget });
+      }
+    }
     return {
       messages,
       snapshot,

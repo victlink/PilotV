@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 const require = createRequire('/home/Marc/PilotDeck-src/node_modules/.pnpm/playwright@1.60.0/node_modules/playwright/package.json');
 const { chromium } = require('playwright');
 
-const base = process.env.BASE_URL || 'http://127.0.0.1:5186/';
+const base = process.env.BASE_URL || 'http://127.0.0.1:5187/';
 const browser = await chromium.launch({ headless: true, executablePath: '/home/Marc/.cache/ms-playwright/chromium-1237/chrome-linux64/chrome', args: ['--no-sandbox'] });
 const out = { base };
 try {

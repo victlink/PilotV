@@ -2,6 +2,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 import type { PilotDeckToolDefinition, PilotDeckToolRuntimeContext } from "../../tool/index.js";
 import { buildPlanModeViolationMessage, buildPlanModeBashViolationMessage } from "../../tool/planModeConstraints.js";
 import { matchPermissionRule } from "../policy/matchPermissionRule.js";
+import { findWriteScopeViolation } from "../policy/writeScope.js";
 import type {
   PermissionContext,
   PermissionDecision,
@@ -28,10 +29,44 @@ export class PermissionRuntime {
 
     const denyRule = findMatchingRule(permissionContext.rules.deny, tool.name, input, permissionContext);
     if (denyRule) {
-      if (sessionAllowRule && denyRule.source === "user") {
-        return this.allowSessionRule(tool, input, context, toolCallId, sessionAllowRule);
-      }
+      // Deny rules are a hard boundary. A session grant must never override a
+      // persisted/project/policy deny: otherwise an earlier approval can turn
+      // a later security restriction into an allow.
       return denyFromRule(denyRule);
+    }
+
+    // The project agent allow list is an outer boundary. Check it before
+    // session grants, ask rules, tool checks, and bypass mode so no later
+    // approval path can escape it. Presence is significant: [] denies all.
+    const allowList = permissionContext.rules.allowList;
+    if (allowList !== undefined && !findMatchingRule(allowList, tool.name, input, permissionContext)) {
+      return deny({
+        type: "rule",
+        behavior: "deny",
+        rule: allowList[0] ?? {
+          source: "project",
+          behavior: "allow",
+          toolName: "*",
+        },
+        message: `${tool.name} is not part of the project agent's tool allow list.`,
+      });
+    }
+
+    // The write scope is a hard boundary as well. A write that resolves
+    // outside the configured roots is denied before session grants, user
+    // allow rules, ask rules or bypass mode can turn it into an allow.
+    const writeScopeViolation = findWriteScopeViolation(tool.name, input, permissionContext);
+    if (writeScopeViolation) {
+      return deny({
+        type: "rule",
+        behavior: "deny",
+        rule: {
+          source: "project",
+          behavior: "deny",
+          toolName: tool.name,
+        },
+        message: writeScopeViolation,
+      });
     }
 
     const askRule = findMatchingRule(permissionContext.rules.ask, tool.name, input, permissionContext);

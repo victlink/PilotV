@@ -337,6 +337,14 @@ export class SubAgentSession {
           allow: parent.permissionContext.rules.allow,
           deny: parent.permissionContext.rules.deny,
           ask: parent.permissionContext.rules.ask,
+          ...(parent.permissionContext.rules.allowList !== undefined
+            ? { allowList: parent.permissionContext.rules.allowList }
+            : {}),
+          // The child writes inside the same project scope as the parent turn,
+          // so the write scope has to be inherited as well.
+          ...(parent.permissionContext.rules.writeRoots !== undefined
+            ? { writeRoots: parent.permissionContext.rules.writeRoots }
+            : {}),
         },
       },
       systemPrompt,

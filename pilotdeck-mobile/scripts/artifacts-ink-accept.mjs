@@ -10,7 +10,7 @@ import { spawnSync } from 'node:child_process';
 const require = createRequire('/home/Marc/PilotDeck-src/node_modules/.pnpm/playwright@1.60.0/node_modules/playwright/package.json');
 const { chromium } = require('playwright');
 
-const BASE = process.env.BASE_URL || 'http://127.0.0.1:5186/';
+const BASE = process.env.BASE_URL || 'http://127.0.0.1:5187/';
 const PROJECT_TITLE = process.env.PROJECT_TITLE || 'PilotV';
 const WITH_ARTIFACTS = process.env.SESSION_WITH_ARTIFACTS || '设计 PilotV logo';
 const WITHOUT_ARTIFACTS = process.env.SESSION_WITHOUT_ARTIFACTS || '排查网页无法打开问题';

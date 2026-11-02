@@ -2764,10 +2764,31 @@ export class AgentLoop {
       this.config.permissionMode = permissionMode;
       this.config.permissionContext.mode = permissionMode;
     }
-    if (!permissionRules) return;
-    mergeUserRules(this.config.permissionContext.rules.allow, permissionRules.allow);
-    mergeUserRules(this.config.permissionContext.rules.deny, permissionRules.deny);
-    mergeUserRules(this.config.permissionContext.rules.ask, permissionRules.ask);
+    // Replace only policy dimensions explicitly supplied for this turn. The
+    // gateway normally supplies the complete persisted/project rule set, while
+    // internal callers (for example unattended execution) intentionally supply
+    // only a deny overlay; clearing omitted arrays here would drop built-in
+    // permissions from the agent's base configuration. Explicit [] still
+    // clears a dimension, and allowList presence distinguishes deny-all []
+    // from unrestricted undefined.
+    const rules = this.config.permissionContext.rules;
+    if (permissionRules && Object.prototype.hasOwnProperty.call(permissionRules, "allow")) {
+      rules.allow.splice(0, rules.allow.length, ...(permissionRules.allow ?? []));
+    }
+    if (permissionRules && Object.prototype.hasOwnProperty.call(permissionRules, "deny")) {
+      rules.deny.splice(0, rules.deny.length, ...(permissionRules.deny ?? []));
+    }
+    if (permissionRules && Object.prototype.hasOwnProperty.call(permissionRules, "ask")) {
+      rules.ask.splice(0, rules.ask.length, ...(permissionRules.ask ?? []));
+    }
+    if (permissionRules && Object.prototype.hasOwnProperty.call(permissionRules, "allowList")) {
+      rules.allowList = permissionRules.allowList;
+    }
+    // The write scope is a hard boundary. Presence matters: an explicit
+    // undefined clears a scope left over from a previous turn.
+    if (permissionRules && Object.prototype.hasOwnProperty.call(permissionRules, "writeRoots")) {
+      rules.writeRoots = permissionRules.writeRoots;
+    }
   }
 
   private applyRunModeOverride(runMode?: AgentRunMode): void {

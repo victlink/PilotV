@@ -15,6 +15,23 @@ export type PermissionRuleSet = {
   allow: PermissionRule[];
   deny: PermissionRule[];
   ask: PermissionRule[];
+  /**
+   * Exclusive allow list. When present and non-empty, only tools matching one
+   * of these rules may run; every other tool is denied. Used by the project
+   * agent tool authorization (`toolAccess: "allow-list"`).
+   */
+  /**
+   * Exclusive allow list. Presence is significant: `[]` denies every tool;
+   * `undefined` means unrestricted.
+   */
+  allowList?: PermissionRule[];
+  /**
+   * Absolute directories that confine filesystem writes. When present, a
+   * filesystem write tool may only write inside one of these roots; writes
+   * that resolve outside them are denied. This is a hard boundary: session
+   * grants, user allow rules and bypass mode cannot escape it.
+   */
+  writeRoots?: string[];
 };
 
 export type PermissionContext = {

@@ -9,7 +9,7 @@ import { mkdir } from 'node:fs/promises';
 const require = createRequire('/home/Marc/PilotDeck-src/node_modules/.pnpm/playwright@1.60.0/node_modules/playwright/package.json');
 const { chromium } = require('playwright');
 
-const BASE = process.env.BASE_URL || 'http://127.0.0.1:5186/';
+const BASE = process.env.BASE_URL || 'http://127.0.0.1:5187/';
 // 验收会话必须自己带成果，否则列表本来就是空的，测不出问题。
 const SESSION_TITLE = process.env.SESSION_TITLE || '设计 PilotV logo';
 const PROJECT_TITLE = process.env.PROJECT_TITLE || 'PilotV';
