@@ -5,7 +5,7 @@ import type { InterfacePreferences } from '../lib/interfacePreferences';
 import type { DesktopAboutInfo } from '../utils/desktopAbout';
 export {};
 
-declare global {
+declare module 'react' {
   // Custom element registered at runtime from /artifacts-static/vendor.
   namespace JSX {
     interface IntrinsicElements {

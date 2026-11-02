@@ -1,5 +1,13 @@
 import { postFormDataWithProgress } from './uploadFormData';
 import { IS_PLATFORM } from "../constants/config";
+import { activeBackendOrigin } from '../components/app-shell/pilotvRuntime';
+import { readTokenFor, writeTokenFor } from '../components/auth/deviceTokens';
+
+// 令牌按设备分开存（deviceTokens.ts）。这里再读旧的 auth-token 会拿不到值：
+// 登录只写 pilotdeck-tokens，于是每个带鉴权的请求都缺 Authorization 头，
+// 后端回 401，前端就清会话回到登录页 —— 表现成"怎么都登不进去"。
+const readAuthToken = () => readTokenFor(activeBackendOrigin());
+const storeAuthToken = (token) => writeTokenFor(activeBackendOrigin(), token);
 
 const normalizePathForUrl = (value) => String(value || '').replace(/\\/g, '/');
 
@@ -26,7 +34,7 @@ const encodePathSegments = (relativePath) =>
     .join('/');
 
 const appendAuthToken = (url) => {
-  const token = localStorage.getItem('auth-token');
+  const token = readAuthToken();
   if (!token) return url;
   const separator = url.includes('?') ? '&' : '?';
   return `${url}${separator}token=${encodeURIComponent(token)}`;
@@ -34,7 +42,7 @@ const appendAuthToken = (url) => {
 
 // Utility function for authenticated API calls
 export const authenticatedFetch = (url, options = {}) => {
-  const token = localStorage.getItem('auth-token');
+  const token = readAuthToken();
   const {
     suppressServerErrorToast = false,
     ...fetchOptions
@@ -60,7 +68,7 @@ export const authenticatedFetch = (url, options = {}) => {
   }).then((response) => {
     const refreshedToken = response.headers.get('X-Refreshed-Token');
     if (refreshedToken) {
-      localStorage.setItem('auth-token', refreshedToken);
+      storeAuthToken(refreshedToken);
     }
     if (!suppressServerErrorToast && response.status >= 500) {
       window.dispatchEvent(new CustomEvent('pilotdeck:toast', {
@@ -261,7 +269,7 @@ export const api = {
       method: 'DELETE',
     }),
   searchConversationsUrl: (query, limit = 50) => {
-    const token = localStorage.getItem('auth-token');
+    const token = readAuthToken();
     const params = new URLSearchParams({ q: query, limit: String(limit) });
     if (token) params.set('token', token);
     return `/api/search/conversations?${params.toString()}`;

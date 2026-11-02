@@ -19,6 +19,7 @@ type StartSessionOptions = {
   sessionSummary?: string | null;
   toolsSettings?: PilotDeckSettings;
   modelSelection?: ChatModelSelection;
+  agentId?: string;
   modelOverride?: {
     mode: 'model';
     provider: string;
@@ -109,6 +110,7 @@ export function startSessionCommand({
   runMode,
   model,
   thinking,
+  agentId,
   sessionSummary,
   toolsSettings = getPilotDeckSettings(),
   modelOverride,
@@ -142,6 +144,7 @@ export function startSessionCommand({
       sessionSummary,
       ...(modelOverride ? { modelOverride } : {}),
       ...(modelSelection ? { modelSelection: { ...modelSelection } } : {}),
+      ...(agentId ? { agentId } : {}),
       ...(typeof userVisibleInput === 'string' && userVisibleInput.trim()
         ? { userVisibleInput: userVisibleInput.trim() }
         : {}),
@@ -180,6 +183,7 @@ export function regenerateLastSessionCommand({
   uploadedAttachments,
   displayAttachments,
   modelSelection,
+  agentId,
   workspaceCwd,
   syntheticMessages,
 }: RegenerateLastSessionOptions): void {
@@ -213,6 +217,7 @@ export function regenerateLastSessionCommand({
         ? { uploadedAttachments }
         : {}),
       ...(modelSelection ? { modelSelection: { ...modelSelection } } : {}),
+      ...(agentId ? { agentId } : {}),
       ...(Array.isArray(displayAttachments) ? { displayAttachments } : {}),
       ...(resolvedWorkspaceCwd ? { workspaceCwd: resolvedWorkspaceCwd } : {}),
       ...(Array.isArray(syntheticMessages) && syntheticMessages.length > 0

@@ -56,6 +56,7 @@ describe("settings route paths", () => {
   it("maps menu keys and legacy tabs onto dedicated settings URLs", () => {
     expect(getSettingsPath("modelPool")).toBe("/settings/models");
     expect(getSettingsPath("agentSearch")).toBe("/settings/agent-search");
+    expect(getSettingsPath("projectTeam")).toBe("/settings/project-team");
     expect(getSettingsPathFromTab("config:tools")).toBe("/settings/agent-search");
     expect(getSettingsPathFromTab("permissions")).toBe("/settings/privacy");
   });
@@ -65,6 +66,7 @@ describe("settings route paths", () => {
     expect(mapSettingsSectionToMenuKey("models")).toBe("modelPool");
     expect(mapSettingsSectionToMenuKey("mcp")).toBe("mcpServers");
     expect(mapSettingsSectionToMenuKey("office")).toBe("officePreview");
+    expect(mapSettingsSectionToMenuKey("project-team")).toBe("projectTeam");
   });
 });
 

@@ -15,6 +15,7 @@ import mcpIcon from "../assets/nav/mcp.svg?raw";
 import modelPoolIcon from "../assets/nav/model-pool.svg?raw";
 import officeIcon from "../assets/nav/office.svg?raw";
 import privacyIcon from "../assets/nav/privacy.svg?raw";
+import projectTeamIcon from "../assets/nav/project-team.svg?raw";
 
 export const SETTINGS_BACK_ICON = backIcon;
 export const SETTINGS_CONFIG_ICON = configIcon;
@@ -28,6 +29,7 @@ export const SETTINGS_NAV_ICONS: Partial<Record<SettingsMenuKey, string>> = {
   agentResident: agentResidentIcon,
   agentSearch: agentSearchIcon,
   agentSchedule: agentScheduleIcon,
+  projectTeam: projectTeamIcon,
   integrations: integrationsIcon,
   mcpServers: mcpIcon,
   officePreview: officeIcon,

@@ -146,16 +146,18 @@ describe('MainAreaV2 dashboard switcher', () => {
     expect(screen.getByRole('button', { name: '成果' })).toBeTruthy();
   });
 
-  it('switches chat, files and artifacts from one three-page header', () => {
+  it('switches chat, files, changes and artifacts from one four-page header', () => {
     render(<Harness />);
 
     const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
     const chatButton = pages.getByRole('button', { name: '对话' });
     const filesButton = pages.getByRole('button', { name: '文件' });
+    const changesButton = pages.getByRole('button', { name: '改动' });
     const artifactsButton = pages.getByRole('button', { name: '成果' });
 
     expect(chatButton.getAttribute('aria-pressed')).toBe('true');
     expect(filesButton.getAttribute('aria-pressed')).toBe('false');
+    expect(changesButton.getAttribute('aria-pressed')).toBe('false');
     expect(artifactsButton.getAttribute('aria-pressed')).toBe('false');
 
     fireEvent.click(filesButton);
@@ -172,6 +174,52 @@ describe('MainAreaV2 dashboard switcher', () => {
     expect(chatButton.getAttribute('aria-pressed')).toBe('true');
     expect(artifactsButton.getAttribute('aria-pressed')).toBe('false');
     expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
+  });
+
+  it('enters the changes page from the drawer and closes the panel on the way out', () => {
+    const closed = vi.fn();
+    window.addEventListener('pilotdeck:close-review', closed);
+    render(<Harness withSession />);
+
+    const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
+    const changesButton = pages.getByRole('button', { name: '改动' });
+
+    fireEvent.click(changesButton);
+    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('git');
+    expect(changesButton.getAttribute('aria-pressed')).toBe('true');
+    // 进「改动」这一页不该顺手把面板也关掉——它就是要在这里弹出来。
+    expect(closed).not.toHaveBeenCalled();
+
+    // 面板开合和 activeTab 是两份状态：以前切回对话面板还留在原地，
+    // 右上角的关闭按钮又被页面标签条压住，于是只剩下重启能出去。
+    fireEvent.click(pages.getByRole('button', { name: '对话' }));
+    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
+    expect(closed).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener('pilotdeck:close-review', closed);
+  });
+
+  it('folds the page tabs into a handle and brings them back', () => {
+    render(<Harness />);
+
+    // 标签是浮在主区上的一层抽屉：收起后只留右缘一枚把手，页面本身不卸载。
+    fireEvent.click(screen.getByRole('button', { name: '收起页面标签' }));
+    expect(screen.queryByRole('navigation', { name: '页面切换' })).toBeNull();
+    expect(screen.getByTestId('main-content')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '展开页面标签' }));
+    const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
+    expect(pages.getByRole('button', { name: '对话' })).toBeTruthy();
+  });
+
+  it('remembers a folded tab drawer across remounts', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: '收起页面标签' }));
+    cleanup();
+
+    render(<Harness />);
+    expect(screen.queryByRole('navigation', { name: '页面切换' })).toBeNull();
+    expect(screen.getByRole('button', { name: '展开页面标签' })).toBeTruthy();
   });
 
   it('renames the selected session inline after double-clicking the header title', () => {
@@ -256,7 +304,8 @@ describe('MainAreaV2 dashboard switcher', () => {
 
     fireEvent(window, new Event('pilotdeck:open-changes'));
     expect(screen.getByRole('button', { name: '成果' }).getAttribute('aria-pressed')).toBe('false');
-    expect(screen.getByRole('button', { name: '对话' }).getAttribute('aria-pressed')).toBe('true');
+    // 「改动」自己就是一页：侧栏把它叫出来，选中态停在「改动」而不是弹回「对话」。
+    expect(screen.getByRole('button', { name: '改动' }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByTestId('main-content').getAttribute('data-review-tab')).toBe('changes');
   });
 
@@ -264,7 +313,7 @@ describe('MainAreaV2 dashboard switcher', () => {
     render(<Harness initialTab="cron" withSession />);
 
     expect(await screen.findByRole('heading', { name: 'Scheduled Tasks' })).toBeTruthy();
-    expect(screen.getByTestId('cron-page')).toBeTruthy();
+    expect(await screen.findByTestId('cron-page')).toBeTruthy();
     expect(screen.queryByTitle('Searchable chat')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Search current conversation' })).toBeNull();
     expect(screen.queryByRole('button', { name: '文件' })).toBeNull();
@@ -275,10 +324,18 @@ describe('MainAreaV2 dashboard switcher', () => {
     render(<Harness initialTab="skills" withSession />);
 
     expect(await screen.findByRole('heading', { name: 'Skills' })).toBeTruthy();
-    expect(screen.getByTestId('skills-page')).toBeTruthy();
+    expect(await screen.findByTestId('skills-page')).toBeTruthy();
     expect(screen.queryByTitle('Searchable chat')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Search current conversation' })).toBeNull();
     expect(screen.queryByRole('button', { name: '文件' })).toBeNull();
     expect(screen.queryByRole('navigation', { name: '页面切换' })).toBeNull();
+  });
+
+  it('keeps the conversation surface when no dedicated page is selected', async () => {
+    render(<Harness initialTab="chat" withSession />);
+
+    // 项目室撤掉了，主区不再有独立的房间页面，只有对话本身。
+    expect(screen.queryByTestId('rooms-page')).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Project Rooms' })).toBeNull();
   });
 });

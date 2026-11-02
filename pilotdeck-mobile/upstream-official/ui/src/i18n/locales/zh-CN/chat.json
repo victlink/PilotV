@@ -17,6 +17,7 @@
     "emptyTitle": "就这个项目询问 PilotV",
     "emptyDescription": "需要把文件加入上下文时，请用 @ 引用工作区文件。"
   },
+  "input": {"agents": {"select": "选择 Agent", "default": "默认 Agent"}},
   "inputQueue": {
     "sending": "发送中",
     "label": "排队消息",

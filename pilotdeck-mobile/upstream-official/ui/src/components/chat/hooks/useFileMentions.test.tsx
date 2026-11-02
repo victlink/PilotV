@@ -23,7 +23,7 @@ const project = {
   fullPath: '/workspace/project-a',
 } as Project;
 
-const textareaRef = { current: null } as RefObject<HTMLTextAreaElement>;
+const textareaRef: RefObject<HTMLTextAreaElement | null> = { current: null };
 
 describe('useFileMentions conversation scope', () => {
   beforeEach(() => {

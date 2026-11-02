@@ -22,6 +22,7 @@ const PrivacySections = lazy(() => import("./privacy"));
 const AboutSections = lazy(() => import("./about"));
 const OfficePreviewSections = lazy(() => import("./officePreview"));
 const ComputerUseSections = lazy(() => import('./computerUse'));
+const ProjectTeamSections = lazy(() => import("./projectTeam"));
 
 const AppearanceSettings = lazy(() => import('./appearance'));
 
@@ -46,6 +47,7 @@ const MENU_TITLE_KEYS: Record<SettingsMenuKey, string> = {
   agentResident: "settingsPage.titles.agentResident",
   agentSearch: "settingsPage.titles.agentSearch",
   agentSchedule: "settingsPage.titles.agentSchedule",
+  projectTeam: "settingsPage.titles.projectTeam",
   integrations: "settingsPage.titles.integrations",
   extensions: "settingsPage.titles.extensions",
   mcpServers: "settingsPage.titles.mcpServers",
@@ -66,6 +68,7 @@ const PAGE_HEADING_KEYS: Record<SettingsMenuKey, string> = {
   agentResident: "settingsPage.menu.agentResident",
   agentSearch: "settingsPage.menu.agentSearch",
   agentSchedule: "settingsPage.menu.agentSchedule",
+  projectTeam: "settingsPage.menu.projectTeam",
   integrations: "settingsPage.menu.messageChannels",
   extensions: "settingsPage.menu.extensions",
   mcpServers: "settingsPage.menu.mcpServers",
@@ -85,6 +88,7 @@ const PAGE_DESCRIPTION_KEYS: Partial<Record<SettingsMenuKey, string>> = {
   agentResident: "settingsPage.descriptions.agentResident",
   agentSearch: "settingsPage.descriptions.agentSearch",
   agentSchedule: "settingsPage.descriptions.agentSchedule",
+  projectTeam: "settingsPage.descriptions.projectTeam",
   integrations: "settingsPage.descriptions.integrations",
   mcpServers: "settingsPage.descriptions.mcpServers",
   officePreview: "settingsPage.descriptions.officePreview",
@@ -103,6 +107,7 @@ const PAGE_CLASS: Partial<Record<SettingsMenuKey, string>> = {
   agentResident: "agent-resident-page",
   agentSearch: "agent-search-page",
   agentSchedule: "agent-scheduled-page",
+  projectTeam: "project-team-page",
   integrations: "integration-settings-page",
   mcpServers: "mcp-settings-page",
   officePreview: "office-settings-page",
@@ -131,7 +136,9 @@ export default function SettingsContent({
     ? "settingsPage.descriptions.aboutWeb"
     : PAGE_DESCRIPTION_KEYS[selectedKey];
   const pageClass = PAGE_CLASS[selectedKey];
-  const isAgentSubpage = selectedKey.startsWith("agent") && selectedKey !== "agent";
+  const isAgentSubpage =
+    (selectedKey.startsWith("agent") && selectedKey !== "agent") ||
+    selectedKey === "projectTeam";
   const isExternalIntegrationPage =
     selectedKey === "integrations" ||
     selectedKey === "mcpServers" ||
@@ -196,6 +203,8 @@ export default function SettingsContent({
           <AgentSearchSections title={title} />
         ) : selectedKey === "agentSchedule" ? (
           <AgentScheduleSections title={title} />
+        ) : selectedKey === "projectTeam" ? (
+          <ProjectTeamSections title={title} projects={projects} />
         ) : selectedKey === "integrations" ? (
           <IntegrationsSections title={title} />
         ) : selectedKey === "mcpServers" ? (

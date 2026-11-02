@@ -20,11 +20,13 @@ import {
 } from '../../../../utils/officePreviewStatus';
 import type { CodeEditorFile } from '../../types/types';
 import {
+  isAudioFile,
   isBuiltinOfficeFile,
   isImageFile,
   isOfficeFile,
   isPdfFile,
   isSpreadsheetFile,
+  isVideoFile,
   isWordFile,
 } from '../../utils/binaryFile';
 import { getPdfNavigationMode } from '../../utils/documentPreview';
@@ -763,6 +765,68 @@ function FallbackContent({
   );
 }
 
+/**
+ * 视频 / 音频预览。
+ *
+ * 和图片那条路刻意不同：图片小，整文件读成 blob 再喂给 <img> 没问题；视频动辄
+ * 几十上百 MB，用同样的做法得先整个下完才出画面，而且 blob 会一直占着内存。
+ * 所以这里直接把 Range URL 交给 <video>/<audio>，让浏览器边下边播 ——
+ * 服务端的 streamFileWithRange 本来就支持 Range 和 206。
+ */
+function MediaPreview({ projectName, file, title, message, onClose, kind }: {
+  projectName?: string;
+  file: CodeEditorFile;
+  title: string;
+  message: string;
+  onClose: () => void;
+  kind: 'video' | 'audio';
+}) {
+  const [failed, setFailed] = useState(false);
+
+  // 没有 projectName 就没法拼 /api/projects/<name>/files/content（只读目录浏览
+  // 没有这个上下文），此时老老实实退回「无法显示」，不要静默出一个坏掉的播放器。
+  if (!projectName || failed) {
+    return <FallbackContent title={title} message={message} onClose={onClose} />;
+  }
+
+  const src = api.fileContentUrl(projectName, file.path, {
+    cacheKey: (file.modified as number | string | undefined) ?? undefined,
+  });
+  const isVideo = kind === 'video';
+
+  return (
+    <div className="flex h-full w-full flex-col bg-neutral-50 dark:bg-neutral-900">
+      <div className="flex min-h-0 flex-1 items-center justify-center p-4">
+        {isVideo ? (
+          <video
+            key={src}
+            src={src}
+            controls
+            autoPlay
+            playsInline
+            preload="metadata"
+            onError={() => setFailed(true)}
+            className="max-h-full max-w-full rounded-md bg-black shadow-sm"
+          />
+        ) : (
+          <div className="flex w-full max-w-2xl flex-col items-center gap-4 rounded-lg border border-neutral-200 bg-white px-6 py-8 dark:border-neutral-800 dark:bg-neutral-950">
+            <audio
+              key={src}
+              src={src}
+              controls
+              autoPlay
+              preload="metadata"
+              onError={() => setFailed(true)}
+              className="w-full"
+            />
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{file.name}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ImagePreview({ projectName, file, title, message, onClose }: {
   projectName?: string;
   file: CodeEditorFile;
@@ -1483,16 +1547,31 @@ export default function CodeEditorBinaryFile({
     'flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100';
 
   const isImage = isImageFile(file.name);
+  const isVideo = isVideoFile(file.name);
+  const isAudio = isAudioFile(file.name);
   const isPdf = isPdfFile(file.name);
   const isOffice = isOfficeFile(file.name);
-  const canPreview = isImage || isPdf || isOffice;
+  const canPreview = isImage || isVideo || isAudio || isPdf || isOffice;
   const hasEmbeddedDocumentToolbar = isPdf || isOffice;
   const documentIsFullscreen = isSidebar ? isExpanded : isFullscreen;
   const onToggleDocumentFullscreen = isSidebar ? onToggleExpand : onToggleFullscreen;
 
+  const mediaKind: 'video' | 'audio' | null = isVideo ? 'video' : isAudio ? 'audio' : null;
+
   const previewContent = isImage
     ? <ImagePreview projectName={projectName} file={file} title={title} message={message} onClose={onClose} />
-    : isPdf
+    : mediaKind
+      ? (
+        <MediaPreview
+          projectName={projectName}
+          file={file}
+          title={title}
+          message={message}
+          onClose={onClose}
+          kind={mediaKind}
+        />
+      )
+      : isPdf
       ? (
         <PdfPreview
           projectName={projectName}

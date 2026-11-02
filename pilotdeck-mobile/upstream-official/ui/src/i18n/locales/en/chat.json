@@ -17,6 +17,7 @@
     "emptyTitle": "Ask PilotV about this project",
     "emptyDescription": "Reference a workspace file with @ when you want it included."
   },
+  "input": {"agents": {"select": "Select agent", "default": "Default agent"}},
   "inputQueue": {
     "sending": "Sending",
     "label": "Queued messages",

@@ -26,7 +26,7 @@ interface UseFileMentionsOptions {
   mentionScopeKey: string | null;
   input: string;
   setInput: Dispatch<SetStateAction<string>>;
-  textareaRef: RefObject<HTMLTextAreaElement>;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
 }
 
 export function useFileMentions({

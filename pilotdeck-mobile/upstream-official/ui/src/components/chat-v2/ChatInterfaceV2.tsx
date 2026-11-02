@@ -1,3 +1,4 @@
+import ProjectTeamStrip from './ProjectTeamStrip';
 import ErrorBoundary from '../main-content/view/ErrorBoundary';
 import { useContext } from 'react';
 import { SessionViewReadyContext } from '../app-shell/useSessionIndicators';
@@ -7,6 +8,8 @@ import { MessageSquare } from 'lucide-react';
 import { useTasksSettings } from '../../contexts/TasksSettingsContext';
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../utils/api';
+import { fetchProjectTeam } from '../../lib/projectTeamApi';
+import type { ProjectTeamAgent } from '../../lib/projectTeam';
 import type { ChatInterfaceProps, ChatMessage, ChatRunMode, PermissionMode, Provider } from '../chat/types/types';
 import {
   getSessionRequestParams,
@@ -50,6 +53,13 @@ type PendingViewSession = {
   sessionId: string | null;
   startedAt: number;
 };
+
+/**
+ * Stable empty agent list. It keeps the derived agent list referentially
+ * stable while no team configuration is loaded, so the selectors and the
+ * composer state are not rebuilt on every render.
+ */
+const EMPTY_TEAM_AGENTS: ProjectTeamAgent[] = [];
 
 const EDIT_RECONCILIATION_HINT = [
   'The user message immediately before this note is the complete edited request. Follow that request, including its limits on tools and file changes; this note is context only.',
@@ -105,6 +115,55 @@ function ChatInterfaceV2({
     ? selectedProjectFromShell
     : (workspaceBinding ?? selectedProjectFromShell ?? defaultProject);
   const { t } = useTranslation('chat');
+  const [teamState, setTeamState] = useState<{ root: string; agents: ProjectTeamAgent[] }>({
+    root: '',
+    agents: [],
+  });
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  /**
+   * The General workspace is a virtual conversation space rooted at PILOT_HOME,
+   * not a project that owns a team configuration. The backend skips it when it
+   * lists the registered project roots (`ui/server/services/projectTeamConfig.js`),
+   * so the chat must not ask for a team config there either.
+   */
+  const isGeneralWorkspace = !selectedProject || isGeneralProject(selectedProject);
+  const projectRoot = isGeneralWorkspace
+    ? ''
+    : selectedProject?.fullPath || selectedProject?.path || '';
+  /**
+   * The agent list belongs to the workspace it was loaded for. Deriving it from
+   * the loaded root keeps the previous workspace's agents out of the selector
+   * in the very render that switches workspaces, instead of only clearing them
+   * in a later effect.
+   */
+  const teamAgents = teamState.root === projectRoot ? teamState.agents : EMPTY_TEAM_AGENTS;
+  /**
+   * The selection only counts while the loaded team still contains it, so a
+   * stale agent id can never reach the turn payload after a workspace switch.
+   */
+  const activeAgentId = teamAgents.some((agent) => agent.id === selectedAgentId)
+    ? selectedAgentId
+    : null;
+  useEffect(() => {
+    const controller = new AbortController();
+    setSelectedAgentId(null);
+    if (!projectRoot) {
+      setTeamState({ root: '', agents: [] });
+      return () => controller.abort();
+    }
+    void fetchProjectTeam(projectRoot, { signal: controller.signal }).then((config) => {
+      if (!controller.signal.aborted) {
+        setTeamState({ root: projectRoot, agents: config.agents.filter((agent) => agent.enabled) });
+      }
+    }).catch(() => {
+      if (!controller.signal.aborted) setTeamState({ root: projectRoot, agents: [] });
+    });
+    return () => controller.abort();
+  }, [projectRoot]);
+  useEffect(() => {
+    if (selectedAgentId && !teamAgents.some((agent) => agent.id === selectedAgentId)) setSelectedAgentId(null);
+  }, [selectedAgentId, teamAgents]);
+  const [participantsState, setParticipantsState] = useState<{sessionId: string; participants: Array<{agentId: string; name: string; role: string}>}>({sessionId: '', participants: []});
   const setViewReady = useContext(SessionViewReadyContext);
   const { subscribe: contextSubscribe } = useWebSocket();
   const { tasksEnabled: _tasksEnabled, isTaskMasterInstalled: _isTaskMasterInstalled } =
@@ -339,6 +398,7 @@ function ChatInterfaceV2({
     currentSessionId,
     model,
     modelSelection,
+    agentId: activeAgentId || undefined,
     isModelSelectionReady,
     isPermissionModeReady,
     runMode,
@@ -652,6 +712,7 @@ function ChatInterfaceV2({
       runId,
       userVisibleInput: editedText,
       modelSelection: { ...modelSelection },
+      agentId: activeAgentId || undefined,
       toolsSettings: getPilotDeckSettings(),
       runMode,
       permissionMode: effectivePermissionMode,
@@ -681,6 +742,7 @@ function ChatInterfaceV2({
     model,
     permissionMode,
     runMode,
+    activeAgentId,
     selectedProject,
     selectedSession,
     sendMessage,
@@ -827,6 +889,9 @@ function ChatInterfaceV2({
       canSubmitWithoutModel={canSubmitWithoutModel}
       modelCatalogError={modelCatalogError}
       projectKey={selectedProject?.fullPath || selectedProject?.path || ''}
+      agents={teamAgents}
+      selectedAgentId={activeAgentId}
+      onAgentSelectionChange={setSelectedAgentId}
       onModelSelectionChange={setModelSelection}
       pendingPermissionRequests={pendingPermissionRequests}
       handlePermissionDecision={handlePermissionDecision}
@@ -858,6 +923,15 @@ function ChatInterfaceV2({
     </div>
   );
 
+  useEffect(() => contextSubscribe((message: any) => {
+    if ((message?.type === 'project-participants' || message?.type === 'session-status') && message.sessionId === (selectedSession?.id || currentSessionId)) {
+      const participants = message.type === 'project-participants' ? message.participants : message.projectParticipants;
+      if (Array.isArray(participants)) setParticipantsState({sessionId: message.sessionId, participants});
+    }
+  }), [contextSubscribe, selectedSession?.id, currentSessionId]);
+
+  const teamStrip = <ProjectTeamStrip agents={teamAgents} selectedAgentId={activeAgentId} onSelect={setSelectedAgentId} participants={participantsState.sessionId === (selectedSession?.id || currentSessionId) ? participantsState.participants : []} />;
+
   if (isWelcomeMode) {
     const projectName = selectedProject && !isGeneralProject(selectedProject)
       ? projectDisplayName(selectedProject)
@@ -865,6 +939,7 @@ function ChatInterfaceV2({
     if (compact) {
       return (
         <div className="pd-chat-canvas flex min-h-0 min-w-0 flex-1 flex-col bg-white dark:bg-neutral-950">
+          {teamStrip}
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 text-center">
             <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
               <MessageSquare className="h-4 w-4" strokeWidth={1.8} />
@@ -884,6 +959,7 @@ function ChatInterfaceV2({
     }
     return (
       <div className="pd-chat-canvas flex h-full flex-col bg-white dark:bg-neutral-950">
+        {teamStrip}
         <div className="flex flex-1 flex-col items-center justify-center px-6">
           <div className="w-full max-w-[860px]">
             <h1 className="mb-8 text-center text-[26px] font-medium tracking-tight text-neutral-900 dark:text-neutral-100">
@@ -904,7 +980,8 @@ function ChatInterfaceV2({
   }
 
   return (
-    <div className="pd-chat-canvas grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden bg-white dark:bg-neutral-950">
+    <div className="pd-chat-canvas grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-white dark:bg-neutral-950">
+      {teamStrip}
       <ErrorBoundary showDetails resetKeys={[selectedSession?.id, selectedProject?.name]}>
         <MessagesPaneV2
           scrollContainerRef={scrollContainerRef}

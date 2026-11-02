@@ -1,8 +1,9 @@
-import { useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { Files, GitBranch, History, RefreshCw } from 'lucide-react';
 import ToolSidePanel from '../main-content/view/subcomponents/ToolSidePanel';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { useChatReview, type RestorePlan } from './ChatReviewContext';
+import { REVIEW_CLOSE_EVENT } from './reviewEvents';
 import GitReviewTab from './GitReviewTab';
 import ChangesReviewTab from './ChangesReviewTab';
 import CheckpointHistoryTab from './CheckpointHistoryTab';
@@ -37,6 +38,26 @@ export default function ChatReviewSidePanel({ width, minWidth, maxWidth, isMobil
   width: number; minWidth: number; maxWidth: number; isMobile: boolean; onResizeStart: (event: MouseEvent<HTMLDivElement>) => void; onResizeBy: (delta: number) => void;
 }) {
   const review = useChatReview();
+  // 退路一：页面标签条切到别的页面时递事件过来。退路二：Esc。
+  // close 每轮渲染都是新函数，用 ref 兜住，免得监听器反复摘挂。
+  const closeRef = useRef<(() => void) | null>(null);
+  closeRef.current = review?.close ?? null;
+  useEffect(() => {
+    const close = () => closeRef.current?.();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // 正在输入框/文本域里打字时不抢 Esc，交给输入框自己用。
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest('input, textarea, [contenteditable="true"]')) return;
+      close();
+    };
+    window.addEventListener(REVIEW_CLOSE_EVENT, close);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener(REVIEW_CLOSE_EVENT, close);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
   if (!review?.panelOpen) return null;
   const header = <div className="flex min-w-0 flex-1 items-center gap-1">
     <button type="button" onClick={() => review.open('changes')} aria-pressed={review.tab === 'changes'} className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs ${review.tab === 'changes' ? 'bg-neutral-100 font-medium text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}><Files className="h-3.5 w-3.5" />变更</button>

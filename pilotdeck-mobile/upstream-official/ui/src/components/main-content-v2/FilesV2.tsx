@@ -1,5 +1,5 @@
 import { useConfirm } from '../ui/ConfirmDialog';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   DragEvent as ReactDragEvent,
   MouseEvent as ReactMouseEvent,
@@ -41,6 +41,7 @@ import {
 } from '../../utils/externalFileDrop';
 import type { WorkspaceUploadController } from './useWorkspaceUpload';
 import { WorkspaceUploadStatus } from './WorkspaceUploadStatus';
+import { FileConversationContext } from './fileConversationContext';
 
 type FilesV2Props = {
   selectedProject: Project | null;
@@ -180,7 +181,82 @@ export default function FilesV2({
     return () => window.removeEventListener('click', dismiss);
   }, [uploadMenuOpen]);
 
-  const flat = useMemo(() => flatten(files, expanded), [files, expanded]);
+  const conversation = useContext(FileConversationContext);
+  const root = selectedProject?.fullPath || selectedProject?.path || '';
+  const defaultDirectory = conversation.cwd || root;
+  const [directory, setDirectory] = useState(defaultDirectory);
+  const [address, setAddress] = useState(defaultDirectory);
+  const [directoryError, setDirectoryError] = useState('');
+  const [listing, setListing] = useState<{ path: string; entries: FileTreeNode[] } | null>(null);
+  const [browsing, setBrowsing] = useState(false);
+  const navigationVersion = useRef(0);
+  useEffect(() => {
+    navigationVersion.current += 1;
+    setListing(null);
+    setBrowsing(false);
+    setDirectory(defaultDirectory);
+    setAddress(defaultDirectory);
+    setDirectoryError('');
+    setExpanded(new Set());
+    setContextMenu(null);
+    setInlineEdit(null);
+  }, [conversation.id, defaultDirectory]);
+
+  const findDirectory = (path: string, nodes: FileTreeNode[]): FileTreeNode | undefined => {
+    for (const node of nodes) {
+      if (node.type !== 'directory') continue;
+      if (node.path === path) return node;
+      const found = findDirectory(path, node.children || []);
+      if (found) return found;
+    }
+  };
+  const navigateDirectory = async (path: string, force = false) => {
+    const input = path.trim().replace(/\\/g, '/');
+    const absolute = input.startsWith('/') || /^[A-Za-z]:\//.test(input) || input.startsWith('~');
+    const target = /^[A-Za-z]:$/.test(input) ? `${input}/` : absolute ? input : `${directory}/${input}`;
+    const normalized = /^[A-Za-z]:\/$/.test(target) ? target : target.replace(/\/+$/, '') || '/';
+    const version = ++navigationVersion.current;
+    let destination = normalized;
+    setBrowsing(false);
+    if (force || (normalized !== root && !findDirectory(normalized, files))) {
+      setBrowsing(true);
+      try {
+        const response = await api.get(`/browse-filesystem?path=${encodeURIComponent(normalized)}&includeFiles=true&showHidden=true`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Directory not accessible');
+        if (!Array.isArray(data.entries)) throw new Error('This backend does not support file directory listing.');
+        if (version !== navigationVersion.current) return;
+        destination = data.path || normalized;
+        setListing({ path: destination, entries: data.entries });
+      } catch (error) {
+        if (version === navigationVersion.current) setDirectoryError(error instanceof Error ? error.message : 'Directory not accessible');
+        return;
+      } finally {
+        if (version === navigationVersion.current) setBrowsing(false);
+      }
+    } else {
+      setListing(null);
+    }
+    setActivePath(null);
+    setUploadMenuOpen(false);
+    setDirectory(destination);
+    setAddress(destination);
+    setDirectoryError('');
+    setExpanded(new Set());
+    setContextMenu(null);
+    setInlineEdit(null);
+  };
+  // A shallow filesystem listing is navigation-only. Project endpoints retain their
+  // existing containment checks; never send external paths to them.
+  const readOnlyListing = listing?.path === directory || (directory !== root && !findDirectory(directory, files));
+  useEffect(() => {
+    if (defaultDirectory && defaultDirectory !== root && !findDirectory(defaultDirectory, files)) {
+      void navigateDirectory(defaultDirectory);
+    }
+    return () => { navigationVersion.current += 1; };
+  }, [conversation.id, defaultDirectory, root]);
+  const visibleFiles = listing?.path === directory ? listing.entries : directory === root ? files : findDirectory(directory, files)?.children || [];
+  const flat = useMemo(() => flatten(visibleFiles, expanded), [visibleFiles, expanded]);
 
   const projectName = selectedProject?.name ?? '';
   const projectRoot = selectedProject?.fullPath || selectedProject?.path || '';
@@ -198,12 +274,13 @@ export default function FilesV2({
     (node: FileTreeNode) => {
       setActivePath(node.path);
       if (node.type === 'directory') {
-        toggle(node.path);
+        if (readOnlyListing) void navigateDirectory(node.path);
+        else toggle(node.path);
         return;
       }
-      onFileOpen?.(node.path);
+      if (!readOnlyListing) onFileOpen?.(node.path);
     },
-    [onFileOpen, toggle],
+    [onFileOpen, toggle, readOnlyListing, directory, files],
   );
 
   // --- Context menu ---
@@ -422,7 +499,7 @@ export default function FilesV2({
     (node: FileTreeNode) => {
       closeContextMenu();
       setActivePath(node.path);
-      onFileOpen?.(node.path);
+      if (!readOnlyListing) onFileOpen?.(node.path);
     },
     [closeContextMenu, onFileOpen],
   );
@@ -450,10 +527,11 @@ export default function FilesV2({
     [canAddToChat, closeContextMenu, projectRoot, selectedProject?.name],
   );
 
-  const uploadSelectedFiles = useCallback((fileList: FileList | File[] | null, targetPath = '') => {
+  const uploadSelectedFiles = useCallback((fileList: FileList | File[] | null, targetPath = directory === root ? '' : directory) => {
     setUploadMenuOpen(false);
+    if (readOnlyListing) return;
     return startWorkspaceUpload(fileList, targetPath);
-  }, [startWorkspaceUpload]);
+  }, [startWorkspaceUpload, directory, root, readOnlyListing]);
 
   const resetExternalFileDrop = useCallback(() => {
     externalFileDragDepthRef.current = 0;
@@ -490,7 +568,7 @@ export default function FilesV2({
       if (!files || files.length === 0) return;
 
       const { dropPath, dropType } = readExternalFileDropTarget(event);
-      const targetPath = resolveExternalFileDropTargetPath(dropPath, dropType, projectRoot);
+      const targetPath = dropPath ? resolveExternalFileDropTargetPath(dropPath, dropType, projectRoot) : undefined;
       void uploadSelectedFiles(files, targetPath);
     },
     [projectRoot, resetExternalFileDrop, uploadSelectedFiles],
@@ -550,13 +628,13 @@ export default function FilesV2({
   );
 
   const handleDeleteActive = useCallback(() => {
-    if (!activePath) return;
+    if (!activePath || readOnlyListing) return;
     const activeIdentity = getWorkspaceFileIdentity(activePath, projectRoot);
     const activeNode = flat.find(
       ({ node }) => getWorkspaceFileIdentity(node.path, projectRoot) === activeIdentity,
     );
     if (activeNode) handleDelete(activeNode.node);
-  }, [activePath, flat, handleDelete, projectRoot]);
+  }, [activePath, flat, handleDelete, projectRoot, readOnlyListing]);
 
   // --- Depth lookup for context menu target ---
 
@@ -578,7 +656,7 @@ export default function FilesV2({
     );
   }
 
-  const cwd = selectedProject.fullPath || selectedProject.path || selectedProject.name;
+  const cwd = directory;
   const menuItemClass = cn(
     'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors',
     'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800',
@@ -612,7 +690,7 @@ export default function FilesV2({
   );
 
   const findInsertIndex = (parentPath: string): number => {
-    if (!parentPath) return flat.length;
+    if (!parentPath || parentPath === directory) return flat.length;
     const parentIdx = flat.findIndex((f) => f.node.path === parentPath);
     if (parentIdx === -1) return flat.length;
     const parentDepth = flat[parentIdx].depth;
@@ -625,10 +703,10 @@ export default function FilesV2({
     <section
       className={cn('dock-panel file-panel', isExternalFileDropActive && 'file-panel-drop-active')}
       aria-label={t('filesWorkbench.fileDirectory')}
-      onDragEnter={handleExternalFileDragEnter}
-      onDragOver={handleExternalFileDragOver}
+      onDragEnter={readOnlyListing ? undefined : handleExternalFileDragEnter}
+      onDragOver={readOnlyListing ? undefined : handleExternalFileDragOver}
       onDragLeave={handleExternalFileDragLeave}
-      onDrop={handleExternalFileDrop}
+      onDrop={readOnlyListing ? (event) => event.preventDefault() : handleExternalFileDrop}
     >
       <header
         className="dock-panel-header"
@@ -650,15 +728,25 @@ export default function FilesV2({
         </div>
       </header>
 
+      <form className="flex items-center gap-2 px-3 py-2" onSubmit={(event) => { event.preventDefault(); navigateDirectory(address); }}>
+        <button type="button" aria-label={t('fileTree.parentDirectory', { defaultValue: 'Parent directory' })} onClick={() => navigateDirectory(directory.replace(/\\/g, '/').replace(/\/[^/]+\/?$/, '') || '/')}>
+          ..
+        </button>
+        <input className="min-w-0 flex-1 rounded border bg-transparent px-2 py-1 text-xs" aria-label={t('fileTree.directoryAddress', { defaultValue: 'Directory address' })} value={address} onChange={(event) => setAddress(event.target.value)} />
+        <button type="submit">{t('fileTree.go', { defaultValue: 'Go' })}</button>
+      </form>
+      {directoryError ? <p role="alert" className="px-3 text-xs text-red-600">{directoryError}</p> : null}
+      {readOnlyListing ? <p className="px-3 text-xs text-neutral-500">{t('fileTree.navigationOnly', { defaultValue: 'Navigation only: file operations are available in the project tree.' })}</p> : null}
+      {browsing ? <p role="status" className="px-3 text-xs">{t('fileTree.loading', { defaultValue: 'Loading directory…' })}</p> : null}
       <div className="compact-file-actions">
-        <button className="file-action-button" type="button" onClick={() => handleNewFile('', 0)}>
+        <button className="file-action-button" type="button" disabled={readOnlyListing} onClick={() => handleNewFile(directory === root ? '' : directory, 0)}>
           <svg aria-hidden="true" className="icon" fill="none" height="17" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="17">
             <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
             <path d="M14 2v5a1 1 0 0 0 1 1h5" />
           </svg>
           <span>{t('fileTree.context.newFile', { defaultValue: 'New File' })}</span>
         </button>
-        <button className="file-action-button" type="button" onClick={() => handleNewFolder('', 0)}>
+        <button className="file-action-button" type="button" disabled={readOnlyListing} onClick={() => handleNewFolder(directory === root ? '' : directory, 0)}>
           <svg aria-hidden="true" className="icon" fill="none" height="17" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="17">
             <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
           </svg>
@@ -669,7 +757,7 @@ export default function FilesV2({
               className="file-action-button"
               type="button"
               onClick={(e) => { e.stopPropagation(); setUploadMenuOpen((open) => !open); }}
-              disabled={uploadingProject}
+              disabled={uploadingProject || readOnlyListing}
               title={t('fileTree.upload', { defaultValue: 'Upload files or folder' }) as string}
               aria-label={t('fileTree.upload', { defaultValue: 'Upload files or folder' }) as string}
             >
@@ -684,7 +772,7 @@ export default function FilesV2({
               )}
               <span>{t('buttons.upload')}</span>
             </button>
-            {uploadMenuOpen ? (
+            {uploadMenuOpen && !readOnlyListing ? (
               <div className="absolute left-0 top-8 z-20 w-36 rounded-md border border-neutral-200 bg-white py-1 text-[12px] shadow-lg dark:border-neutral-800 dark:bg-neutral-950">
                 <button
                   type="button"
@@ -723,7 +811,7 @@ export default function FilesV2({
               }}
             />
         </div>
-        <button className="file-action-button" type="button" onClick={handleDownloadProject} disabled={downloadingProject}>
+        <button className="file-action-button" type="button" onClick={handleDownloadProject} disabled={downloadingProject || readOnlyListing}>
           {downloadingProject ? (
             <Loader2 className="icon animate-spin" height={17} width={17} strokeWidth={1.8} />
           ) : (
@@ -735,7 +823,7 @@ export default function FilesV2({
           )}
           <span>{t('fileTree.context.download', { defaultValue: 'Download' })}</span>
         </button>
-        <button className="file-action-button" type="button" onClick={refreshFiles} disabled={loading}>
+        <button className="file-action-button" type="button" onClick={() => readOnlyListing ? void navigateDirectory(directory, true) : refreshFiles()} disabled={loading || browsing}>
           <svg aria-hidden="true" className={cn('icon', loading && 'animate-spin')} fill="none" height="17" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="17">
             <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
             <path d="M21 3v5h-5" />
@@ -744,7 +832,7 @@ export default function FilesV2({
           </svg>
           <span>{t('fileTree.refresh', { defaultValue: 'Refresh' })}</span>
         </button>
-        <button className="file-action-button" type="button" onClick={handleDeleteActive} disabled={!activePath}>
+        <button className="file-action-button" type="button" onClick={handleDeleteActive} disabled={!activePath || readOnlyListing}>
           <svg aria-hidden="true" className="icon" fill="none" height="17" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="17">
             <path d="M10 11v6" />
             <path d="M14 11v6" />
@@ -769,7 +857,9 @@ export default function FilesV2({
           </div>
         ) : flat.length === 0 && inlineEdit?.kind !== 'create' ? (
           <div className="py-6 text-center text-xxs text-neutral-500 dark:text-neutral-400">
-            {t('fileTree.empty', { defaultValue: 'This project is empty.' })}
+            {directory !== root && !findDirectory(directory, files)
+              ? t('fileTree.directoryUnavailable', { defaultValue: 'Directory is not available in this project. Browsing outside the project requires filesystem API support.' })
+              : t('fileTree.empty', { defaultValue: 'This directory is empty.' })}
           </div>
         ) : (
           <ul className="space-y-0.5 px-4">
@@ -828,6 +918,7 @@ export default function FilesV2({
                   ) : (
                     <div
                       onClick={() => handleClick(node)}
+                      onDoubleClick={() => { if (isDir && !readOnlyListing) navigateDirectory(node.path); }}
                       data-file-drop-path={node.path}
                       data-file-drop-type={isDir ? 'directory' : 'file'}
                       style={{ marginLeft: `${depth * 20}px` }}
@@ -868,7 +959,7 @@ export default function FilesV2({
                       >
                         {node.name}
                       </span>
-                      {!isDir && (
+                      {!isDir && !readOnlyListing && (
                         <button
                           type="button"
                           onClick={(event) => handleDownloadFile(event, node)}
@@ -879,7 +970,7 @@ export default function FilesV2({
                           <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
                         </button>
                       )}
-                      {isHtmlFile ? (
+                      {isHtmlFile && !readOnlyListing ? (
                         <button
                           type="button"
                           onClick={(event) => handleOpenHtmlPreview(event, node)}
@@ -903,7 +994,7 @@ export default function FilesV2({
         )}
       </div>
 
-      {contextMenu ? (
+      {contextMenu && !readOnlyListing ? (
         <div
           role="menu"
           aria-label={t('fileTree.context.menuLabel', { defaultValue: 'File context menu' }) as string}
@@ -1026,7 +1117,7 @@ export default function FilesV2({
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => handleNewFile('', 0)}
+                onClick={() => handleNewFile(directory === root ? '' : directory, 0)}
                 className={menuItemClass}
               >
                 <FilePlus className={menuIconClass} strokeWidth={1.75} />
@@ -1035,7 +1126,7 @@ export default function FilesV2({
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => handleNewFolder('', 0)}
+                onClick={() => handleNewFolder(directory === root ? '' : directory, 0)}
                 className={menuItemClass}
               >
                 <FolderPlus className={menuIconClass} strokeWidth={1.75} />

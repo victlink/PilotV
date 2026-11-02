@@ -31,7 +31,12 @@ vi.mock('../../../utils/api', () => ({
 }));
 
 vi.mock('../../auth/context/AuthContext', () => ({ useAuth: () => ({ user: { id: 'test' } }) }));
-vi.mock('../../../contexts/WebSocketContext', () => ({ useWebSocket: () => ({ subscribe: mocks.subscribe, isConnected: false }) }));
+vi.mock('../../../contexts/WebSocketContext', () => ({
+  useWebSocket: () => ({ subscribe: mocks.subscribe, isConnected: false }),
+  // MainAreaV2 会用 useOptionalWebSocket（待确认弹窗），mock 里必须一起给出，
+  // 否则渲染时会报 "No useOptionalWebSocket export is defined"。
+  useOptionalWebSocket: () => ({ subscribe: mocks.subscribe, sendMessage: () => false, isConnected: false }),
+}));
 vi.mock('../../../hooks/useDeviceSettings', () => ({ useDeviceSettings: () => ({ isMobile: false }) }));
 vi.mock('../../../hooks/useSessionProtection', () => ({ useSessionProtection: () => ({ activeSessions: new Set(), processingSessions: new Set() }) }));
 vi.mock('../../app-shell/useSessionIndicators', async () => {

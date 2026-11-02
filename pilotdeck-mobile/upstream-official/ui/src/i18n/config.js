@@ -28,6 +28,7 @@ import enCodeEditor from './locales/en/codeEditor.json';
 import enAlwaysOn from './locales/en/alwaysOn.json';
 import enRouting from './locales/en/routing.json';
 import enOnboarding from './locales/en/onboarding.json';
+import enProjectTeam from './locales/en/projectTeam.json';
 // eslint-disable-next-line import-x/order
 import enTasks from './locales/en/tasks.json';
 
@@ -39,6 +40,7 @@ import zhChat from './locales/zh-CN/chat.json';
 import zhAlwaysOn from './locales/zh-CN/alwaysOn.json';
 import zhRouting from './locales/zh-CN/routing.json';
 import zhOnboarding from './locales/zh-CN/onboarding.json';
+import zhProjectTeam from './locales/zh-CN/projectTeam.json';
 // eslint-disable-next-line import-x/order
 import zhCodeEditor from './locales/zh-CN/codeEditor.json';
 
@@ -74,6 +76,7 @@ i18n
         alwaysOn: enAlwaysOn,
         routing: enRouting,
         onboarding: enOnboarding,
+        projectTeam: enProjectTeam,
       },
       'zh-CN': {
         common: zhCommon,
@@ -85,6 +88,7 @@ i18n
         alwaysOn: zhAlwaysOn,
         routing: zhRouting,
         onboarding: zhOnboarding,
+        projectTeam: zhProjectTeam,
       },
     },
 
@@ -92,7 +96,7 @@ i18n
     fallbackLng: 'en',
     debug: import.meta.env.DEV,
 
-    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'alwaysOn', 'routing', 'onboarding'],
+    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'alwaysOn', 'routing', 'onboarding', 'projectTeam'],
     defaultNS: 'common',
     keySeparator: '.',
     nsSeparator: ':',

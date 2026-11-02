@@ -11,6 +11,7 @@ const PAGE_SLUG_BY_KEY: Partial<Record<SettingsMenuKey, string>> = {
   agentResident: "agent-resident",
   agentSearch: "agent-search",
   agentSchedule: "agent-schedule",
+  projectTeam: "project-team",
   integrations: "integrations",
   mcpServers: "mcp",
   officePreview: "office",

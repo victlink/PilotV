@@ -4,7 +4,10 @@
 // remaining caller after the V1 sidebar tear-down.
 import type { Project } from '../types/app';
 
-export type SettingsProject = Pick<Project, 'name' | 'displayName' | 'fullPath' | 'path'>;
+export type SettingsProject = Pick<
+  Project,
+  'name' | 'displayName' | 'fullPath' | 'path' | 'kind'
+>;
 
 export const normalizeProjectForSettings = (project: Project): SettingsProject => {
   const fallbackPath =
@@ -25,5 +28,7 @@ export const normalizeProjectForSettings = (project: Project): SettingsProject =
       typeof project.path === 'string' && project.path.length > 0
         ? project.path
         : fallbackPath,
+    // `kind === 'general'` 的是通用工作区，不是可配置团队的项目，后端会跳过。
+    kind: project.kind,
   };
 };

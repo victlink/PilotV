@@ -117,6 +117,10 @@ describe('user onboarding status route', () => {
   });
 
   it('accepts a ready configuration even when Gateway is managed elsewhere', async () => {
+    // 这台机器上 PILOTDECK_RUNTIME_SUPERVISED=1 是全局环境变量，会让
+    // runtimeCoordination 误判成「有 supervisor」，状态变成 stopped。
+    // 这里显式置空，保证用例只测「Gateway 由别处托管」这一条路径。
+    vi.stubEnv('PILOTDECK_RUNTIME_SUPERVISED', '');
     const { request } = await createUserApp({
       exists: true,
       config: {

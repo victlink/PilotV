@@ -33,8 +33,8 @@ export async function readJson<T>(response: Response): Promise<T> {
   return body as T;
 }
 
-export function ChatReviewProvider({ project: initialProject, session, openGit = false, openRequest, onOpen, children }: {
-  project: Project | null; session: ProjectSession | null; openGit?: boolean; openRequest?: ReviewOpenRequest; onOpen: () => void; children: ReactNode;
+export function ChatReviewProvider({ project: initialProject, session, openGit = false, openTab, openRequest, onOpen, children }: {
+  project: Project | null; session: ProjectSession | null; openGit?: boolean; openTab?: ReviewTab; openRequest?: ReviewOpenRequest; onOpen: () => void; children: ReactNode;
 }) {
   const [binding, setBinding] = useState({ project: initialProject, sessionId: session?.id ?? null, running: false, readOnly: false });
   const { project, sessionId, running, readOnly } = binding;
@@ -45,7 +45,7 @@ export function ChatReviewProvider({ project: initialProject, session, openGit =
   const [loading, setLoading] = useState(false), [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<RestorePlan | null>(null), [restoring, setRestoring] = useState(false);
   const generation = useRef(0), gitGeneration = useRef(0);
-  const handledOpenRequest = useRef<ReviewOpenRequest>();
+  const handledOpenRequest = useRef<ReviewOpenRequest | undefined>(undefined);
   const bindingKey = `${project?.fullPath || project?.path || project?.name || ''}\0${sessionId || ''}`;
   const activeKey = useRef(bindingKey);
   activeKey.current = bindingKey;
@@ -79,7 +79,10 @@ export function ChatReviewProvider({ project: initialProject, session, openGit =
     if (id) { setCheckpointId(id); setScope('turn'); }
     if (relative) setFilePath(relative); else if (id) setFilePath(null);
   }, [onOpen]);
-  useEffect(() => { if (openGit) open('git'); }, [openGit, open]);
+  // openTab 优先：页面标签条的「改动」进这一页时落在「变更」上，Git 和历史在面板里一键可切。
+  // openGit 是旧入口（activeTab === 'git' 直接开 Git），保留给旧调用和测试。
+  const requestedTab = openTab ?? (openGit ? 'git' : null);
+  useEffect(() => { if (requestedTab) open(requestedTab); }, [requestedTab, open]);
   useEffect(() => {
     if (!openRequest || handledOpenRequest.current === openRequest) return;
     handledOpenRequest.current = openRequest;
