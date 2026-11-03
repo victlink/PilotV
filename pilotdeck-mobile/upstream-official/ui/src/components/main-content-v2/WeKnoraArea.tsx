@@ -46,6 +46,7 @@ export default function WeKnoraArea() {
     setAttempt(value => value + 1);
     const frame = frameRef.current;
     // 已经是 ready 时探测结果没变化，得靠重设 src 让 iframe 真的重载。
+    // eslint-disable-next-line no-self-assign -- 有意把 src 重新赋成自己，强制 iframe 重载。
     if (frame) frame.src = frame.src;
   }, []);
 
