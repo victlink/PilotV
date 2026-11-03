@@ -25,6 +25,11 @@ FILES=(
   artifacts_cdp.py
   pilotdeck_workspace.py
   "service/serve_artifacts.py:serve_artifacts.py"
+  # CAD 预览：artifacts_console 只负责调用，转换进程活在 scripts/ 里。
+  # 漏了它，/viewer 会一直 503（缺转换器），而原始 STEP 还能下载 ——
+  # 正是「界面看着正常、三维点开是空白」那种难查的故障。
+  artifacts_cad.py
+  "scripts/cad_to_glb.py:scripts/cad_to_glb.py"
 )
 
 echo "=== 1. 本地文件齐不齐 ==="
@@ -62,6 +67,7 @@ ssh -o BatchMode=yes "$TARGET" "
 "
 
 echo "=== 4. 同步代码 ==="
+ssh -o BatchMode=yes "$TARGET" "mkdir -p $REMOTE_DIR/scripts"
 for entry in "${FILES[@]}"; do
   src="${entry%%:*}"
   dst="${entry##*:}"
@@ -77,6 +83,8 @@ ssh -o BatchMode=yes "$TARGET" "
   # 关键：确认每个模块都能真正 import，缺依赖要在这里就暴露
   python3 -c 'import serve_artifacts; print(\"  import 正常\")'
   python3 -c 'import artifacts_console, artifacts_store, artifacts_deliver, artifacts_notify, artifacts_cdp, pilotdeck_workspace; print(\"  全部模块 import 正常\")'
+  # 转换器跑在子进程里：主进程 import 得动不代表 OCP 装得上，这里查真实可用性。
+  python3 -c 'import artifacts_cad; print(\"  CAD 转换器:\", artifacts_cad.converter_status())'
 "
 
 echo "=== 6. 重启服务 ==="

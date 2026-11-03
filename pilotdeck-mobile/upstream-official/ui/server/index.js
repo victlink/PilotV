@@ -141,6 +141,7 @@ import pluginsRoutes from './routes/plugins.js';
 import messagesRoutes from './routes/messages.js';
 import { closeMemoryServices, startMemoryScheduler, stopMemoryScheduler } from './services/memoryService.js';
 import { createNormalizedMessage, createOptimisticUserFrames } from './pilotdeck-message.js';
+import { handlePendingPermissionsMessage, trackPermissionFrames } from './pending-permissions.js';
 import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
 import { initializeDatabase, sessionNamesDb, applyCustomSessionNames, userDb } from './database/db.js';
 import { configureWebPush } from './services/vapid-keys.js';
@@ -1371,6 +1372,9 @@ function getSafeZipFilename(projectName) {
 app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
     try {
         const { path: dirPath } = req.query;
+        if (dirPath !== undefined && (typeof dirPath !== 'string' || dirPath.includes('\0'))) {
+            return res.status(400).json({ error: 'Invalid directory path' });
+        }
 
         console.log('[API] Browse filesystem request for path:', dirPath);
         console.log('[API] WORKSPACES_ROOT is:', WORKSPACES_ROOT);
@@ -1382,6 +1386,7 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
             return res.json({
                 path: '/',
                 suggestions,
+                ...(req.query.includeFiles === 'true' ? { entries: suggestions } : {}),
                 rootsPath: '/',
             });
         }
@@ -1410,7 +1415,8 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
             return res.status(404).json({ error: 'Directory not accessible' });
         }
 
-        const directories = await browseDirectories(resolvedPath, req.query.showHidden === 'true');
+        const entries = await browseDirectories(resolvedPath, req.query.showHidden === 'true', req.query.includeFiles === 'true');
+        const directories = entries.filter(entry => entry.type === 'directory');
 
         // Add common directories if browsing home directory
         const suggestions = [];
@@ -1433,6 +1439,7 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
         res.json({
             path: resolvedPath,
             suggestions: suggestions,
+            ...(req.query.includeFiles === 'true' ? { entries } : {}),
             ...(process.platform === 'win32' ? { rootsPath: '/' } : {}),
         });
 
@@ -2385,7 +2392,17 @@ function handleChatConnection(ws, request) {
         try {
             const data = JSON.parse(message);
 
-            if (data.type === 'ping') return;
+            if (data.type === 'ping') {
+                // 必须回 pong。前端每 30 秒发一次 ping 就是为了探活：没有回包的话，
+                // 客户端根本分不清「连接健康但当前空闲」和「链路已经死了」，只能一直干等。
+                // 手机切后台、休眠、Wi-Fi ↔ 蜂窝切换之后，旧的那条 TCP 连接会被静默丢弃，
+                // 但浏览器里的 socket 仍然停在 OPEN —— 表现就是界面完全正常、
+                // 点任何东西都没反应、断线横幅也不弹，只有重启才能恢复。
+                try {
+                    ws.send(JSON.stringify({ type: 'pong', ts: data.ts ?? null }));
+                } catch { /* 连接已经断了，交给 close 事件处理 */ }
+                return;
+            }
             if (data.type === 'get-session-activity') {
                 writer.send({type: 'session-activity-snapshot', activities: sessionActivityRegistry.snapshot(userId)});
                 return;
@@ -2555,6 +2572,7 @@ function handleChatConnection(ws, request) {
                             reason: data.message,
                         },
                     );
+                    trackPermissionFrames([{ kind: 'permission_cancelled', requestId: data.requestId }], data.sessionId);
                     const resolvedSessionId = normalizeSessionId(data.sessionId);
                     if (resolvedSessionId) {
                         broadcastToSessionWatchers(
@@ -2582,6 +2600,7 @@ function handleChatConnection(ws, request) {
             } else if (data.type === 'elicitation-response') {
                 if (data.requestId) {
                     await elicitationRespondViaGateway(data.requestId, data.answer);
+                    trackPermissionFrames([{ kind: 'permission_cancelled', requestId: data.requestId }], data.sessionId);
                     const resolvedSessionId = normalizeSessionId(data.sessionId);
                     if (resolvedSessionId) {
                         broadcastToSessionWatchers(
@@ -2624,15 +2643,8 @@ function handleChatConnection(ws, request) {
                     activeTurnMessages: includeActiveTurnMessages ? activity.activeTurnMessages : [],
                     tokenBudget: getSessionTokenBudget(sessionId),
                 });
-            } else if (data.type === 'get-pending-permissions') {
-                // Pending-permission introspection is gateway-internal. The
-                // permission_request event already contains everything the
-                // UI needs, so the response is now an empty stub.
-                writer.send({
-                    type: 'pending-permissions-response',
-                    sessionId: data.sessionId,
-                    data: [],
-                });
+            } else if (data.type === 'get-pending-permissions' || data.type === 'get-all-pending-permissions') {
+                handlePendingPermissionsMessage(data, writer);
             } else if (data.type === 'get-active-sessions') {
                 const ids = getActiveSessionIdsViaGateway();
                 // Keep the four-provider keys so the legacy UI store does
@@ -2652,9 +2664,11 @@ function handleChatConnection(ws, request) {
         }
     });
 
+    let heartbeat = null;
     const cleanup = () => {
         if (cleanedUp) return;
         cleanedUp = true;
+        if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
         // Remove from connected clients
         connectedClients.delete(ws);
         sessionWatchRegistry.removeClient(ws);
@@ -2668,6 +2682,28 @@ function handleChatConnection(ws, request) {
     ws.on('error', () => {
         cleanup();
     });
+
+    // 服务端心跳：连续两轮（60 秒）收不到浏览器的 pong 回执，就认为这条连接已经死了。
+    //
+    // 为什么必须由服务端来收尸：手机切后台换网络之后，客户端往往察觉不到，
+    // 服务端却会一直尝试往那条没人读的连接里推数据。实测过这类连接的 Send-Q
+    // 能堆到 2.4MB 还不下降 —— fd、内存、带宽全被一条死连接占着，
+    // 而且它自己永远不会被回收。
+    //
+    // 空闲的健康连接不受影响：ping 是 WebSocket 协议的控制帧，浏览器会自动回 pong，
+    // 不需要前端代码配合。真正断掉的连接则一个回包都不会来。
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+    heartbeat = setInterval(() => {
+        if (ws.isAlive === false) {
+            console.log('💀 WebSocket 心跳超时，回收僵尸连接');
+            cleanup();
+            try { ws.terminate(); } catch { /* 已经断了 */ }
+            return;
+        }
+        ws.isAlive = false;
+        try { ws.ping(); } catch { /* 已经断了 */ }
+    }, 30_000);
 }
 
 // Handle shell WebSocket connections

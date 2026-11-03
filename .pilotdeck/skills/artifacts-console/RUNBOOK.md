@@ -11,9 +11,9 @@
 |---|---|
 | 打开成果 | **在 PilotV 里**：顶部切到「成果」tab，列表只列当前会话的成果（`http://$(tailscale ip -4 \| head -1):5186/`，本机当前是 `100.90.196.104`，会变） |
 | 单个成果的直链 | 暂时没有 —— 成果视图是应用内状态，要先切到对应会话和成果。侧车 `8799` 只提供 API，不提供页面 |
-| 登录 | 页面自带登录框：用户名 `artifacts`，口令在 `/vol3/1000/Work/00/PilotV/.artifacts-secrets.env` 的 `ARTIFACTS_CONSOLE_PASSWORD`（文件 `chmod 600`） |
-| 机器调 API | `Authorization: Bearer $ARTIFACTS_TOKEN`，token 同样在那个文件里 |
-| 起 / 重启 console | `bash scripts/start-console-tailscale.sh [--restart\|--status]` |
+| 登录 | 页面自带登录框；改登录口令见 §0.3 |
+| 机器调 API | `Authorization: Bearer $ARTIFACTS_TOKEN`，token 在 `~/.config/pilotv-artifacts/token`（`chmod 600`） |
+| 起 / 重启 console | `systemctl --user restart pilotv-artifacts.service`（unit 跑的是 `/home/marc/pilotv-artifacts/`，不是本仓库） |
 | 起 / 停侧车 | `./start-sidecar.sh [start\|status\|restart\|stop]`（监听 `127.0.0.1:8801/api/artifacts-mcp`） |
 | 自检（远端视角 10 项） | `python3 scripts/verify_tailscale_access.py` |
 | 自检（浏览器真实路径 8 项） | `python3 scripts/verify_login_flow.py`（必须从非回环地址跑，回环是鉴权豁免区，测不出未登录分支） |
@@ -152,7 +152,7 @@ ARTIFACTS_DATA_DIR=~/.local/share/artifacts \
 ### 1.3 开发/回归：单起一个只有成果台的进程
 
 ```bash
-cd /vol3/1000/Work/00/PilotV
+cd /home/marc/pilotv-artifacts
 python3 scripts/serve_test.py --port 8899   # 联调/回归端口，别拿它当 console 地址
 # 会自检三条静态路由有没有注册上，少一条就 assert 挂掉
 ```
@@ -233,6 +233,57 @@ python3 scripts/purge_test_artifacts.py --apply --yes      # 真删
 | `ARTIFACTS_NOTIFY_EVENTS` | `artifact.added,artifact.status,artifact.dispatched` | 推哪几类事件 |
 | `ARTIFACTS_NOTIFY_AGENTS` | 空（=全推） | 只推这些 agent 的成果，逗号分隔 |
 | `ARTIFACTS_NOTIFY_BASE_URL` | `http://127.0.0.1:8799` | 消息里链接用的公网地址（不是 8899，见 §0.2） |
+| `ARTIFACTS_AUTOWATCH_PROJECTS` | `1` | 自动把每个项目的工作目录挂成监控目录（见 §2.2） |
+| `ARTIFACTS_SESSION_INTERVAL` | `20` | 会话自动收录的轮询间隔（秒） |
+| `ARTIFACTS_SESSION_BACKFILL` | `0` | 是否回灌历史会话产物。**默认关**，见 §2.2 |
+| `ARTIFACTS_SESSION_MAX_AGE_DAYS` | `14` | 回灌时的限龄：只收这么多个天内的产物 |
+
+### 2.2 自动收录：产物为什么不用手动 publish 也会出现
+
+成果台有两条自动收录通道，都是「结构性的」——不需要 agent 记得调用
+publish：
+
+1. **会话收录**（`SessionIngester`）：每 20 秒扫一遍各项目的
+   `chats/*.jsonl`，把里面的 `file_artifacts` 行收成成果。**归属精确到
+   `run_id`**，不会张冠李戴。
+2. **目录监控**：自动把每个项目的工作目录（`projects/*/.cwd`）挂上，
+   挂载之后新写/新改的产物自动进成果台。这条补的是会话记录抓不到的洞
+   ——Blender 走 ssh、MCP server 跑在别的机器时，产物是直接落到磁盘的，
+   运行时压根没跟踪到，transcript 里也没有 `file_artifacts`。
+
+两条通道共用同一份 `watch_sources` 账本（按 path + sha1 去重），所以
+手动 publish 和自动收录撞上同一份文件时只会出现一条，不会重复。
+
+**关掉自动收录**（排查异常时）：
+
+```bash
+export ARTIFACTS_AUTOWATCH_PROJECTS=0   # 关目录自动挂载
+export ARTIFACTS_SESSION_BACKFILL=0     # 关会话收录（默认就是关的）
+```
+
+**为什么回灌历史默认关**：这台机器上可回灌的历史产物有 2452 个，其中位
+年龄 83 天、p90 618 天，绝大多数是 `~/项目/VICTLINK-AI`、`~/项目/CAD`
+两个无关老项目的构建产物。首屏就倒灌，等于把用户真正在做的成果淹在底下。
+确实要回灌就显式打开，并限龄：
+
+```bash
+export ARTIFACTS_SESSION_BACKFILL=1
+export ARTIFACTS_SESSION_MAX_AGE_DAYS=7    # 实测 7 天 → 37 条，30 天 → 581 条
+```
+
+### 2.3 两条自动通道都盖不住的洞
+
+产物写在**任何项目工作目录之外**时，两条通道都收不到。例如 3D 会话的
+Logo 产物实际写在 `~/PilotV/常用资料/PilotV-Logo-3D/`（3D 项目目录之外），
+而 transcript 里只记录了驱动脚本 `pilotv_3d_build.py` —— 这种只能显式
+publish：
+
+```bash
+python3 scripts/artifacts_cli.py publish \
+  --kind image --title "PilotV Logo 三维效果图" \
+  --path "$HOME/PilotV/常用资料/PilotV-Logo-3D/PilotV-Logo-3D.png" \
+  --run-id "web:<session-id>"
+```
 
 ### 2.1 接 IM（飞书 / Lark / 任何吃 webhook 的群机器人）
 

@@ -70,6 +70,8 @@ def main():
     p.add_argument("--run-id", default="")
     p.add_argument("--agent", default="pilotdeck")
     p.add_argument("--project-root", default="", help="相对 path 的解析根，默认用当前目录")
+    p.add_argument("--compare-group", default="",
+                   help="声明这几份是多结果对比（同一个串），成果列表会整组保留而不收成最后一份")
 
     p = sub.add_parser("import", help="把一整个目录的产出一次性导入（去重 + 冲突提示）")
     p.add_argument("path", help="目录，或含 --item 时的任意占位串")
@@ -124,6 +126,7 @@ def main():
                 "url": args.url, "parent_id": args.parent, "sub": args.sub,
                 "run_id": args.run_id, "agent": args.agent,
                 "project_root": args.project_root or os.getcwd(),
+                "compare_group": args.compare_group,
                 "tool": "artifacts_cli"}
         status, data = call("POST", "/api/artifacts", body)
         if status == 200:

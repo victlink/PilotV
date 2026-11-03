@@ -12,6 +12,10 @@ it('lists immediate folders including build directories without descending into 
   await writeFile(path.join(root,'file.txt'),'file');
   expect((await browseDirectories(root)).map(f=>f.name)).toEqual(['dist','nested']);
   expect((await browseDirectories(root,true)).map(f=>f.name)).toEqual(['.hidden','dist','nested']);
+  const entries = await browseDirectories(root, true, true);
+  expect(entries.map(f => f.name)).toEqual(['.hidden','dist','file.txt','nested']);
+  expect(entries.find(f => f.name === 'file.txt')).toEqual({ name: 'file.txt', path: path.join(root, 'file.txt'), type: 'file' });
+  expect(entries.every(f => !('children' in f))).toBe(true);
 });
 it.skipIf(process.platform === 'win32')('includes directory symlinks and ignores broken links', async () => {
   root = await mkdtemp(path.join(os.tmpdir(),'pilotdeck-picker-'));

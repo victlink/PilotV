@@ -1,10 +1,11 @@
-// Service Worker for PilotDeck PWA
+// Service Worker for PilotV PWA
 // Cache only manifest (needed for PWA install). HTML and JS are never pre-cached
 // so a rebuild + refresh always picks up the latest assets.
 // Bump this token whenever a cached asset's contents change (icons, manifest).
 // The activate handler below purges every cache whose name doesn't match,
 // so existing PWAs pick up the new visuals on the next page load.
-const CACHE_NAME = 'pilotdeck-v2';
+// v3: manifest.json 的图标查询串从 ?v=pd1 提到 ?v=pd2（蓝橙循环版品牌）。
+const CACHE_NAME = 'pilotdeck-v3';
 const urlsToCache = [
   '/manifest.json'
 ];
@@ -52,7 +53,14 @@ self.addEventListener('fetch', event => {
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
         }
         return response;
-      }).catch(() => caches.match(event.request))
+      }).catch(async () => {
+        const cached = await caches.match(event.request);
+        // caches.match 没命中时 resolve 成 undefined，而 respondWith(undefined)
+        // 会直接抛 TypeError，请求就变成一个说不清缘由的网络错误。
+        // 这里必须给一个真正的 Response 兜底：返回 504 让上层知道是离线，
+        // 而不是让整个动态 import 以一个看不懂的异常失败。
+        return cached || new Response('', { status: 504, statusText: 'Offline' });
+      })
     );
     return;
   }
@@ -74,7 +82,13 @@ self.addEventListener('fetch', event => {
 
   // Everything else — network-first
   event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
+    fetch(event.request).catch(async () => {
+      const cached = await caches.match(event.request);
+      // caches.match 没命中时 resolve 成 undefined，而 respondWith(undefined)
+      // 会直接抛 TypeError，请求就变成一个说不清缘由的网络错误。
+      // 这里必须给一个真正的 Response 兜底。
+      return cached || new Response('', { status: 504, statusText: 'Offline' });
+    })
   );
 });
 
@@ -100,7 +114,7 @@ self.addEventListener('push', event => {
   try {
     payload = event.data.json();
   } catch {
-    payload = { title: 'PilotDeck', body: event.data.text() };
+    payload = { title: 'PilotV', body: event.data.text() };
   }
 
   const options = {
@@ -113,7 +127,7 @@ self.addEventListener('push', event => {
   };
 
   event.waitUntil(
-    self.registration.showNotification(payload.title || 'PilotDeck', options)
+    self.registration.showNotification(payload.title || 'PilotV', options)
   );
 });
 

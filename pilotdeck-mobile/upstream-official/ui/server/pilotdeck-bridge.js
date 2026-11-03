@@ -66,6 +66,7 @@ import {
     isVisibleFailureStatusDetail,
 } from '../../src/status/agentStatus.js';
 import { createNormalizedMessage } from './pilotdeck-message.js';
+import { trackPermissionFrames } from './pending-permissions.js';
 import { readPermissionSettings } from './services/permissionSettings.js';
 import { createGatewayConnectionCache } from './services/gatewayConnectionCache.js';
 import { ensureGeneralWorkspaceDirectory } from './utils/generalWorkspace.js';
@@ -899,6 +900,10 @@ export function resolvePermissionMode(options, readPersisted = readPermissionSet
  * @returns {object[]} NormalizedMessage frames.
  */
 export function gatewayEventToFrames(event, sessionId, provider) {
+    return trackPermissionFrames(mapGatewayEventToFrames(event, sessionId, provider), sessionId);
+}
+
+function mapGatewayEventToFrames(event, sessionId, provider) {
     const base = { sessionId, provider, ...(event.runId ? { runId: event.runId } : {}), ...(event.timeline ? { timeline: event.timeline, streamState: event.streamState } : {}), ...(event.streamBoundary ? { streamBoundary: event.streamBoundary } : {}) };
     switch (event.type) {
         case 'input_accepted':
@@ -2386,6 +2391,7 @@ export async function abortViaGateway(sessionId, _provider = 'pilotdeck') {
     try {
         const runId = state?.runId;
         await gw.abortTurn({ sessionKey, runId });
+        trackPermissionFrames([{ kind: 'interrupted' }], sessionKey);
         if (state && (!runId || state.runId === runId)) {
             setLocalActiveRun(state, undefined);
         }
@@ -2413,6 +2419,7 @@ export async function replaceLastTurnViaGateway(sessionId, expectedTurnId, optio
         expectedTurnId,
         replacementTurnId: options.runId,
     });
+    trackPermissionFrames([{ kind: 'status', text: 'turn_replaced' }], sessionKey);
     const state = sessionState.get(sessionKey);
     if (state) {
         setLocalActiveRun(state, undefined);
@@ -2563,7 +2570,7 @@ export async function getSessionActivityViaGateway(
                 ? snapshot.runId
                 : null,
             activeTurnMessages: includeActiveTurnMessages && snapshot.active && Array.isArray(snapshot.events)
-                ? snapshot.events.flatMap((event) => gatewayEventToFrames(event, sessionId, provider) || [])
+                ? snapshot.events.flatMap((event) => mapGatewayEventToFrames(event, sessionId, provider) || [])
                 : [],
         };
     } catch (error) {

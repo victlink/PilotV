@@ -1,330 +1,172 @@
 #!/usr/bin/env python3
-"""Animated PilotV logo assets.
-
-Letters are outlined (font independent) so the mark renders identically
-everywhere and each letter can be animated independently.
-
-Motion: the wordmark does not travel. P holds still, the heavier blue V turns
-about its vertical axis, and i/l/o/t type in one after another before sinking
-away again, looping forever. The compact mark has no letters to type, so it
-only turns the V.
-"""
+"""Generate outlined, animated PilotV wordmarks and the matching React component."""
 from pathlib import Path
+import os
 import subprocess
-from fontTools.ttLib import TTFont
-from fontTools.pens.svgPathPen import SVGPathPen
+import sys
 from xml.etree import ElementTree as ET
 
-BRAND = Path(__file__).resolve().parents[2] / "brand"
-BRAND.mkdir(parents=True, exist_ok=True)
+from fontTools.ttLib import TTFont
+from fontTools.pens.boundsPen import BoundsPen
+from fontTools.pens.svgPathPen import SVGPathPen
 
-FONT = subprocess.check_output(
+ROOT = Path(__file__).resolve().parents[2]
+BRAND = ROOT / "brand"
+UI = ROOT / "pilotdeck-mobile/upstream-official/ui"
+FONT = os.environ.get("PILOTV_LOGO_FONT") or subprocess.check_output(
     ["fc-match", "-f", "%{file}", "Lato:style=Black"], text=True
 ).strip()
-if ":" in FONT:
-    FONT = next((p for p in FONT.split(":") if p.endswith(".ttf")), FONT)
 tt = TTFont(FONT)
+if "lato" not in (tt["name"].getDebugName(1) or "").lower():
+    sys.exit(f"Lato Black required to preserve brand geometry: {FONT}")
 glyphs = tt.getGlyphSet()
 cmap = tt.getBestCmap()
 upm = tt["head"].unitsPerEm
-print("outlining from", FONT)
 
 INK = "#0A0A0A"
 BLUE = "#2F5FE0"
 TILE_V = "#4F7DFF"
-
-# Motion knobs. The word does not travel: P holds still, the blue V turns about
-# its vertical axis, and i/l/o/t resolve like a typewriter then sink away again.
-CYCLE_SECONDS = 6.8          # half the speed of the previous 3.4s lap
-FLIP_SECONDS = 3.4           # the V turns left and right, half the previous speed
-
-# Typewriter, as fractions of the cycle. Each lowercase letter resolves on its
-# own cue; the word then erases in reverse order, each letter sinking downward.
-TYPE_LETTERS = {"i": 0.06, "l": 0.14, "o": 0.22, "t": 0.30}
-TYPE_DURATION = 0.06
-TYPE_RISE = 10.0            # user units, up from the baseline
-TYPE_SINK = 16.0            # user units, down as it disappears
-TYPE_SCALE = 0.86
-ERASE_START = 0.66
-ERASE_STEP = 0.055
-ERASE_DURATION = 0.06
-
-# The V reads heavier than the Lato Black body text next to it.
-V_BOLD = round(upm * 0.016)  # glyph units, applied as a stroke on the V only
+CYCLE_SECONDS = 7.2
+SIZE, TRACKING, PAD = 100.0, -4.0, 8.0
+SCALE = SIZE / upm
+V_BOLD = round(upm * 0.016)
+BAR_T, BAR_GAP, BAR_INSET = 5.5, 2.5, 1.2
 
 
 def outline(ch):
-    name = cmap[ord(ch)]
-    pen = SVGPathPen(glyphs)
-    glyphs[name].draw(pen)
-    return pen.getCommands(), glyphs[name].width
+    glyph = glyphs[cmap[ord(ch)]]
+    path = SVGPathPen(glyphs)
+    bounds = BoundsPen(glyphs)
+    glyph.draw(path)
+    glyph.draw(bounds)
+    return path.getCommands(), glyph.width, bounds.bounds
 
 
-def layout(text, size, tracking):
-    """Return (total_width, cap_height, [(char, path, x, advance_width)]).
-
-    Glyph origins sit on the baseline, so the baseline must be placed at
-    `pad + cap` for the cap tops to land on the top edge instead of clipping.
-    """
-    scale = size / upm
-    cap = (getattr(tt["OS/2"], "sCapHeight", size * 0.716) or size * 0.716) * scale
-    out, x = [], 0.0
-    for ch in text:
-        d, w = outline(ch)
-        out.append((ch, d, x, w * scale))
-        x += w * scale + tracking
-    return x - tracking, cap, out
+def layout():
+    cap = (tt["OS/2"].sCapHeight or SIZE * .716) * SCALE
+    letters, x = [], 0.0
+    for ch in "PilotV":
+        d, width, bounds = outline(ch)
+        letters.append((ch, d, x, bounds))
+        x += width * SCALE + TRACKING
+    return x - TRACKING, cap, letters
 
 
-def _letters(text, size, tracking, pad, baseline, colors, flip_char=None,
-             typed=False, prefix=""):
-    """One copy of the word as positioned <g> elements, ready to repeat.
-
-    Position lives in the transform attribute so CSS can own the inner group;
-    that keeps the flips and the typewriter reveals independent per letter.
-    """
-    scale = size / upm
-    parts = []
-    for ch, d, x, _w in layout(text, size, tracking)[2]:
-        fill = (colors or {}).get(ch, INK)
-        cls = ""
-        stroke = ""
-        if ch == flip_char:
-            cls = f' class="{prefix}flip"'
-            # The V carries the mark on its own, so it is drawn heavier than the
-            # Lato Black body: a same-colour stroke laid behind the fill.
-            stroke = f' stroke="{fill}" stroke-width="{V_BOLD}" paint-order="stroke"'
-        elif typed and ch in TYPE_LETTERS:
-            cls = f' class="{prefix}type{TYPE_LETTERS[ch] * 100:.0f}"'
-        parts.append(
-            f'<g transform="translate({x + pad:.2f} {baseline:.2f}) '
-            f'scale({scale} {-scale})"><g{cls}><path d="{d}" fill="{fill}"{stroke}/>'
-            f'</g></g>'
-        )
-    return "".join(parts)
+TOTAL, CAP, LETTERS = layout()
+BASELINE = PAD + CAP
+HEIGHT = BASELINE + PAD + SIZE * .12
+WIDTH = TOTAL + PAD * 2
+_vx, _bounds = next((x, b) for ch, _d, x, b in LETTERS if ch == "V")
+BAR_X = PAD + _vx + _bounds[0] * SCALE + BAR_INSET
+BAR_W = (_bounds[2] - _bounds[0]) * SCALE - BAR_INSET * 2
+BAR_Y = BASELINE + BAR_GAP
+assert BAR_Y + BAR_T < HEIGHT
 
 
-def _pct(fraction):
-    return fraction * 100.0
+def css(prefix="", ink=INK, blue=BLUE):
+    p = lambda n: f".{prefix}{n}"
+    rules = [f"{p('bar')}{{fill:{blue};transform-box:fill-box;transform-origin:50% 50%;animation:pv-line {CYCLE_SECONDS}s linear 1 both}}",
+             f"{p('spark')}{{fill:{blue};filter:drop-shadow(0 0 3px {blue});animation:pv-spark {CYCLE_SECONDS}s linear 1 both}}",
+             f"{p('v')}{{transform-origin:{BAR_X + BAR_W / 2:.2f}px {BASELINE:.2f}px;animation:pv-v {CYCLE_SECONDS}s ease-out 1 both}}"]
+    line_center = BAR_X + BAR_W / 2
+    for index, (ch, _d, x, bounds) in enumerate(LETTERS[:-1]):
+        foot = PAD + x + (bounds[0] + bounds[2]) / 2 * SCALE
+        dy = BAR_Y + BAR_T / 2 - (BASELINE - bounds[1] * SCALE)
+        dx = line_center - foot
+        start = 37 + index * 10
+        end = start + 8
+        rules.append(f"{p('letter-' + ch)}{{fill:{ink};transform-origin:{foot:.2f}px {BASELINE - bounds[1] * SCALE:.2f}px;animation:pv-{ch} {CYCLE_SECONDS}s cubic-bezier(.2,.7,.2,1) 1 both}}")
+        rules.append(f"@keyframes pv-{ch}{{0%,{start}%{{opacity:0;transform:translate({dx:.2f}px,{dy:.2f}px) scale(.12,.12)}}{end}%,100%{{opacity:1;transform:translate(0,0) scale(1,1)}}}}")
+    rules += [
+        "@keyframes pv-spark{0%{opacity:0;r:0}3%,12%{opacity:1;r:4}20%,100%{opacity:0;r:0}}",
+        "@keyframes pv-line{0%,9%{opacity:0;transform:scaleX(0)}12%{opacity:1;transform:scaleX(.02)}22%{opacity:1;transform:scaleX(1.15)}30%,100%{opacity:1;transform:scaleX(1)}}",
+        "@keyframes pv-v{0%,28%{opacity:0;transform:translateY(12px) scale(.6)}37%,100%{opacity:1;transform:translateY(0) scale(1)}}",
+        f"@media (prefers-reduced-motion:reduce){{{','.join(p(n) for n in ['spark','bar','v'] + ['letter-' + ch for ch in 'Pilot'])}{{animation:none}}{p('spark')}{{opacity:0}}}}",
+    ]
+    return "\n".join(rules)
 
 
-def flip_keyframes():
-    """Turn the V about its vertical axis: edge-on, mirrored, edge-on."""
-    return """
-@keyframes flip{
-  0%   { transform: scaleX(1); animation-timing-function: cubic-bezier(.45,.05,.35,1); }
-  50%  { transform: scaleX(-1); animation-timing-function: cubic-bezier(.45,.05,.35,1); }
-  100% { transform: scaleX(1); }
-}"""
+def glyph_nodes(prefix="", ink=INK, blue=BLUE, react=False):
+    nodes = []
+    for ch, d, x, _bounds in LETTERS:
+        cls = f"{prefix}v" if ch == "V" else f"{prefix}letter-{ch}"
+        fill = blue if ch == "V" else ink
+        stroke = f' stroke="{fill}" stroke-width="{V_BOLD}" paint-order="stroke"' if ch == "V" else ""
+        nodes.append(f'<g class="{cls}"><g transform="translate({x + PAD:.2f} {BASELINE:.2f}) scale({SCALE:.3f} {-SCALE:.3f})"><path d="{d}" fill="{fill}"{stroke}/></g></g>')
+    return "".join(nodes)
 
 
-def type_keyframes(ch):
-    """One letter of the typewriter pass.
-
-    It rises into place on its cue, then later sinks back down and out. The
-    last keyframe returns to the armed state so the loop restarts cleanly;
-    both ends are transparent, so the jump is never visible.
-    """
-    appear = TYPE_LETTERS[ch]
-    order = list(TYPE_LETTERS)[::-1].index(ch)       # t erases first, i last
-    erase = ERASE_START + order * ERASE_STEP
-    rest = f"transform: translate(0,0) scale({1:.2f}); opacity: 1;"
-    armed = (f"transform: translate(0,{-TYPE_RISE:.1f}px) scale({TYPE_SCALE:.2f});"
-             " opacity: 0;")
-    sunk = (f"transform: translate(0,{TYPE_SINK:.1f}px) scale({TYPE_SCALE:.2f});"
-            " opacity: 0;")
-    return f"""
-@keyframes type{ch}{{
-  0%    {{{armed}}}
-  {_pct(appear):.2f}%  {{{armed}}}
-  {_pct(appear + TYPE_DURATION):.2f}%  {{{rest}}}
-  {_pct(erase):.2f}%  {{{rest}}}
-  {_pct(erase + ERASE_DURATION):.2f}%  {{{sunk}}}
-  100%  {{{armed}}}
-}}"""
-
-
-def motion_css(prefix="", typed=False, bar=False):
-    """Every rule an asset needs, in one stylesheet."""
-    out = [flip_keyframes()]
-    out.append(f".{prefix}flip{{transform-box:fill-box;transform-origin:50% 50%;"
-               f"animation:flip {FLIP_SECONDS}s ease-in-out infinite}}")
-    if typed:
-        out += [type_keyframes(ch) for ch in TYPE_LETTERS]
-        for ch in TYPE_LETTERS:
-            out.append(f".{prefix}type{TYPE_LETTERS[ch] * 100:.0f}"
-                       f"{{animation:type{ch} {CYCLE_SECONDS}s linear infinite}}")
-    if bar:
-        out.append("@keyframes bar{0%,66%,100%{transform:scaleX(.42);opacity:.45}"
-                   "22%,56%{transform:scaleX(1);opacity:1}}")
-        out.append(f".{prefix}b{{transform-box:fill-box;transform-origin:50% 50%;"
-                   f"animation:bar {CYCLE_SECONDS}s cubic-bezier(.45,.05,.35,1) infinite}}")
-    movers = ",".join(f".{prefix}{n}" for n in
-                      ["flip", "b"] + ([f"type{TYPE_LETTERS[c] * 100:.0f}"
-                                        for c in TYPE_LETTERS] if typed else []))
-    out.append(f"@media (prefers-reduced-motion:reduce){{{movers}{{animation:none}}}}")
-    return "\n".join(out)
-
-
-def wordmark(color=INK, vcolor=BLUE):
-    """One fixed word: P holds, the V turns, i/l/o/t type in and sink out."""
-    size, tracking, pad = 100.0, -4.0, 8.0
-    total, cap, _ = layout("PilotV", size, tracking)
-    baseline = pad + cap
-    height = baseline + pad + size * 0.12          # descender buffer
-    width = total + pad * 2
-    word = _letters("PilotV", size, tracking, pad, baseline,
-                    colors={"V": vcolor}, flip_char="V", typed=True)
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.1f} {height:.1f}" width="{width:.0f}" height="{height:.0f}" role="img" aria-label="PilotV">
-<style>
-{motion_css(typed=True)}
-</style>
-<g class="track">{word}</g></svg>"""
-
-
-def icon(bg=INK, pcolor="#FAFAFA", vcolor=TILE_V, bar=True):
-    """Compact mark: P holds still, the V turns, the bar breathes."""
-    size, tracking = 100.0, -1.0
-    total, cap, _ = layout("PV", size, tracking)
-    tile = 240
-    x0 = (tile - total) / 2
-    baseline = 58 + cap
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {tile} {tile}" width="{tile}" height="{tile}" role="img" aria-label="PilotV">
-<style>
-{motion_css(bar=bar)}
-</style>
-<rect width="{tile}" height="{tile}" rx="52" fill="{bg}"/>
-{_letters("PV", size, tracking, x0, baseline,
-          colors={"P": pcolor, "V": vcolor}, flip_char="V")}
-{f'<rect class="b" x="{x0:.1f}" y="{baseline + 38:.1f}" width="{total:.1f}" height="14" rx="7" fill="{vcolor}"/>' if bar else ""}
-</svg>"""
+def wordmark(ink=INK, blue=BLUE):
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {WIDTH:.1f} {HEIGHT:.1f}" width="{WIDTH:.0f}" height="{HEIGHT:.0f}" role="img" aria-label="PilotV">
+<style>{css(ink=ink, blue=blue)}</style>
+<circle class="spark" cx="{BAR_X + BAR_W / 2:.2f}" cy="{BAR_Y + BAR_T / 2:.2f}" r="4"/>
+<rect class="bar" x="{BAR_X:.2f}" y="{BAR_Y:.2f}" width="{BAR_W:.2f}" height="{BAR_T}" rx="{BAR_T / 2:.2f}"/>
+{glyph_nodes(ink=ink, blue=blue)}</svg>'''
 
 
 outputs = {
     "pilotv-logo-animated.svg": wordmark(),
-    "pilotv-logo-animated-dark.svg": wordmark(color="#FAFAFA", vcolor=TILE_V),
-    "pilotv-icon-animated.svg": icon(),
-    "pilotv-icon-animated-plain.svg": icon(bg="none", pcolor=INK, vcolor=BLUE),
+    "pilotv-logo-animated-dark.svg": wordmark("#FAFAFA", TILE_V),
+    # Legacy animated URLs also tell the complete story, never a boxed icon.
+    "pilotv-icon-animated.svg": wordmark("#FAFAFA", TILE_V),
+    "pilotv-icon-animated-plain.svg": wordmark(),
 }
 for name, svg in outputs.items():
-    ET.fromstring(svg)          # structural validation
-    assert "<text" not in svg, "logo must be outlined"
-    (BRAND / name).write_text(svg)
-    print("wrote", BRAND / name, f"{len(svg)//1024}KB")
-
-
-# --- React component -------------------------------------------------------
-# Inline (not <img>) so the wordmark can follow the app theme via currentColor.
-TSX = Path(__file__).resolve().parents[2] / (
-    "pilotdeck-mobile/upstream-official/ui/src/components/app-shell/PilotVLogo.tsx"
-)
-size, tracking, pad = 100.0, -4.0, 8.0
-total, cap, letters = layout("PilotV", size, tracking)
-baseline = pad + cap
-height = baseline + pad + size * 0.12
-pitch = total + pad * 2
-def _tsx_cls(ch):
-    """Class the React component puts on the letter's inner group."""
-    if ch == "V":
-        return '"pv-logo__flip"'
-    if ch in TYPE_LETTERS:
-        return f'"pv-logo__type{TYPE_LETTERS[ch] * 100:.0f}"'
-    return "undefined"          # P rides along without its own motion
-
+    ET.fromstring(svg)
+    for directory in (BRAND, UI / "public/brand"):
+        (directory / name).write_text(svg)
 
 rows = "\n".join(
-    f"    {{ ch: '{ch}', x: {x + pad:.2f}, cls: {_tsx_cls(ch)}, d: '{d}' }},"
-    for ch, d, x, w in letters
+    f"  {{ ch: '{ch}', x: {x + PAD:.2f}, d: '{d}' }},"
+    for ch, d, x, _bounds in LETTERS
 )
-
-TSX_BODY = f'''/**
- * PilotV animated wordmark.
- *
- * Generated by design/logo/animated-generate.py — edit the generator, not this
- * file. Letterforms are outlined (no font dependency). The word runs as a
- * turn; the blue V turns about its vertical axis; i/l/o/t resolve one after
- * another like a typewriter and erase again in reverse.
- */
-import type {{ CSSProperties }} from 'react';
+tsx = f'''import type {{ CSSProperties }} from 'react';
 import './PilotVLogo.css';
 
 const LETTERS = [
 {rows}
 ] as const;
 
-const SCALE = {size / upm:.6f};
-const VIEW_W = {total + pad * 2:.2f};
-const VIEW_H = {height:.2f};
-const BASELINE = {baseline:.2f};
-
 export type PilotVLogoProps = {{
-  /** Rendered height in px; the wordmark keeps its aspect ratio. */
   height?: number;
-  /** Set false to freeze the resting wordmark (screenshots, static contexts). */
   animated?: boolean;
   className?: string;
   style?: CSSProperties;
-  /** Hide from assistive tech when nearby text already names the brand. */
   'aria-hidden'?: boolean;
 }};
 
-export function PilotVLogo({{
-  height = 20,
-  animated = true,
-  className,
-  style,
-  'aria-hidden': ariaHidden,
-}}: PilotVLogoProps) {{
+export function PilotVLogo({{ height = 20, animated = true, className, style, 'aria-hidden': ariaHidden }}: PilotVLogoProps) {{
   return (
-    <svg
-      viewBox={{`0 0 ${{VIEW_W}} ${{VIEW_H}}`}}
-      width={{VIEW_W}}
-      height={{height}}
+    <svg viewBox="0 0 {WIDTH:.1f} {HEIGHT:.1f}" width={{{WIDTH:.1f}}} height={{height}}
       preserveAspectRatio="xMinYMid meet"
-      {{...(ariaHidden
-        ? {{ 'aria-hidden': true }}
-        : {{ role: 'img', 'aria-label': 'PilotV' }})}}
-      className={{['pv-logo', animated && 'pv-logo--animated', className]
-        .filter(Boolean)
-        .join(' ')}}
-      style={{style}}
-    >
-      <g className="pv-logo__track">
-        {{LETTERS.map((letter) => (
-          <g
-            key={{letter.ch}}
-            transform={{`translate(${{letter.x}} ${{BASELINE}}) scale(${{SCALE}} ${{-SCALE}})`}}
-          >
-            <g className={{letter.cls}}>
-              <path
-                d={{letter.d}}
-                fill={{letter.ch === 'V' ? undefined : 'currentColor'}}
-                className={{letter.ch === 'V' ? 'fill-blue-600 dark:fill-blue-400' : undefined}}
-                stroke={{letter.ch === 'V' ? 'currentColor' : undefined}}
-                strokeWidth={{letter.ch === 'V' ? {V_BOLD} : undefined}}
-                paintOrder={{letter.ch === 'V' ? 'stroke' : undefined}}
-              />
-            </g>
+      {{...(ariaHidden ? {{ 'aria-hidden': true }} : {{ role: 'img', 'aria-label': 'PilotV' }})}}
+      className={{['pv-logo', animated && 'pv-logo--animated', className].filter(Boolean).join(' ')}}
+      style={{style}}>
+      <circle className="pv-logo__spark" cx={{{BAR_X + BAR_W / 2:.2f}}} cy={{{BAR_Y + BAR_T / 2:.2f}}} r="4" />
+      <rect className="pv-logo__bar" x={{{BAR_X:.2f}}} y={{{BAR_Y:.2f}}} width={{{BAR_W:.2f}}} height={{{BAR_T}}} rx={{{BAR_T / 2:.2f}}} />
+      {{LETTERS.map(letter => (
+        <g key={{letter.ch}} className={{letter.ch === 'V' ? 'pv-logo__v' : `pv-logo__letter-${{letter.ch}}`}}>
+          <g transform={{`translate(${{letter.x}} {BASELINE:.2f}) scale({SCALE:.3f} {-SCALE:.3f})`}}>
+            <path d={{letter.d}} fill={{letter.ch === 'V' ? 'var(--pv-line)' : 'currentColor'}}
+              stroke={{letter.ch === 'V' ? 'var(--pv-line)' : undefined}}
+              strokeWidth={{letter.ch === 'V' ? {V_BOLD} : undefined}}
+              paintOrder={{letter.ch === 'V' ? 'stroke' : undefined}} />
           </g>
-        ))}}
-      </g>
+        </g>
+      ))}}
     </svg>
   );
 }}
 
 export default PilotVLogo;
 '''
-
-CSS_BODY = f"""/* Generated by design/logo/animated-generate.py; edit the generator. */
-
-{motion_css(prefix="pv-logo__", typed=True)}
-
-.pv-logo--animated {{
-  overflow: hidden;
-}}
-"""
-
-TSX.write_text(TSX_BODY)
-print("wrote", TSX)
-TSX.with_suffix(".css").write_text(CSS_BODY)
-print("wrote", TSX.with_suffix(".css"))
+(UI / "src/components/app-shell/PilotVLogo.tsx").write_text(tsx)
+stylesheet = f'''.pv-logo {{ --pv-line: {BLUE}; }}
+.dark .pv-logo {{ --pv-line: {TILE_V}; }}
+{css(prefix='pv-logo__', ink='currentColor', blue='var(--pv-line)')}
+.pv-logo__spark {{ opacity: 0; }}
+.pv-logo--animated {{ overflow: hidden; }}
+.pv-logo:not(.pv-logo--animated) * {{ animation: none !important; }}
+'''
+(UI / "src/components/app-shell/PilotVLogo.css").write_text(stylesheet)
+print("Generated eight brand/public SVGs and React PilotVLogo")

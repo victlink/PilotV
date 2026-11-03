@@ -47,7 +47,7 @@ import {
 type DiffLine = { type: string; content: string; lineNum: number };
 
 type MessagesPaneV2Props = {
-  scrollContainerRef: RefObject<HTMLDivElement>;
+  scrollContainerRef: RefObject<HTMLDivElement | null>;
   showReturnToLatest?: boolean;
   onResumeScroll?: () => void;
   onPauseScroll?: () => void;

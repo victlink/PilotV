@@ -9,6 +9,7 @@
 // 因此这不是一个开放代理。
 
 import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -323,6 +324,50 @@ function sendFile(res, filePath, extraHeaders) {
   stream.pipe(res);
 }
 
+/**
+ * 长连接隧道（/ws、/shell）的空闲上限。
+ *
+ * /ws 通道的前端每 30 秒发一次 ping，服务端也会回 pong，所以一条健康的连接
+ * 最多 30 秒就一定有一个字节流过。超过这个窗口还一个字节都没有的，
+ * 只可能是已经死了：手机切后台换了网络之后，隧道会一直挂着没人回收，
+ * Send-Q 越堆越大，两端却都以为对方还在 —— 用户看到的就是
+ * 「整个 App 卡住，只能重启」。
+ *
+ * 取 150 秒（5 个 ping 周期）是为了留足余量：中间任何一跳（Tailscale、AP）
+ * 抖动一下都不该被判死，但一条真死的连接五分钟内一定会被收走。
+ */
+const WS_TUNNEL_IDLE_MS = 150_000;
+
+/**
+ * 隧道「连不上」的上限。跟空闲超时是两回事：空闲超时管的是连上之后没数据，
+ * 这里管的是握手阶段就卡住 —— 典型场景是手机休眠或 Tailscale 换路径，
+ * SYN 发出去石沉大海，net.connect 既不报错也不回调。
+ * 30 秒是 Tailscale 探测对端唤醒的常见量级，超过就基本可以判定连不上了。
+ */
+const WS_TUNNEL_CONNECT_TIMEOUT_MS = 30_000;
+
+/**
+ * /shell 隧道不设空闲上限。
+ *
+ * 终端通道是另一套协议：它的客户端（useShellConnection）压根没有心跳，
+ * 用户开着一个终端想事情的时候可以几分钟不产生任何字节 —— 那是一条
+ * 完全健康的连接，拿 /ws 的阈值去砍它就是把「正常终端」变成「终端莫名其妙断了」，
+ * 而客户端又没有自动重连，只会更糟。
+ *
+ * 终端隧道的僵尸连接只占一个 fd，PTY 本来就有 30 分钟的回收机制兜着，
+ * 留着这点资源不值得拿功能可用性去换。
+ */
+
+/**
+ * 转发普通 HTTP 请求时，上游允许的最大静默时间。
+ *
+ * 上游挂住时前端的 fetch 会永远不 settle，连带 Service Worker 的
+ * network-first 也永远不返回，页面就一直转圈。默认给到 10 分钟：
+ * 一次长时间的思考/生成中间可以很久没有输出，不能因为这个把流式响应掐断，
+ * 但真挂死的请求一定会在这个时间内拿到 504 而不是无限等待。
+ */
+const UPSTREAM_IDLE_MS = Number(process.env.PILOTV_UPSTREAM_IDLE_MS || 600_000);
+
 function forward(request, response, targetOrigin, pathname, token, stripCallerAuth = false) {
   let target;
   try { target = new URL(targetOrigin); } catch { response.writeHead(502); response.end('bad upstream'); return; }
@@ -356,6 +401,15 @@ function forward(request, response, targetOrigin, pathname, token, stripCallerAu
     response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);
     upstreamResponse.pipe(response);
   });
+  // 上游静默超过上限就掐掉，给前端一个明确的 504，而不是让它无限期转圈。
+  // 用的是「静默」而不是「总时长」：流式响应中间可以长时间没有输出。
+  upstream.setTimeout(UPSTREAM_IDLE_MS, () => {
+    if (!response.headersSent) {
+      response.writeHead(504, { 'content-type': 'text/plain; charset=utf-8' });
+    }
+    response.end(`上游 ${target.host} 超过 ${Math.round(UPSTREAM_IDLE_MS / 1000)} 秒没有任何响应`);
+    upstream.destroy();
+  });
   upstream.on('error', error => {
     if (!response.headersSent) response.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
     response.end(`上游 ${target.host} 无响应：${error.code || error.message}`);
@@ -363,11 +417,18 @@ function forward(request, response, targetOrigin, pathname, token, stripCallerAu
   request.pipe(upstream);
 }
 
-function pipeSocket(request, socket, head, targetOrigin) {
+function pipeSocket(request, socket, head, targetOrigin, idleMs = WS_TUNNEL_IDLE_MS) {
   let target;
   try { target = new URL(targetOrigin); } catch { socket.destroy(); return; }
   const upstream = net.connect(Number(target.port || (target.protocol === 'https:' ? 443 : 80)), target.hostname);
+  const drop = () => { upstream.destroy(); socket.destroy(); };
+  // 连不上就一定要有上限。隧道对端常常是手机：手机休眠、Wi-Fi 切蜂窝、
+  // Tailscale 换路径时，SYN 会石沉大海（内核一直重试，net.connect 不报错也不回调），
+  // 这条隧道就既不建立也不失败，客户端那边看起来就是「连上了但没反应」。
+  // 到点直接拆掉，让客户端重连，而不是留一条永远悬着的隧道。
+  const connectTimer = setTimeout(drop, WS_TUNNEL_CONNECT_TIMEOUT_MS);
   upstream.on('connect', () => {
+    clearTimeout(connectTimer);
     const headers = [`GET ${request.url} HTTP/1.1`];
     for (let index = 0; index < request.rawHeaders.length; index += 2) {
       const name = request.rawHeaders[index];
@@ -380,9 +441,25 @@ function pipeSocket(request, socket, head, targetOrigin) {
     if (head?.length) upstream.write(head);
     socket.pipe(upstream);
     upstream.pipe(socket);
+
+    // 空闲回收。判「客户端还活着」只看客户端→网关这一个方向：
+    // 浏览器每 30 秒发一个 ping，30 秒一个来回，150 秒收不到任何客户端字节
+    // 就说明这条路径已经断了（手机切后台换网络、Wi-Fi 切蜂窝、Tailscale 换路径）。
+    //
+    // 反过来，后端→网关这个方向绝对不能拿来判活：故障现场正是后端在往一个
+    // 没人读的 socket 里猛推数据（Send-Q 堆到 2.4MB 且不下降），
+    // 拿它当活性信号，死隧道就永远等不到超时，只会被越撑越大。
+    if (idleMs > 0) {
+      let idleTimer = setTimeout(drop, idleMs);
+      const touch = () => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(drop, idleMs);
+      };
+      socket.on('data', touch);
+      socket.on('close', () => clearTimeout(idleTimer));
+    }
   });
-  const drop = () => { upstream.destroy(); socket.destroy(); };
-  upstream.on('error', () => { if (!socket.destroyed) socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); else socket.destroy(); });
+  upstream.on('error', () => { clearTimeout(connectTimer); if (!socket.destroyed) socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); else socket.destroy(); });
   socket.on('error', () => upstream.destroy());
   socket.on('close', () => upstream.end());
 }
@@ -491,6 +568,44 @@ function handleRegistryApi(request, response, url, config, registry) {
   return send(405, { error: '不支持的请求方法' });
 }
 
+/**
+ * 读 TLS 证书。两项必须同时存在才启用 HTTPS —— 只给一半就当没配，
+ * 不能让网关在半 TLS 半明文的中间态上跑起来，那比干脆不加密更难排查。
+ */
+export function readTlsOptions(env = process.env) {
+  const cert = (env.PILOTV_TLS_CERT || '').trim();
+  const key = (env.PILOTV_TLS_KEY || '').trim();
+  if (!cert || !key) {
+    if (cert || key) {
+      throw new Error('PILOTV_TLS_CERT 与 PILOTV_TLS_KEY 必须同时设置，只给一半不会启用 HTTPS');
+    }
+    return null;
+  }
+  if (!fs.existsSync(cert)) throw new Error(`PILOTV_TLS_CERT 不存在: ${cert}`);
+  if (!fs.existsSync(key)) throw new Error(`PILOTV_TLS_KEY 不存在: ${key}`);
+  return { cert: fs.readFileSync(cert), key: fs.readFileSync(key) };
+}
+
+/**
+ * 按有没有证书选 https / http。
+ *
+ * 为什么必须真的上 TLS：安卓 Chrome 只在「安全上下文」里允许注册 Service Worker
+ * 和安装 PWA，局域网 http://192.168.x.x:5186 不是安全上下文 —— Service Worker
+ * 直接注册失败，浏览器也永远不给安装入口，manifest 写得再对都没用。
+ * WebSocket 会跟着页面自动升级成 wss://，升级事件在两种 server 上同名，
+ * 所以下面那段隧道逻辑不用改。
+ */
+export function createGatewayServer(config, listener) {
+  const tls = config.tls;
+  if (!tls) return http.createServer(listener);
+  // HSTS 只在 HTTPS 下才有意义：告诉浏览器一年内别再把这个源降级回 http，
+  // 否则用户手输 http:// 打不开，会以为服务挂了。
+  return https.createServer({ cert: tls.cert, key: tls.key }, (request, response) => {
+    response.setHeader('strict-transport-security', 'max-age=31536000');
+    listener(request, response);
+  });
+}
+
 export function createGateway(config) {
   const distDir = config.distDir;
   const indexPath = path.join(distDir, 'index.html');
@@ -503,6 +618,10 @@ export function createGateway(config) {
     return fsp.readFile(indexPath, 'utf-8').then(html => {
       const cookies = [];
       // 只有通过 ?d= 明确切换时才刷新 Cookie，普通刷新不会覆盖别人的选择。
+      // 刻意用会话 Cookie（不设 Max-Age）：设备选择只活在当前浏览器会话里，
+      // 关掉浏览器再打开就回到本机默认。之前挂 1 年会让一次误点永久生效，
+      // 而且设备换了之后请求会被转发到一台没有本机 token 的机器上，
+      // 前端一收到 401 就清 token 刷新 —— 表现就是「登录后又弹回登录页」。
       if (backend.source === 'query') {
         cookies.push(`${DEVICE_COOKIE}=${encodeURIComponent(backend.origin)}; Path=/; SameSite=Lax`);
       }
@@ -523,7 +642,7 @@ export function createGateway(config) {
     }).catch(() => { response.writeHead(404); response.end('dist/index.html 不存在，请先构建前端'); });
   };
 
-  const server = http.createServer((request, response) => {
+  const handleRequest = (request, response) => {
     const url = new URL(request.url, 'http://pilotv.local');
 
     if (registry && url.pathname.startsWith(PILOTV_API_PREFIX)) {
@@ -564,7 +683,9 @@ export function createGateway(config) {
       if (path.extname(file)) { response.writeHead(404); response.end('not found'); return; }
       serveIndex(request, response);
     });
-  });
+  };
+
+  const server = createGatewayServer(config, handleRequest);
 
   server.on('upgrade', (request, socket, head) => {
     const pathname = new URL(request.url, 'http://pilotv.local').pathname;
@@ -585,7 +706,9 @@ export function createGateway(config) {
     const backend = resolveBackend(request, config, devices);
     const upstream = route === 'artifacts' ? resolveArtifactsOrigin(backend.origin, config, devices) : backend.origin;
     if (upstream === null) { socket.end('HTTP/1.1 503 Service Unavailable\r\n\r\n'); return; }
-    pipeSocket(request, socket, head, upstream);
+    // /shell 通道的客户端没有心跳，不能套用 /ws 的空闲阈值（见 WS_TUNNEL_IDLE_MS 的说明）。
+    const idleMs = pathname.startsWith('/shell') ? 0 : WS_TUNNEL_IDLE_MS;
+    pipeSocket(request, socket, head, upstream, idleMs);
   });
 
   return server;
@@ -628,6 +751,7 @@ export function loadConfigFromEnv(env = process.env) {
     weknoraUrl: env.PILOTV_WEKNORA_URL || '',
     port: Number(env.UI_PORT || 5186),
     bind: env.PILOTV_BIND || '0.0.0.0',
+    tls: readTlsOptions(env),
   };
 }
 
@@ -689,7 +813,13 @@ if (invokedDirectly) {
   }
   const server = createGateway(config);
   server.listen(config.port, config.bind, () => {
-    console.log(`PilotV 网关已启动：http://${config.bind}:${config.port}/`);
+    // 没证书时是 http：安卓 Chrome 不会给安装入口，Service Worker 也注册不了，
+    // 启动行必须让人一眼看出来，否则只能对着手机猜为什么装不上。
+    console.log(`PilotV 网关已启动：${config.tls ? 'https' : 'http'}://${config.bind}:${config.port}/`);
+    if (!config.tls) {
+      console.log('  提示：未配置 PILOTV_TLS_CERT/PILOTV_TLS_KEY。安卓浏览器安装桌面应用需要 HTTPS，');
+      console.log('       跑 scripts/make_tls_cert.sh 生成证书后再配进本服务。');
+    }
     console.log(`  默认后端 ${config.defaultBackend}`);
     console.log(`  可选设备 ${config.registry.devices().map(device => `${device.name}(${device.origin})`).join('  ')}`);
     console.log(`  设备清单 ${config.registryFile}（写操作${config.allowRegistryWrites ? '已开启' : '已关闭'}）`);

@@ -42,7 +42,7 @@ description: "把做出来的东西挂到 PilotDeck 成果台（artifacts consol
 ## 不可用时：用本技能自带的脚本
 
 ```bash
-CLI=/vol3/1000/Work/00/PilotV/scripts/artifacts_cli.py
+CLI=${PILOTV_ROOT:-/home/marc/PilotV}/scripts/artifacts_cli.py
 
 python3 $CLI publish --kind page --title "落地页" --path src/pages/index.html --url http://127.0.0.1:3001/
 python3 $CLI publish --kind page --title "落地页 v2" --path src/pages/index.html --parent art_ab12cd

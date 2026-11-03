@@ -1,5 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect width="64" height="64" rx="14" fill="#0A0A0A"/>
-  <path d="M19.25 18 H27.25 L32 26.66 L36.75 18 H44.75 L32 41.25 Z" fill="#FAFAFA"/>
-  <rect x="19.25" y="45.25" width="25.5" height="3" rx="1.5" fill="#4F7DFF"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="64" height="64" role="img" aria-label="PilotV">
+<title>PilotV</title><desc>橙 V 配蓝色底线的 PilotV 标记</desc>
+<rect width="512" height="512" rx="112" fill="#0A0A0A"/>
+<g transform="translate(159.41 330.93) scale(0.135 -0.135)">
+<path d="M1448 1457 864 0H558L-26 1457H246Q290 1457 317.0 1436.5Q344 1416 358 1384L640 604Q660 553 679.0 492.5Q698 432 715 366Q729 432 746.5 492.5Q764 553 784 604L1064 1384Q1075 1412 1103.5 1434.5Q1132 1457 1174 1457Z" fill="#e55a09" stroke="#e55a09" stroke-width="32" paint-order="stroke"/>
+</g>
+<rect x="157.70" y="352" width="196.65" height="28" rx="98.33" fill="#297cc0"/>
 </svg>

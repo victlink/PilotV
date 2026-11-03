@@ -8,10 +8,11 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import https from 'node:https';
+import { spawn, execFileSync } from 'node:child_process';
 import {
   DEVICE_COOKIE, DEVICE_HEADER, ADMIN_COOKIE, adminTokenFor, claimRegistryLock, classifyPath, createGateway,
-  injectRuntime, normalizeOrigin,
+  injectRuntime, normalizeOrigin, readTlsOptions,
   readCookie, readDevices, resolveArtifactsOrigin, resolveBackend, resolveDeviceParam, resolveWeknoraUrl,
   slugify, verifyAdmin,
 } from './pilotv_gateway.mjs';
@@ -737,4 +738,122 @@ test('端到端：非 socket 路径的升级请求拿不到隧道', async () => 
     assert.match(crossOrigin.raw, /^HTTP\/1\.1 403/, `跨站升级应被拒，实得：${crossOrigin.raw.split('\r\n')[0]}`);
     assert.ok(originB);
   });
+});
+
+// --- HTTPS ------------------------------------------------------------------
+//
+// 安卓 Chrome 只在安全上下文里注册 Service Worker、才给「安装桌面应用」入口。
+// 局域网 http://192.168.x.x:5186 不是安全上下文，SW 注册直接失败，浏览器永远
+// 不给安装入口 —— manifest 写得再对都没用。所以网关必须真的能起 https。
+
+/** 生成一份临时自签证书（测试用，不做任何信任设置）。 */
+function makeSelfSigned(dir) {
+  const key = path.join(dir, 'k.pem');
+  const cert = path.join(dir, 'c.pem');
+  execFileSync('openssl', [
+    'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2',
+    '-keyout', key, '-out', cert, '-subj', '/CN=127.0.0.1',
+    '-addext', 'subjectAltName=IP:127.0.0.1',
+  ], { stdio: 'ignore' });
+  return { key, cert };
+}
+
+test('readTlsOptions: 两项齐全才启用 HTTPS，只给一半直接报错', () => {
+  assert.equal(readTlsOptions({}), null);
+  assert.equal(readTlsOptions({ PILOTV_TLS_CERT: '', PILOTV_TLS_KEY: '' }), null);
+  // 半 TLS 半明文比干脆不加密更难排查，所以必须拒绝启动而不是降级。
+  assert.throws(() => readTlsOptions({ PILOTV_TLS_CERT: '/tmp/x.pem' }), /必须同时设置/);
+  assert.throws(() => readTlsOptions({ PILOTV_TLS_KEY: '/tmp/x.pem' }), /必须同时设置/);
+  // 文件不存在也要报错，不能等到握手时才崩。
+  assert.throws(() => readTlsOptions({ PILOTV_TLS_CERT: '/no/such.pem', PILOTV_TLS_KEY: '/no/such.pem' }), /PILOTV_TLS_CERT 不存在/);
+});
+
+test('readTlsOptions: 证书齐全时把内容读出来', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pilotv-tls-'));
+  try {
+    const paths = makeSelfSigned(dir);
+    const tls = readTlsOptions({ PILOTV_TLS_CERT: paths.cert, PILOTV_TLS_KEY: paths.key });
+    assert.ok(Buffer.isBuffer(tls.cert) && tls.cert.length > 0);
+    assert.ok(Buffer.isBuffer(tls.key) && tls.key.length > 0);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('端到端：配了证书的网关真的用 https 应答，并带上 HSTS', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pilotv-tls-'));
+  const distDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'pilotv-dist-'));
+  try {
+    await fsp.writeFile(path.join(distDir, 'index.html'), '<!doctype html><title>PilotV</title>');
+    const paths = makeSelfSigned(dir);
+    const gateway = createGateway({
+      distDir,
+      devices: [],
+      registry: null,
+      registryFile: path.join(dir, 'devices.json'),
+      adminSecret: TEST_ADMIN_SECRET,
+      allowRegistryWrites: false,
+      defaultBackend: 'http://127.0.0.1:3001',
+      artifactsTarget: 'http://127.0.0.1:8799',
+      artifactsPerDevice: true,
+      tls: readTlsOptions({ PILOTV_TLS_CERT: paths.cert, PILOTV_TLS_KEY: paths.key }),
+    });
+    await new Promise(resolve => gateway.listen(0, '127.0.0.1', resolve));
+    const port = gateway.address().port;
+
+    const res = await new Promise(resolve => {
+      const request = https.get(
+        { host: '127.0.0.1', port, path: '/', rejectUnauthorized: false,
+          headers: { host: `127.0.0.1:${port}` } },
+        r => { r.resume(); resolve(r); },
+      );
+      request.on('error', error => resolve({ error }));
+    });
+    assert.ok(!res.error, `https 握手应成功：${res.error?.message}`);
+    assert.equal(res.statusCode, 200);
+    // HSTS：让浏览器别把这个源降级回 http，否则用户手输 http:// 会以为服务挂了。
+    assert.equal(res.headers['strict-transport-security'], 'max-age=31536000');
+
+    // 明文端口必须不再是可用的 HTTP 服务 —— 否则等于给了个降级入口。
+    // TLS 服务器握手失败时直接断开、**一个字节都不回**，所以必须监听 close：
+    // 只等 data/error 的话 socket 被对端销毁后没有任何事件，这个 Promise 永远不落定。
+    const plain = await new Promise(resolve => {
+      const socket = net.connect(port, '127.0.0.1', () => {
+        socket.write('GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n');
+      });
+      let raw = '';
+      const done = () => { socket.destroy(); resolve(raw); };
+      socket.setTimeout(3000, done);
+      socket.on('data', chunk => { raw += chunk.toString('utf-8'); done(); });
+      socket.on('error', done);
+      socket.on('close', () => resolve(raw));
+    });
+    assert.doesNotMatch(plain, /^HTTP\/1\.1 200/, '明文请求不该拿到正常响应');
+    await new Promise(resolve => { gateway.closeAllConnections(); gateway.close(resolve); });
+  } finally {
+    await fsp.rm(dir, { recursive: true, force: true });
+    await fsp.rm(distDir, { recursive: true, force: true });
+  }
+});
+
+test('没配证书时网关仍然是 http（不因为新增 TLS 支持就改默认行为）', async () => {
+  const distDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'pilotv-dist-'));
+  try {
+    await fsp.writeFile(path.join(distDir, 'index.html'), '<!doctype html><title>PilotV</title>');
+    const gateway = createGateway({
+      distDir, devices: [], registry: null, registryFile: path.join(distDir, 'devices.json'),
+      adminSecret: TEST_ADMIN_SECRET, allowRegistryWrites: false,
+      defaultBackend: 'http://127.0.0.1:3001',
+      artifactsTarget: 'http://127.0.0.1:8799', artifactsPerDevice: true,
+    });
+    await new Promise(resolve => gateway.listen(0, '127.0.0.1', resolve));
+    const port = gateway.address().port;
+    const res = await new Promise(resolve => {
+      http.get({ host: '127.0.0.1', port, path: '/', headers: { host: `127.0.0.1:${port}` } }, r => {
+        r.resume(); resolve(r);
+      }).on('error', error => resolve({ error }));
+    });
+    assert.ok(!res.error, `http 应仍可用：${res.error?.message}`);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers['strict-transport-security'], undefined);
+    await new Promise(resolve => { gateway.closeAllConnections(); gateway.close(resolve); });
+  } finally { await fsp.rm(distDir, { recursive: true, force: true }); }
 });
