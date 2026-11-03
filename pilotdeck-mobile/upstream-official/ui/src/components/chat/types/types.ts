@@ -88,6 +88,10 @@ export interface SubagentChildTool {
 export interface ChatMessage {
   /** Actual generating model stored with this response. */
   model?: string;
+  /** 项目成员的发言人名字：这一轮是 Ta 在回（默认 Agent 不带名字）。 */
+  agentName?: string;
+  /** 项目成员的角色标签，和 agentName 一起显示。 */
+  agentRole?: string;
   id?: string;
   renderKey?: string;
   entryId?: string;

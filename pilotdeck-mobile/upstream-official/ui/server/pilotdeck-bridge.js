@@ -1,4 +1,5 @@
 import { recordProjectParticipant } from './services/projectTeamParticipants.js';
+import { getProjectAgentRun, normalizeProjectAgentRuns, recordProjectAgentRun } from './services/projectTeamRuns.js';
 /**
  * PilotDeck bridge — the only chat-execution entry point in `ui/server/`.
  *
@@ -339,6 +340,7 @@ function loadQueueState(state) {
         const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
         state.lastAcceptedModelSelection = parsed.lastAcceptedModelSelection;
         state.projectParticipants = Array.isArray(parsed.projectParticipants) ? parsed.projectParticipants : [];
+        state.projectAgentRuns = normalizeProjectAgentRuns(parsed.projectAgentRuns);
         state.acceptedInputIds = new Set((Array.isArray(parsed.acceptedInputIds) ? parsed.acceptedInputIds : []).filter(id => typeof id === 'string'));
         if (Array.isArray(parsed.items)) {
             state.inputQueue = parsed.items
@@ -497,7 +499,8 @@ function persistQueueState(state, strict = false) {
     if (!filePath) return;
     let tempPath;
     try {
-        if (state.inputQueue.length === 0 && !state.lastAcceptedModelSelection && !state.projectParticipants?.length && !state.acceptedInputIds?.size) {
+        if (state.inputQueue.length === 0 && !state.lastAcceptedModelSelection && !state.projectParticipants?.length
+            && !Object.keys(state.projectAgentRuns || {}).length && !state.acceptedInputIds?.size) {
             fs.rmSync(filePath, { force: true });
             return;
         }
@@ -507,6 +510,7 @@ function persistQueueState(state, strict = false) {
             version: 2,
             lastAcceptedModelSelection: state.lastAcceptedModelSelection,
             projectParticipants: state.projectParticipants,
+            projectAgentRuns: state.projectAgentRuns,
             acceptedInputIds: [...(state.acceptedInputIds || [])],
             revision: state.queueRevision,
             paused: state.queuePaused,
@@ -657,6 +661,7 @@ function ensureSessionState(sessionKey, projectKey, channelKey) {
             activitySnapshotSequence: 0,
             pendingGatewayRunId: undefined,
             agentId: undefined,
+            projectAgentRuns: {},
         };
         sessionState.set(sessionKey, state);
     } else {
@@ -889,6 +894,31 @@ export function resolvePermissionMode(options, readPersisted = readPermissionSet
         return 'bypassPermissions';
     }
     return explicit || normalizePermissionMode(WEB_DEFAULT_PERMISSION_MODE) || 'default';
+}
+
+/**
+ * 给助手回复帧挂上发言人。
+ *
+ * 这一轮是以某个项目成员的身份跑的（见 projectTeamRuntime.js），所以这一轮
+ * 里的助手回复都属于该成员；默认 Agent 没有成员身份，帧原样透传。
+ *
+ * @param {object} frame 归一化消息帧。
+ * @param {{agentId?: string, agent?: {name?: string, role?: string}}} | null} projectRuntime
+ * @returns {object}
+ */
+export function attachProjectAgentToFrame(frame, projectRuntime) {
+    const name = projectRuntime?.agent?.name;
+    if (!name) return frame;
+    if (!frame) return frame;
+    // 流式增量也要带名字：最终那条文字是由增量拼出来的，名字得跟着一路活下来。
+    const isAssistantText = frame.kind === 'text' && frame.role === 'assistant';
+    const isStreamDelta = frame.kind === 'stream_delta';
+    if (!isAssistantText && !isStreamDelta) return frame;
+    return {
+        ...frame,
+        agentName: name,
+        agentRole: typeof projectRuntime.agent.role === 'string' ? projectRuntime.agent.role : '',
+    };
 }
 
 /**
@@ -1680,6 +1710,11 @@ export async function runChatViaGateway(
             agentId: options.agentId,
         });
         state.agentId = projectRuntime?.agentId;
+        if (projectRuntime) {
+            // 记下这一轮是谁在回，回复才带得上发言人名字（默认 Agent 不记）。
+            recordProjectAgentRun(state, projectRuntime, runId);
+            persistQueueState(state);
+        }
 
         const stream = gw.submitTurn({
             sessionKey,
@@ -1804,7 +1839,7 @@ export async function runChatViaGateway(
             const suppressDuplicateError = eventForFrames?.type === 'error' && state.hasVisibleFailureStatus;
             if (!suppressDuplicateError) {
                 for (const frame of gatewayEventToFrames(eventForFrames, sessionKey, provider)) {
-                    writer.send(frame);
+                    writer.send(attachProjectAgentToFrame(frame, projectRuntime));
                 }
             }
         }
@@ -3570,4 +3605,26 @@ export async function elicitationRespondViaGateway(requestId, answer) {
 
 export function getProjectParticipants(sessionId) {
     return sessionState.get(sessionId)?.projectParticipants ?? [];
+}
+
+/**
+ * 查某一轮对话是谁在回。
+ *
+ * 历史消息接口只认 turnId，回放旧对话时靠它把发言人名字补回去。
+ * 服务重启后会话状态还没建起来，这里顺手把侧车读回来。
+ *
+ * @param {string} sessionId
+ * @param {string} turnId
+ * @param {string} [projectPath]
+ * @returns {{agentId: string, name: string, role: string} | null}
+ */
+export function getProjectAgentRunForTurn(sessionId, turnId, projectPath) {
+    if (!sessionId || !turnId) return null;
+    try {
+        const state = ensureSessionState(sessionId, projectPath || GENERAL_HOME, 'web');
+        return getProjectAgentRun(state.projectAgentRuns, turnId);
+    } catch (error) {
+        console.warn('[pilotdeck-bridge] failed to resolve project agent run:', error?.message || error);
+        return null;
+    }
 }

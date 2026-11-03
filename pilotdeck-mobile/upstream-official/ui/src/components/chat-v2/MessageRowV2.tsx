@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { AlertTriangle, Check, Copy, GitBranch, Loader2, Pencil } from 'lucide-react';
 import { copyTextToClipboard } from '../../utils/clipboard';
+import { agentRoleLabelKey } from './agentRoleLabel';
 import TurnChangesCard from '../chat-review/TurnChangesCard';
 import { isImeEnterEvent } from '../../utils/ime.js';
 import { cn } from '../../lib/utils.js';
@@ -486,19 +487,21 @@ function MessageRowV2({
           )}
         </div>
         {!isEditing ? (
-          <div
-            data-testid="user-message-actions"
-            className="pointer-events-none mt-1 flex h-6 items-center justify-end gap-1 pr-1 opacity-0 transition-opacity duration-150 group-hover/user-msg:pointer-events-auto group-hover/user-msg:opacity-100 group-focus-within/user-msg:pointer-events-auto group-focus-within/user-msg:opacity-100"
-          >
+          <div className="mt-1 flex items-center justify-end gap-1 pr-1">
             {messageTime ? (
               <time
+                data-testid="user-message-time"
                 dateTime={messageTime.dateTime}
                 title={messageTime.title}
-                className="mr-1 text-xs tabular-nums text-neutral-400 dark:text-neutral-500"
+                className="text-xs tabular-nums text-neutral-400 dark:text-neutral-500"
               >
                 {messageTime.label}
               </time>
             ) : null}
+            <div
+              data-testid="user-message-actions"
+              className="pointer-events-none flex h-6 items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover/user-msg:pointer-events-auto group-hover/user-msg:opacity-100 group-focus-within/user-msg:pointer-events-auto group-focus-within/user-msg:opacity-100"
+            >
             <CopyMarkdownButton content={String(message.content ?? '')} t={t} />
             {canEdit && onRegenerate ? (
               <button
@@ -531,6 +534,7 @@ function MessageRowV2({
                 variant="action-row"
               />
             ) : null}
+            </div>
           </div>
         ) : null}
         {userImageLightbox !== null && lightboxImages.length > 0 ? (
@@ -577,13 +581,19 @@ function MessageRowV2({
   const isTextRenderingPending = contentDisplayText !== formattedContent;
   const showStreamingCursor = Boolean(message.isStreaming && !contentDisplayText);
   const resolvedShowAssistantActions = showAssistantActions ?? true;
-  const assistantMessageTime = resolvedShowAssistantActions
-    ? formatMessageTime(message.timestamp)
-    : null;
+  // 每条回复都得看得见时间，所以时间不再跟着悬停才出现。
+  const assistantMessageTime = formatMessageTime(message.timestamp);
+  // 项目成员的回复要标出是谁在回；默认 Agent 没有名字，就不标。
+  const assistantSpeaker = typeof message.agentName === 'string' ? message.agentName.trim() : '';
+  const assistantRoleKey = assistantSpeaker ? agentRoleLabelKey(message.agentRole) : null;
+  const assistantRoleLabel = assistantRoleKey
+    ? String(t(assistantRoleKey, { defaultValue: '' }))
+    : '';
+  const showAssistantRole = Boolean(assistantRoleLabel) && assistantRoleLabel !== assistantRoleKey;
   const showAssistantCopyButton = resolvedShowAssistantActions && hasAssistantProse;
   const canRenderAssistantForkButton = Boolean(resolvedShowAssistantActions && onFork && hasAssistantProse);
   const shouldRenderAssistantActions = Boolean(
-    assistantMessageTime || showAssistantCopyButton || canRenderAssistantForkButton,
+    (resolvedShowAssistantActions && message.model) || showAssistantCopyButton || canRenderAssistantForkButton,
   );
   const assistantForkDisabled = Boolean(
     forkDisabled || isSessionRunning || message.isStreaming || !message.entryId,
@@ -593,6 +603,37 @@ function MessageRowV2({
       data-chat-search-render-pending={isTextRenderingPending ? 'true' : undefined}
       className="group/assistant-msg min-w-0 text-[14px] leading-relaxed text-neutral-900 dark:text-neutral-100"
     >
+      {(assistantSpeaker || assistantMessageTime) ? (
+        <div
+          data-testid="assistant-message-meta"
+          className="mb-1 flex items-center gap-2 text-xs leading-none text-neutral-400 dark:text-neutral-500"
+        >
+          {assistantSpeaker ? (
+            <span
+              data-testid="assistant-message-speaker"
+              className="max-w-[45%] truncate font-medium text-neutral-600 dark:text-neutral-300"
+              title={showAssistantRole ? `${assistantSpeaker} · ${assistantRoleLabel}` : assistantSpeaker}
+            >
+              {assistantSpeaker}
+            </span>
+          ) : null}
+          {showAssistantRole ? (
+            <span data-testid="assistant-message-role" className="truncate">
+              {assistantRoleLabel}
+            </span>
+          ) : null}
+          {assistantMessageTime ? (
+            <time
+              data-testid="assistant-message-time"
+              dateTime={assistantMessageTime.dateTime}
+              title={assistantMessageTime.title}
+              className="tabular-nums"
+            >
+              {assistantMessageTime.label}
+            </time>
+          ) : null}
+        </div>
+      ) : null}
       {showStreamingCursor ? (
         <span className="inline-block h-4 w-2 animate-pulse bg-neutral-400 dark:bg-neutral-500" />
       ) : (
@@ -623,15 +664,6 @@ function MessageRowV2({
             <span data-testid="assistant-message-model" className="mr-1 truncate text-xs text-neutral-400 dark:text-neutral-500">
               {message.model}
             </span>
-          ) : null}
-          {assistantMessageTime ? (
-            <time
-              dateTime={assistantMessageTime.dateTime}
-              title={assistantMessageTime.title}
-              className="mr-1 text-xs tabular-nums text-neutral-400 dark:text-neutral-500"
-            >
-              {assistantMessageTime.label}
-            </time>
           ) : null}
           {showAssistantCopyButton ? <CopyMarkdownButton content={formattedContent} t={t} /> : null}
           {canRenderAssistantForkButton ? (

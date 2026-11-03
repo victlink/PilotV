@@ -60,7 +60,9 @@ describe('MessageRowV2 user actions', () => {
     expect(actionRow.className).toContain('group-hover/user-msg:pointer-events-auto');
     expect(actionRow.className).toContain('group-hover/user-msg:opacity-100');
     expect(actionRow.className).toContain('group-focus-within/user-msg:opacity-100');
-    expect(actionRow.querySelector('time')?.getAttribute('datetime')).toBe(message.timestamp);
+    expect(actionRow.querySelector('time')).toBeNull();
+    // 时间常显，不再藏在悬停才出现的操作行里。
+    expect(screen.getByTestId('user-message-time').getAttribute('datetime')).toBe(message.timestamp);
     expect(Array.from(actionRow.querySelectorAll('button')).map((button) => button.getAttribute('aria-label')))
       .toEqual([
         'Copy message',
@@ -132,7 +134,7 @@ describe('MessageRowV2 user actions', () => {
 });
 
 describe('MessageRowV2 assistant actions', () => {
-  it('keeps time, copy, and branch hidden at the bottom left until the response is hovered or focused', () => {
+  it('always shows the reply time and keeps copy and branch hidden until the response is hovered or focused', () => {
     const message: ChatMessage = {
       id: 'assistant-1',
       entryId: 'assistant-entry-1',
@@ -160,9 +162,11 @@ describe('MessageRowV2 assistant actions', () => {
     expect(actionRow.className).toContain('group-hover/assistant-msg:pointer-events-auto');
     expect(actionRow.className).toContain('group-hover/assistant-msg:opacity-100');
     expect(actionRow.className).toContain('group-focus-within/assistant-msg:opacity-100');
-    expect(actionRow.querySelector('time')?.getAttribute('datetime')).toBe(message.timestamp);
+    expect(actionRow.querySelector('time')).toBeNull();
+    // 时间常显：放在正文上方的元信息行里。
+    expect(screen.getByTestId('assistant-message-time').getAttribute('datetime')).toBe(message.timestamp);
     expect(Array.from(actionRow.children).map((element) => element.tagName.toLowerCase()))
-      .toEqual(['time', 'button', 'button']);
+      .toEqual(['button', 'button']);
     expect(Array.from(actionRow.querySelectorAll('button')).map((button) => button.getAttribute('aria-label')))
       .toEqual([
         'Copy message',
@@ -172,13 +176,13 @@ describe('MessageRowV2 assistant actions', () => {
 });
 
 
-it('shows only the response model before time inside the existing hover actions', () => {
+it('shows only the response model before the copy button inside the existing hover actions', () => {
   render(<MessageRowV2 message={{ id: 'model-response', type: 'assistant', content: 'Answer', model: 'qwen3.8-27b', timestamp: '2026-09-05T12:58:00Z' }} prevMessage={null} provider="pilotdeck" selectedProject={null} createDiff={() => []} />);
   const row = screen.getByTestId('assistant-message-actions');
   expect(row.className).toContain('opacity-0');
   expect(row.className).toContain('group-hover/assistant-msg:opacity-100');
   expect(row.firstElementChild).toBe(screen.getByTestId('assistant-message-model'));
   expect(row.firstElementChild?.textContent).toBe('qwen3.8-27b');
-  expect(row.children[1].tagName).toBe('TIME');
+  expect(row.children[1].tagName).toBe('BUTTON');
   expect(row.firstElementChild?.hasAttribute('title')).toBe(false);
 });

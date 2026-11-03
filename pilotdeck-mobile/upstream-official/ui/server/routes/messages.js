@@ -19,6 +19,7 @@ import express from 'express';
 import {
   getPilotDeckGateway,
   gatewayEventToFrames,
+  getProjectAgentRunForTurn,
   isGatewayUnavailableError,
   withPilotDeckGatewayReadRetry,
 } from '../pilotdeck-bridge.js';
@@ -58,14 +59,15 @@ router.get('/:sessionId/messages', async (req, res) => {
         : {}),
     }));
 
-    const messages = result.messages.map((message) => mapWebMessageToNormalized(message, sessionId));
+    const messages = result.messages.map((message) => mapWebMessageToNormalized(message, sessionId, projectPath));
     const totalKnown = typeof result.total === 'number' ? result.total : messages.length + offset;
     const hasMore = result.nextCursor !== undefined && result.nextCursor !== null;
 
     return res.json({
       messages,
       ...(result.stream ? { stream: { active: result.stream.active, runId: result.stream.runId,
-        messages: result.stream.events.flatMap(event => gatewayEventToFrames(event, sessionId, 'pilotdeck')),
+        messages: result.stream.events.flatMap(event => gatewayEventToFrames(event, sessionId, 'pilotdeck'))
+          .map((frame) => attachSpeaker(frame, sessionId, projectPath)),
       } } : {}),
       total: totalKnown,
       hasMore,
@@ -170,7 +172,38 @@ router.get('/:sessionId/subagent/:subagentId/messages', async (req, res) => {
   }
 });
 
-function mapWebMessageToNormalized(message, sessionId) {
+/**
+ * 查一轮对话的发言人。
+ *
+ * 查不到就当没有发言人（默认 Agent 就是这种情况），不能因此让历史接口失败。
+ */
+function lookupSpeaker(sessionId, turnId, projectPath) {
+  if (!sessionId || !turnId) return null;
+  try {
+    if (typeof getProjectAgentRunForTurn !== 'function') return null;
+    return getProjectAgentRunForTurn(sessionId, turnId, projectPath) || null;
+  } catch (error) {
+    console.warn('[messages] failed to resolve the speaker of a turn:', error?.message || error);
+    return null;
+  }
+}
+
+/**
+ * 给一条帧补上发言人。
+ *
+ * 页面在对话进行中刷新时，活跃流是从网关回放的，不带发言人，
+ * 这里按轮次从本地的对照表里查回来。
+ */
+function attachSpeaker(frame, sessionId, projectPath) {
+  if (!frame || (frame.kind !== 'text' && frame.kind !== 'stream_delta')) return frame;
+  const turnId = frame.turnId || frame.runId;
+  if (!turnId) return frame;
+  const speaker = lookupSpeaker(sessionId, turnId, projectPath);
+  if (!speaker) return frame;
+  return { ...frame, agentName: speaker.name, agentRole: speaker.role };
+}
+
+function mapWebMessageToNormalized(message, sessionId, projectPath) {
   const payload = message.payload && typeof message.payload === 'object'
     ? message.payload
     : {};
@@ -192,12 +225,17 @@ function mapWebMessageToNormalized(message, sessionId) {
   };
   switch (message.kind) {
     case 'text': {
+      // 这一轮是谁在回？默认 Agent 查不到记录，就不标发言人。
+      const speaker = message.role === 'assistant' && turnId
+        ? lookupSpeaker(sessionId, turnId, projectPath)
+        : null;
       return createNormalizedMessage({
         ...base,
         kind: 'text',
         role: message.role === 'user' ? 'user' : 'assistant',
         content: message.text || '',
         ...(message.role === 'assistant' && typeof message.model === 'string' ? { model: message.model } : {}),
+        ...(speaker ? { agentName: speaker.name, agentRole: speaker.role } : {}),
         ...(Array.isArray(message.images) && message.images.length > 0
           ? { images: message.images.map((image) => image?.data).filter(Boolean) }
           : {}),

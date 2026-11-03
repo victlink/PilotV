@@ -857,7 +857,7 @@ export function useChatRealtimeHandlers({
       const streamId = `__streaming_${streamKey}`;
       const existing = slot?.realtimeMessages.find((m: any) => m.id === streamId);
       const currentText = existing?.content || '';
-      sessionStore.updateStreaming(sid, currentText + text, provider, msgRunId, msg.model, msg.blockId);
+      sessionStore.updateStreaming(sid, currentText + text, provider, msgRunId, msg.model, msg.blockId, msg.agentName, msg.agentRole);
       return;
     }
 

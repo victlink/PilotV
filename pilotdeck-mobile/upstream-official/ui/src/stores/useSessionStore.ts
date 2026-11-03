@@ -64,6 +64,10 @@ export interface NormalizedMessage {
 
   // kind-specific fields (flat for simplicity)
   role?: 'user' | 'assistant';
+  /** 项目成员的发言人名字：这一轮是 Ta 在回（默认 Agent 没有名字）。 */
+  agentName?: string;
+  /** 项目成员的角色标签，和 agentName 一起显示。 */
+  agentRole?: string;
   content?: string;
   reasoningContent?: string;
   /** Stable identity of a queued input after it has been applied to a turn. */
@@ -2304,7 +2308,7 @@ export function useSessionStore() {
    * Update or create a streaming message (accumulated text so far).
    * Uses a well-known ID so subsequent calls replace the same message.
    */
-  const updateStreaming = useCallback((sessionId: string, accumulatedText: string, msgProvider: SessionProvider, runId?: string, model?: string, blockId?: string) => {
+  const updateStreaming = useCallback((sessionId: string, accumulatedText: string, msgProvider: SessionProvider, runId?: string, model?: string, blockId?: string, agentName?: string, agentRole?: string) => {
     const slot = getSlot(sessionId);
     const streamId = `__streaming_${streamingKey(sessionId, runId)}`;
     const idx = slot.realtimeMessages.findIndex(m => m.id === streamId);
@@ -2312,6 +2316,9 @@ export function useSessionStore() {
       // Subsequent delta — preserve the original turn-start timestamp so
       // computeMerged can tell which server snapshots belong to this turn.
       const existing = slot.realtimeMessages[idx];
+      // 发言人名字先记下来：后续增量即使内容没变也要保住名字。
+      if (!existing.agentName && agentName) existing.agentName = agentName;
+      if (!existing.agentRole && agentRole) existing.agentRole = agentRole;
       if (existing.content === accumulatedText && existing.provider === msgProvider && (model === undefined || existing.model === model)) {
         return;
       }
@@ -2346,6 +2353,8 @@ export function useSessionStore() {
         kind: 'stream_delta',
         content: accumulatedText,
         ...(model ? { model } : {}),
+        ...(agentName ? { agentName } : {}),
+        ...(agentRole ? { agentRole } : {}),
         runId,
         serverTailIdAtStart: serverTailId,
         streamBoundaryAtStart: captureStreamBoundary(slot.realtimeMessages, runId),
