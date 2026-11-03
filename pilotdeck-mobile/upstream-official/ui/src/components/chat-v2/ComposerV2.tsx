@@ -729,6 +729,26 @@ export default function ComposerV2({
     }
     return labels;
   }, [agents, t]);
+  /**
+   * The dropdown lists the default agent first, then every configured agent.
+   * `id: null` means "no dedicated agent", which is what the session runs on
+   * until the user picks one.
+   */
+  const agentMenuItems = useMemo(
+    () => [
+      {
+        id: null as string | null,
+        name: t("input.agents.default", { defaultValue: "Default agent" }) as string,
+        roleLabel: "",
+      },
+      ...agents.map((agent) => ({
+        id: agent.id as string | null,
+        name: agent.name,
+        roleLabel: agentRoleLabels.get(agent.id) || "",
+      })),
+    ],
+    [agents, agentRoleLabels, t],
+  );
   const selectedModelLabel =
     modelSelection?.mode === "auto"
       ? (t("input.models.auto", { defaultValue: "Auto" }) as string)
@@ -1505,6 +1525,83 @@ export default function ComposerV2({
                     compact && "relative",
                   )}
                 >
+                {agents.length > 0 ? (
+                  <div className="pd-composer-agent-control min-w-0">
+                    <button
+                      type="button"
+                      ref={agentTriggerRef}
+                      onClick={() => setIsAgentMenuOpen((open) => !open)}
+                      className={cn(
+                        "pd-composer-icon-button pd-composer-select-trigger inline-flex h-8 max-w-[220px] items-center justify-center gap-1.5 rounded-lg border border-transparent px-2 text-[13px] font-medium text-neutral-700 transition-colors hover:border-[var(--pd-border,#ddd9f2)] hover:bg-[var(--pd-accent-soft,#f7f6ff)] hover:text-[var(--pd-accent-strong,#4440a8)] dark:text-neutral-200 dark:hover:border-violet-800 dark:hover:bg-violet-950/40 dark:hover:text-violet-200",
+                        isAgentMenuOpen &&
+                          "border-[var(--pd-border,#ddd9f2)] bg-[var(--pd-accent-soft,#f7f6ff)] text-[var(--pd-accent-strong,#4440a8)] dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200",
+                      )}
+                      title={`${t("input.agents.select", { defaultValue: "Select agent" }) as string} · ${selectedAgentLabel}`}
+                      aria-label={`${t("input.agents.select", { defaultValue: "Select agent" }) as string}: ${selectedAgentLabel}`}
+                      aria-haspopup="menu"
+                      aria-expanded={isAgentMenuOpen}
+                    >
+                      <Bot className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+                      <span className="min-w-0 truncate">{selectedAgentLabel}</span>
+                      <ChevronDown
+                        className={cn(
+                          "pd-composer-control-chevron h-3.5 w-3.5 shrink-0 transition-transform",
+                          isAgentMenuOpen && "rotate-180",
+                        )}
+                        strokeWidth={2}
+                      />
+                    </button>
+                    {isAgentMenuOpen ? createPortal(
+                      <div
+                        ref={agentMenu.panelRef}
+                        role="menu"
+                        aria-label={
+                          t("input.agents.select", {
+                            defaultValue: "Select agent",
+                          }) as string
+                        }
+                        style={agentMenu.style}
+                        className="pd-composer-agent-menu z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--pd-accent-border,#ddd6fe)] bg-white p-1.5 text-left shadow-xl shadow-[var(--pd-accent,#2e1065)]/10 dark:border-violet-900/70 dark:bg-neutral-900"
+                      >
+                        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-color:#cbc9d5_transparent] [scrollbar-width:thin]">
+                          {agentMenuItems.map((item) => {
+                            const isSelected = item.id === selectedAgentId;
+                            return (
+                              <button
+                                key={item.id ?? "default"}
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked={isSelected}
+                                onClick={() => {
+                                  onAgentSelectionChange?.(item.id);
+                                  setIsAgentMenuOpen(false);
+                                }}
+                                className={cn(
+                                  "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors",
+                                  isSelected
+                                    ? "bg-[var(--pd-accent-soft,#f0edff)] font-semibold text-[var(--pd-accent-strong,#544dbd)] dark:bg-violet-950/60 dark:text-violet-200"
+                                    : "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800",
+                                )}
+                              >
+                                <Bot className="h-4 w-4 shrink-0 text-current" strokeWidth={1.8} />
+                                <span className="min-w-0 truncate">{item.name}</span>
+                                {item.roleLabel ? (
+                                  <span className="shrink-0 truncate text-[11px] font-normal text-neutral-500 dark:text-neutral-400">
+                                    {item.roleLabel}
+                                  </span>
+                                ) : null}
+                                {isSelected ? (
+                                  <Check className="ml-auto h-3.5 w-3.5 shrink-0" strokeWidth={2.2} />
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>,
+                      document.body,
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="pd-composer-model-control min-w-0">
                     <button
                       type="button"

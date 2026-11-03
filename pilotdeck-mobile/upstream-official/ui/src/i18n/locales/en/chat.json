@@ -364,6 +364,10 @@
       "planDescription": "Generate a plan first, then execute after confirmation",
       "askDescription": "Only answers questions without modifying files"
     },
+    "agents": {
+      "select": "Select agent",
+      "default": "Default agent"
+    },
     "models": {
       "select": "Select model",
       "auto": "Auto",

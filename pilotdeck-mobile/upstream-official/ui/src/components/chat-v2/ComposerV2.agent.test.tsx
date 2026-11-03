@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectTeamAgent } from '../../lib/projectTeam';
 import ComposerV2 from './ComposerV2';
@@ -127,15 +127,52 @@ function renderComposer(
 }
 
 async function openAgentMenu() {
-  fireEvent.click(screen.getByRole('button', { name: 'Default agent' }));
+  fireEvent.click(screen.getByRole('button', { name: /Select agent/ }));
   return screen.findByRole('menu');
 }
 
-it('does not expose an execution Agent selector even with a previously selected agent', () => {
-  renderComposer(AGENTS, { selectedAgentId: 'agent-reviewer' });
-  expect(screen.queryByRole('button', { name: 'Rob' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Default agent' })).toBeNull();
+it('offers the agent dropdown beside the model picker', async () => {
+  renderComposer(AGENTS);
+  const trigger = screen.getByRole('button', { name: /Select agent/ });
+  expect(trigger.textContent).toContain('Default agent');
+  // The native <select> is gone for good: the picker is a floating menu now.
+  expect(document.querySelector('.pd-composer-agent-control select')).toBeNull();
   expect(document.querySelector('.pd-composer-model-control')).not.toBeNull();
+
+  const menu = await openAgentMenu();
+  const items = within(menu).getAllByRole('menuitemradio');
+  expect(items).toHaveLength(3);
+  expect(items[0].textContent).toContain('Default agent');
+  expect(items[1].textContent).toContain('Ada');
+  expect(items[2].textContent).toContain('Rob');
+  // The role of a team member is shown next to the name.
+  expect(items[1].textContent).toContain('Commander');
+});
+
+it('marks the current pick and reports the next one', async () => {
+  const onAgentSelectionChange = vi.fn();
+  renderComposer(AGENTS, {
+    selectedAgentId: 'agent-reviewer',
+    onAgentSelectionChange,
+  });
+  const trigger = screen.getByRole('button', { name: /Select agent/ });
+  expect(trigger.textContent).toContain('Rob');
+
+  const menu = await openAgentMenu();
+  const items = within(menu).getAllByRole('menuitemradio');
+  expect(items[0].getAttribute('aria-checked')).toBe('false');
+  expect(items[2].getAttribute('aria-checked')).toBe('true');
+
+  fireEvent.click(items[1]);
+  expect(onAgentSelectionChange).toHaveBeenCalledWith('agent-commander');
+  // Picking closes the menu again.
+  expect(screen.queryByRole('menu')).toBeNull();
+});
+
+it('hides the agent dropdown when no agent is configured', () => {
+  renderComposer([]);
+  expect(document.querySelector('.pd-composer-agent-control')).toBeNull();
+  expect(screen.queryByRole('button', { name: /Select agent/ })).toBeNull();
 });
 
 afterEach(cleanup);
