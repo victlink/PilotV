@@ -236,3 +236,36 @@ grep -n 'new TextDecoder("utf-8")'                 pilotdeck-mobile/upstream-off
 | devices.json 改动前备份 | `.run/devices.json.backup-20261105`、`.run/devices.dist.json.backup-20261105` |
 | VBS 自启备份 | `.run/PilotV.vbs.backup-20261105` |
 | NAS 同步手册 | `C:\Users\music\Documents\Work\PilotV\NAS_UPDATE_RUNBOOK.md` |
+
+---
+
+## 7. 执行记录（2026-11-05 16:40，由本机代理在 NAS 上代为完成）
+
+**第 4 节的 4.1–4.3 已全部执行完毕，后续开发无需重跑。**
+
+| 项 | 结果 |
+|---|---|
+| 交接包归档 | `/vol4/1000/00/产物/PilotV_Windows排障交接_v1_20261105/`，11 个文件平铺，两端 sha256 全部一致；已追加进 `_归档清单_20261105.txt` |
+| 3 处补丁 | `git apply --check` 通过后应用，共 `23 insertions / 6 deletions` |
+| Windows 部署文件 | 6 个脚本按路径落地；另入库 `verify_windows.ps1`、`devices.json.template`、本文档 |
+| 部署自检 | `verify_windows.ps1` 在本机实跑 **17 项全 PASS**，`EXITCODE=0` |
+| 提交 | `ccb44d1 fix(runtime): 局部异常不再拖垮 gateway；补充 Windows 部署加固与交接文档` |
+| 推送 | `git push origin main` → `474ba0f..ccb44d1`；GitHub HEAD = `ccb44d1`；剩余未推提交数 **0** |
+
+补充说明：
+
+- 本次推送同时带上了 NAS 原有未推提交 `6cb868a`
+  （`feat(ui): 项目成员回复带发言人名字，所有回复显示时间`），因此仓库确实到了「最新源码」。
+- NAS 工作区原有的 **9 个在途开发文件**（`project-team.js`、`sync_project_team_runtime.py`、
+  `scripts/verify_project_team_*.mjs` 等）**未被暂存、未被提交**，保持原样。
+- `.run/agent-supervisor.cmd` 与 `.run/agent-supervisor.mjs` 本次用 `git add -f` 强制入库
+  （`.run` 是运行时目录，若 `.gitignore` 后续收紧会被忽略，建议评估迁入 `scripts/`）。
+- 归档目录里的 `HANDOFF.md` 是交付那一刻的快照（不含本节）；**本文档为最新版**。
+
+### 后续开发待办
+
+1. 按 4.4 在 CI 加一条「`.cmd` 必须 CRLF + 纯 ASCII」检查，#1 类问题即可根治。
+2. 决定 `.run/agent-supervisor.*` 的最终归属，并同步修改 gateway-keeper 插件的引用路径
+   （插件位于用户目录 `~/.pilotdeck/plugins/`，不在仓库内，新设备需单独部署）。
+3. 上游若日后修复了这三处，可直接回退本补丁 —— 三处均为防御性改动，无功能语义变化。
+4. 新 Windows 设备部署后务必运行 `verify_windows.ps1`，全部 PASS 才算完成。
