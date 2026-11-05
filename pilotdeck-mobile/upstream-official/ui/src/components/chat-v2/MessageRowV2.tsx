@@ -1,9 +1,10 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { AlertTriangle, Check, Copy, GitBranch, Loader2, Pencil } from 'lucide-react';
+import { AlertTriangle, Check, ChevronRight, Copy, GitBranch, Loader2, Pencil } from 'lucide-react';
 import { copyTextToClipboard } from '../../utils/clipboard';
 import { agentRoleLabelKey } from './agentRoleLabel';
+import { resolveAgentIdentity } from './agentIdentity';
 import TurnChangesCard from '../chat-review/TurnChangesCard';
 import { isImeEnterEvent } from '../../utils/ime.js';
 import { cn } from '../../lib/utils.js';
@@ -116,6 +117,12 @@ type MessageRowV2Props = {
   showAssistantActions?: boolean;
   canEdit?: boolean;
   onRegenerate?: (message: ChatMessage, editedText: string) => Promise<void>;
+  /** 这条回复当前是否被折叠（已完成的回复默认折叠） */
+  replyCollapsed?: boolean;
+  /** 展开 / 折叠这条回复 */
+  onToggleReplyCollapsed?: () => void;
+  /** 点发言人名字：只看这个发言人的发言内容 */
+  onSelectSpeaker?: (speakerKey: string) => void;
 };
 
 // Fall back to the heavy legacy renderer for anything that isn't a vanilla
@@ -161,6 +168,9 @@ function MessageRowV2({
   showAssistantActions,
   canEdit = false,
   onRegenerate,
+  replyCollapsed = false,
+  onToggleReplyCollapsed,
+  onSelectSpeaker,
 }: MessageRowV2Props) {
   const { t } = useTranslation('chat');
   const delegate = useMemo(() => shouldDelegate(message), [message]);
@@ -590,6 +600,16 @@ function MessageRowV2({
     ? String(t(assistantRoleKey, { defaultValue: '' }))
     : '';
   const showAssistantRole = Boolean(assistantRoleLabel) && assistantRoleLabel !== assistantRoleKey;
+  // 每个 agent 有自己的图标和颜色：回复之间一眼能认出是谁在说话。
+  const assistantIdentity = useMemo(
+    () => resolveAgentIdentity({ name: message.agentName, role: message.agentRole }),
+    [message.agentName, message.agentRole],
+  );
+  const SpeakerIcon = assistantIdentity.Icon;
+  const collapsedSummary = useMemo(() => {
+    const text = contentDisplayText.replace(/\s+/g, ' ').trim();
+    return text.length > 140 ? `${text.slice(0, 140)}…` : text;
+  }, [contentDisplayText]);
   const showAssistantCopyButton = resolvedShowAssistantActions && hasAssistantProse;
   const canRenderAssistantForkButton = Boolean(resolvedShowAssistantActions && onFork && hasAssistantProse);
   const shouldRenderAssistantActions = Boolean(
@@ -609,13 +629,16 @@ function MessageRowV2({
           className="mb-1 flex items-center gap-2 text-xs leading-none text-neutral-400 dark:text-neutral-500"
         >
           {assistantSpeaker ? (
-            <span
+            <button
+              type="button"
               data-testid="assistant-message-speaker"
-              className="max-w-[45%] truncate font-medium text-neutral-600 dark:text-neutral-300"
+              className={`inline-flex max-w-[45%] items-center gap-1 truncate font-medium ${assistantIdentity.textClass}`}
               title={showAssistantRole ? `${assistantSpeaker} · ${assistantRoleLabel}` : assistantSpeaker}
+              onClick={() => onSelectSpeaker?.(assistantIdentity.key)}
             >
-              {assistantSpeaker}
-            </span>
+              <SpeakerIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{assistantSpeaker}</span>
+            </button>
           ) : null}
           {showAssistantRole ? (
             <span data-testid="assistant-message-role" className="truncate">
@@ -634,27 +657,41 @@ function MessageRowV2({
           ) : null}
         </div>
       ) : null}
-      {showStreamingCursor ? (
-        <span className="inline-block h-4 w-2 animate-pulse bg-neutral-400 dark:bg-neutral-500" />
-      ) : (
-        <div
-          {...(!message.isStreaming ? {
-            'data-assistant-quote-source': '',
-            'data-assistant-quote-message-id': message.id || message.entryId || message.turnId || '',
-          } : {})}
+      {replyCollapsed ? (
+        <button
+          type="button"
+          data-testid="assistant-message-expand"
+          onClick={onToggleReplyCollapsed}
+          className="flex w-full items-center gap-1.5 rounded-md border border-neutral-200 bg-neutral-50/70 px-2 py-1.5 text-left text-xs text-neutral-500 transition-colors hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800/50 dark:text-neutral-400 dark:hover:bg-neutral-800"
         >
-          <Markdown className="prose prose-sm prose-neutral max-w-none dark:prose-invert prose-headings:mb-2 prose-headings:mt-4 prose-h2:text-lg prose-h3:text-base prose-p:my-2 prose-pre:my-3 prose-ol:my-2 prose-ul:my-2 prose-table:my-0 prose-hr:my-4" projectName={selectedProject?.name}
-          onFileOpen={onFileOpen} isStreaming={Boolean(message.isStreaming) || contentDisplayText !== formattedContent} artifactFiles={assistantArtifacts}>{contentDisplayText}</Markdown>
-        </div>
+          <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">{collapsedSummary || t('reply.expand', { defaultValue: '展开回复' })}</span>
+        </button>
+      ) : (
+        <>
+          {showStreamingCursor ? (
+            <span className="inline-block h-4 w-2 animate-pulse bg-neutral-400 dark:bg-neutral-500" />
+          ) : (
+            <div
+              {...(!message.isStreaming ? {
+                'data-assistant-quote-source': '',
+                'data-assistant-quote-message-id': message.id || message.entryId || message.turnId || '',
+              } : {})}
+            >
+              <Markdown className="prose prose-sm prose-neutral max-w-none dark:prose-invert prose-headings:mb-2 prose-headings:mt-4 prose-h2:text-lg prose-h3:text-base prose-p:my-2 prose-pre:my-3 prose-ol:my-2 prose-ul:my-2 prose-table:my-0 prose-hr:my-4" projectName={selectedProject?.name}
+              onFileOpen={onFileOpen} isStreaming={Boolean(message.isStreaming) || contentDisplayText !== formattedContent} artifactFiles={assistantArtifacts}>{contentDisplayText}</Markdown>
+            </div>
+          )}
+          <TurnChangesCard
+            turnId={message.turnId || message.runId}
+            artifacts={assistantArtifacts}
+            project={selectedProject}
+            onBrowse={onFileOpen}
+            includeCheckpoint={showAssistantActions === true && !message.isStreaming}
+            streaming={Boolean(message.isStreaming)}
+          />
+        </>
       )}
-      <TurnChangesCard
-        turnId={message.turnId || message.runId}
-        artifacts={assistantArtifacts}
-        project={selectedProject}
-        onBrowse={onFileOpen}
-        includeCheckpoint={showAssistantActions === true && !message.isStreaming}
-        streaming={Boolean(message.isStreaming)}
-      />
       {shouldRenderAssistantActions ? (
         <div
           data-testid="assistant-message-actions"

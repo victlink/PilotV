@@ -146,18 +146,19 @@ describe('MainAreaV2 dashboard switcher', () => {
     expect(screen.getByRole('button', { name: '成果' })).toBeTruthy();
   });
 
-  it('switches chat, files, changes and artifacts from one four-page header', () => {
+  it('switches chat, files and artifacts from the page drawer', () => {
     render(<Harness />);
 
     const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
     const chatButton = pages.getByRole('button', { name: '对话' });
     const filesButton = pages.getByRole('button', { name: '文件' });
-    const changesButton = pages.getByRole('button', { name: '改动' });
     const artifactsButton = pages.getByRole('button', { name: '成果' });
+
+    // 右侧抽屉里只留对话／文件／成果：「改动」的唯一入口在侧栏。
+    expect(pages.queryByRole('button', { name: '改动' })).toBeNull();
 
     expect(chatButton.getAttribute('aria-pressed')).toBe('true');
     expect(filesButton.getAttribute('aria-pressed')).toBe('false');
-    expect(changesButton.getAttribute('aria-pressed')).toBe('false');
     expect(artifactsButton.getAttribute('aria-pressed')).toBe('false');
 
     fireEvent.click(filesButton);
@@ -176,17 +177,17 @@ describe('MainAreaV2 dashboard switcher', () => {
     expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
   });
 
-  it('enters the changes page from the drawer and closes the panel on the way out', () => {
+  it('enters the changes page from the sidebar event and closes the panel on the way out', () => {
     const closed = vi.fn();
     window.addEventListener('pilotdeck:close-review', closed);
     render(<Harness withSession />);
 
     const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
-    const changesButton = pages.getByRole('button', { name: '改动' });
+    // 抽屉里已经没有「改动」了：这一页只能由侧栏的事件叫出来。
+    expect(pages.queryByRole('button', { name: '改动' })).toBeNull();
 
-    fireEvent.click(changesButton);
+    fireEvent(window, new Event('pilotdeck:open-changes'));
     expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('git');
-    expect(changesButton.getAttribute('aria-pressed')).toBe('true');
     // 进「改动」这一页不该顺手把面板也关掉——它就是要在这里弹出来。
     expect(closed).not.toHaveBeenCalled();
 
@@ -296,6 +297,20 @@ describe('MainAreaV2 dashboard switcher', () => {
     expect(screen.getByTestId('main-content').getAttribute('data-review-request')).toBe('2');
   });
 
+  it('keeps the changes entry out of the page drawer', () => {
+    render(<Harness withSession />);
+
+    // 右侧页面抽屉里不再有「改动」：这一页只由侧栏的事件驱动打开。
+    const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
+    expect(pages.queryByRole('button', { name: '改动' })).toBeNull();
+    expect(pages.getByRole('button', { name: '对话' })).toBeTruthy();
+    expect(pages.getByRole('button', { name: '成果' })).toBeTruthy();
+
+    // 侧栏那条路仍然通：事件一到，评审面板照常打开。
+    fireEvent(window, new Event('pilotdeck:open-changes'));
+    expect(screen.getByTestId('main-content').getAttribute('data-review-tab')).toBe('changes');
+  });
+
   it('leaves artifacts when the sidebar asks for the changes review', () => {
     render(<Harness withSession />);
 
@@ -304,8 +319,10 @@ describe('MainAreaV2 dashboard switcher', () => {
 
     fireEvent(window, new Event('pilotdeck:open-changes'));
     expect(screen.getByRole('button', { name: '成果' }).getAttribute('aria-pressed')).toBe('false');
-    // 「改动」自己就是一页：侧栏把它叫出来，选中态停在「改动」而不是弹回「对话」。
-    expect(screen.getByRole('button', { name: '改动' }).getAttribute('aria-pressed')).toBe('true');
+    // 「改动」自己就是一页：侧栏把它叫出来，主区停在「改动」而不是弹回「对话」。
+    // 抽屉里已经没有这个入口了，所以选中态只能落在 tab 上。
+    expect(within(screen.getByRole('navigation', { name: '页面切换' })).queryByRole('button', { name: '改动' })).toBeNull();
+    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('git');
     expect(screen.getByTestId('main-content').getAttribute('data-review-tab')).toBe('changes');
   });
 

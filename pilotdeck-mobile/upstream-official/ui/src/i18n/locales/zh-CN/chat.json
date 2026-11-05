@@ -402,6 +402,15 @@
     "removeAll": "删除全部标签",
     "panelLabel": "已引用的回复内容"
   },
+  "speaker": {
+    "team": "团队",
+    "mainAgent": "主agent",
+    "showAll": "显示全部发言人",
+    "onlyThis": "只看 {{name}}"
+  },
+  "reply": {
+    "expand": "展开回复"
+  },
   "commandMenu": {
     "empty": "暂无可用命令",
     "groups": {

@@ -18,6 +18,7 @@ import { getIntrinsicMessageKey } from '../chat/utils/messageKeys';
 import MessageRowV2 from './MessageRowV2';
 import SendingMessages from './SendingMessages';
 import type { QueuedInputSummary } from '../chat/types/queuedInput';
+import { isSpeakerUtterance, messageMatchesSpeaker } from './agentIdentity';
 import AssistantReplyQuoteAction from './AssistantReplyQuoteAction';
 import SubagentDetailModal from './SubagentDetailModal';
 import ChatHistorySearchBar from './ChatHistorySearchBar';
@@ -90,6 +91,10 @@ type MessagesPaneV2Props = {
   onRegenerate?: (message: ChatMessage, editedText: string) => Promise<void>;
   forkDisabled?: boolean;
   forkParentSessionTitle?: string | null;
+  /** 只看某个发言人的发言内容；null = 显示全部发言人 */
+  speakerFilterKey?: string | null;
+  /** 点发言人名字：只看这个发言人 */
+  onSelectSpeaker?: (speakerKey: string) => void;
 };
 
 type KeyedRenderableMessageItem = RenderableMessageItem & {
@@ -151,6 +156,166 @@ function isRenderableAssistantProse(message: ChatMessage): boolean {
 function isSubagentThinkingPlaceholder(message: ChatMessage): boolean {
   const id = String(message.id || '');
   return Boolean(message.isThinking && (id.startsWith('subagent_thinking_') || id.startsWith('__subagent_thinking_')));
+}
+
+/**
+ * 一轮 = 从一条用户消息开始，到下一条用户消息之前。
+ * 和 processGrouping 的分轮保持一致：首条不是用户消息时，索引 0 也是一轮的开头。
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function getTurnStartIndices(messages: ChatMessage[]): number[] {
+  const starts: number[] = [];
+  messages.forEach((message, index) => {
+    if (message.type === 'user') starts.push(index);
+  });
+  if (starts.length === 0 || starts[0] > 0) starts.unshift(0);
+  return starts;
+}
+
+function findTurnIndex(originalIndex: number, starts: number[], ends: number[]): number {
+  for (let index = 0; index < starts.length; index += 1) {
+    if (originalIndex >= starts[index] && originalIndex < ends[index]) return index;
+  }
+  return -1;
+}
+
+/**
+ * 找出每一轮的「最终结果」。
+ *
+ * 判定必须基于「未筛选」的折叠结果：换一个发言人视角只是换个看法，
+ * 不改变谁是一轮的最终结果。
+ *
+ * - 折叠之后紧跟在 turnTrace 后面的那条，就是这一轮的结果；
+ * - 没有过程可折叠的那一轮（没有 trace），最后一条回复就是这一轮的结果：
+ *   没有过程要折叠，就不该把结论也折起来。
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function collectFinalResultMessages(
+  items: RenderableMessageItem[],
+  turnStarts: number[],
+): Set<ChatMessage> {
+  const finalResults = new Set<ChatMessage>();
+
+  // 折叠之后紧跟 turnTrace 的那条，就是这一轮的结果。
+  for (let index = 0; index < items.length - 1; index += 1) {
+    if (!items[index].turnTrace) continue;
+    const next = items[index + 1];
+    if (next && !next.turnTrace) finalResults.add(next.message);
+  }
+
+  // 没有 trace 的那一轮：最后一条回复就是这一轮的结果。
+  const ends = turnStarts.map((start, index) => turnStarts[index + 1] ?? Number.POSITIVE_INFINITY);
+  const lastItemOfTurn = new Map<number, RenderableMessageItem>();
+  const foldedTurns = new Set<number>();
+  for (const item of items) {
+    const turnIndex = findTurnIndex(Math.floor(item.originalIndex), turnStarts, ends);
+    if (turnIndex < 0) continue;
+    if (item.turnTrace) foldedTurns.add(turnIndex);
+    lastItemOfTurn.set(turnIndex, item);
+  }
+  for (const [turnIndex, item] of lastItemOfTurn) {
+    if (foldedTurns.has(turnIndex)) continue;
+    if (!isSpeakerUtterance(item.message)) continue;
+    finalResults.add(item.message);
+  }
+
+  return finalResults;
+}
+
+/**
+ * 收集一条（可能还嵌套着 turnTrace 子回复的）行所挂的过程上下文。
+ */
+function collectProcessAttachments(item: RenderableMessageItem): {
+  before: RenderableMessageItem['beforeProcessAttachments'];
+  after: RenderableMessageItem['afterProcessAttachments'];
+} {
+  const before = [...item.beforeProcessAttachments];
+  const after = [...item.afterProcessAttachments];
+  for (const child of item.turnTrace?.items ?? []) {
+    const nested = collectProcessAttachments(child);
+    before.push(...nested.before);
+    after.push(...nested.after);
+  }
+  return { before, after };
+}
+
+/**
+ * 按发言人筛选（在折叠之后做）。
+ *
+ * - 只留下选中发言人说出口的话；
+ * - 用户提问和过程上下文（工具、思考、活动）原样保留，方便读懂这一段在做什么；
+ * - turnTrace 里的子回复递归筛选；整段都没留下就整段不显示；
+ * - 被筛掉的那一行如果挂着共享的过程上下文（工具过程），上下文转交给后面
+ *   还留着的那一行，不让共享过程因为换视角而凭空消失。
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function filterRenderableItemsBySpeaker(
+  items: RenderableMessageItem[],
+  speakerKey: string | null,
+): RenderableMessageItem[] {
+  if (!speakerKey) return items;
+  const result: RenderableMessageItem[] = [];
+  // 被筛掉的行：它们挂着的过程上下文要转交给后面还留着的行。
+  let dropped: RenderableMessageItem[] = [];
+
+  const absorb = (target: RenderableMessageItem): RenderableMessageItem => {
+    if (dropped.length === 0) return target;
+    const droppedBefore: RenderableMessageItem['beforeProcessAttachments'] = [];
+    const droppedAfter: RenderableMessageItem['afterProcessAttachments'] = [];
+    for (const entry of dropped) {
+      const collected = collectProcessAttachments(entry);
+      droppedBefore.push(...collected.before);
+      droppedAfter.push(...collected.after);
+    }
+    dropped = [];
+    return {
+      ...target,
+      beforeProcessAttachments: [...droppedBefore, ...target.beforeProcessAttachments],
+      afterProcessAttachments: [...target.afterProcessAttachments, ...droppedAfter],
+    };
+  };
+
+  for (const item of items) {
+    if (item.turnTrace) {
+      const children = filterRenderableItemsBySpeaker(item.turnTrace.items, speakerKey);
+      if (children.length === 0) {
+        dropped.push(item);
+        continue;
+      }
+      result.push(absorb({ ...item, turnTrace: { ...item.turnTrace, items: children } }));
+      continue;
+    }
+    if (isSpeakerUtterance(item.message) && !messageMatchesSpeaker(item.message, speakerKey)) {
+      dropped.push(item);
+      continue;
+    }
+    result.push(absorb(item));
+  }
+
+  // 结尾被筛掉的行：过程上下文挂到最后还留着的那一行上。
+  if (dropped.length > 0 && result.length > 0) {
+    result[result.length - 1] = absorb(result[result.length - 1]);
+  }
+  return result;
+}
+
+/**
+ * 回复的默认展开状态：
+ *
+ * - 正在流式输出的回复默认展开；
+ * - 一轮的最终结果默认展开（过程折叠、结果展开）；
+ * - 正在工作时最新的那条回复默认展开（它可能不是流式落地的）；
+ * - 其余已完成的回复默认折叠。
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function isReplyExpandedByDefault(
+  message: ChatMessage,
+  options: { isFinalResult: boolean; isNewestReply: boolean; isAssistantWorking: boolean },
+): boolean {
+  if (message.isStreaming) return true;
+  if (options.isFinalResult) return true;
+  if (options.isAssistantWorking && options.isNewestReply) return true;
+  return false;
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -373,6 +538,8 @@ function MessagesPaneV2({
   onRegenerate,
   forkDisabled = false,
   forkParentSessionTitle = null,
+  speakerFilterKey = null,
+  onSelectSpeaker,
 }: MessagesPaneV2Props) {
   const { t } = useTranslation('chat');
   const messageKeyMapRef = useRef<WeakMap<ChatMessage, string>>(new WeakMap());
@@ -384,6 +551,8 @@ function MessagesPaneV2({
   const [expandedProcessRows, setExpandedProcessRows] = useState<Map<string, boolean>>(() => new Map());
   const [expandedToolSections, setExpandedToolSections] = useState<Map<string, boolean>>(() => new Map());
   const [openSubagentId, setOpenSubagentId] = useState<string | null>(null);
+  // 用户手动展开 / 折叠过的回复：手动操作优先于默认状态。
+  const [replyExpandedOverrides, setReplyExpandedOverrides] = useState<Map<string, boolean>>(() => new Map());
 
   const handleOpenSubagentDetail = useCallback((subagentId: string) => {
     setOpenSubagentId(subagentId);
@@ -565,10 +734,20 @@ function MessagesPaneV2({
     }
     return groupsByAnchor;
   }, [liveProcessGroups]);
-  const renderableMessageItems = useMemo(
+  const foldedMessageItems = useMemo(
     () => foldCompletedTurns(renderableMessages,
       buildRenderableMessageItems(renderableMessages, { isAssistantWorking }), isAssistantWorking),
     [isAssistantWorking, renderableMessages],
+  );
+  // 最终结果的判定基于未筛选的折叠结果：换发言人视角不改变「谁是一轮的结果」。
+  const finalResultMessages = useMemo(
+    () => collectFinalResultMessages(foldedMessageItems, getTurnStartIndices(renderableMessages)),
+    [foldedMessageItems, renderableMessages],
+  );
+  // 筛选放在折叠之后：这样被折叠掉的中间回复不会影响最终结果的判定。
+  const renderableMessageItems = useMemo(
+    () => filterRenderableItemsBySpeaker(foldedMessageItems, speakerFilterKey),
+    [foldedMessageItems, speakerFilterKey],
   );
   const keyedMessageItems = useMemo<KeyedRenderableMessageItem[]>(
     () => renderableMessageItems.map((item, index) => ({
@@ -582,6 +761,39 @@ function MessagesPaneV2({
     })),
     [getMessageKey, messageWindowScope, renderableMessageItems],
   );
+  // 最新一条回复：正在工作时它默认展开（它可能不是流式落地的）。
+  const newestReplyItemKey = useMemo(() => {
+    for (let index = keyedMessageItems.length - 1; index >= 0; index -= 1) {
+      const item = keyedMessageItems[index];
+      if (isSpeakerUtterance(item.message)) return item.itemKey;
+      if (!item.turnTrace) continue;
+      for (let childIndex = item.turnTrace.items.length - 1; childIndex >= 0; childIndex -= 1) {
+        const child = item.turnTrace.items[childIndex];
+        if (isSpeakerUtterance(child.message)) {
+          return `${messageWindowScope}:${getMessageKey(child.message, child.originalIndex)}`;
+        }
+      }
+    }
+    return null;
+  }, [getMessageKey, keyedMessageItems, messageWindowScope]);
+  // 手动展开 / 折叠优先于默认状态。
+  const isReplyExpanded = useCallback((rowKey: string, message: ChatMessage): boolean => {
+    const override = replyExpandedOverrides.get(rowKey);
+    if (override !== undefined) return override;
+    return isReplyExpandedByDefault(message, {
+      isFinalResult: finalResultMessages.has(message),
+      isNewestReply: rowKey === newestReplyItemKey,
+      isAssistantWorking,
+    });
+  }, [finalResultMessages, isAssistantWorking, newestReplyItemKey, replyExpandedOverrides]);
+  const handleSetReplyExpanded = useCallback((rowKey: string, expanded: boolean) => {
+    setReplyExpandedOverrides((current) => {
+      if (current.get(rowKey) === expanded) return current;
+      const next = new Map(current);
+      next.set(rowKey, expanded);
+      return next;
+    });
+  }, []);
   const lastUserMessageItemKey = useMemo(() => {
     for (let index = keyedMessageItems.length - 1; index >= 0; index -= 1) {
       if (keyedMessageItems[index].message.type === 'user') return keyedMessageItems[index].itemKey;
@@ -1045,44 +1257,52 @@ function MessagesPaneV2({
       return true;
     })();
 
-    const renderRow = (rowItem: RenderableMessageItem, inTrace = false) => (
-      <MessageRowV2
-        message={rowItem.message}
-        prevMessage={previousMessage}
-        nextMessage={nextMessage}
-        beforeProcessAttachments={rowItem.beforeProcessAttachments}
-        afterProcessAttachments={rowItem.afterProcessAttachments}
-        provider={provider}
-        selectedProject={selectedProject}
-        createDiff={createDiff}
-        onFileOpen={onFileOpen}
-        onShowSettings={onShowSettings}
-        onGrantSessionToolPermission={onGrantSessionToolPermission}
-        autoExpandTools={autoExpandTools}
-        showThinking={showThinking}
-        inlineThinking={inlineThinking}
-        isProcessExpanded={isProcessExpanded}
-        onProcessExpandedChange={handleProcessExpandedChange}
-        isToolSectionExpanded={isToolSectionExpanded}
-        onToolSectionExpandedChange={handleToolSectionExpandedChange}
-        onOpenSubagentDetail={handleOpenSubagentDetail}
-        subagentActivityById={subagentActivityById}
-        subagentThinkingById={subagentThinkingById}
-        isSessionRunning={!inTrace && isAssistantWorking}
-        sessionRuntimeState={inTrace ? 'inactive' : messageSessionRuntimeState}
-        onFork={onFork}
-        forkCarriedMessageCount={forkCarriedMessageCount}
-        forkDisabled={forkDisabled}
-        showAssistantActions={!inTrace && showAssistantActions}
-        canEdit={Boolean(
-          onRegenerate
-          && !sessionIsReadOnly
-          && !inTrace
-          && item.itemKey === lastUserMessageItemKey
-        )}
-        onRegenerate={onRegenerate}
-      />
-    );
+    const renderRow = (rowItem: RenderableMessageItem, inTrace = false, rowKey?: string) => {
+      const scopedRowKey = rowKey ?? item.itemKey;
+      const isReply = isSpeakerUtterance(rowItem.message);
+      const replyExpanded = isReply ? isReplyExpanded(scopedRowKey, rowItem.message) : true;
+      return (
+        <MessageRowV2
+          message={rowItem.message}
+          prevMessage={previousMessage}
+          nextMessage={nextMessage}
+          beforeProcessAttachments={rowItem.beforeProcessAttachments}
+          afterProcessAttachments={rowItem.afterProcessAttachments}
+          provider={provider}
+          selectedProject={selectedProject}
+          createDiff={createDiff}
+          onFileOpen={onFileOpen}
+          onShowSettings={onShowSettings}
+          onGrantSessionToolPermission={onGrantSessionToolPermission}
+          autoExpandTools={autoExpandTools}
+          showThinking={showThinking}
+          inlineThinking={inlineThinking}
+          isProcessExpanded={isProcessExpanded}
+          onProcessExpandedChange={handleProcessExpandedChange}
+          isToolSectionExpanded={isToolSectionExpanded}
+          onToolSectionExpandedChange={handleToolSectionExpandedChange}
+          onOpenSubagentDetail={handleOpenSubagentDetail}
+          subagentActivityById={subagentActivityById}
+          subagentThinkingById={subagentThinkingById}
+          isSessionRunning={!inTrace && isAssistantWorking}
+          sessionRuntimeState={inTrace ? 'inactive' : messageSessionRuntimeState}
+          onFork={onFork}
+          forkCarriedMessageCount={forkCarriedMessageCount}
+          forkDisabled={forkDisabled}
+          showAssistantActions={!inTrace && showAssistantActions}
+          canEdit={Boolean(
+            onRegenerate
+            && !sessionIsReadOnly
+            && !inTrace
+            && item.itemKey === lastUserMessageItemKey
+          )}
+          onRegenerate={onRegenerate}
+          replyCollapsed={isReply ? !replyExpanded : undefined}
+          onToggleReplyCollapsed={isReply ? () => handleSetReplyExpanded(scopedRowKey, !replyExpanded) : undefined}
+          onSelectSpeaker={onSelectSpeaker}
+        />
+      );
+    };
 
     return (
       <Fragment key={item.itemKey}>
@@ -1117,7 +1337,7 @@ function MessagesPaneV2({
                   {item.turnTrace.items.map((child) => {
                     const childKey = `${messageWindowScope}:${getMessageKey(child.message, child.originalIndex)}`;
                     return <div key={childKey} className="chat-message" data-message-key={childKey}>
-                      {renderRow(child, true)}
+                      {renderRow(child, true, childKey)}
                     </div>;
                   })}
                 </div>
@@ -1174,6 +1394,7 @@ function MessagesPaneV2({
     sessionIsReadOnly,
     onGrantSessionToolPermission,
     onShowSettings,
+    onSelectSpeaker,
     provider,
     renderLiveProcessGroup,
     selectedProject,
@@ -1181,6 +1402,8 @@ function MessagesPaneV2({
     subagentActivityById,
     subagentThinkingById,
     t,
+    isReplyExpanded,
+    handleSetReplyExpanded,
   ]);
 
   const keyedMessagesForSearch = useMemo<SearchableChatMessageInput[]>(() => {

@@ -421,6 +421,15 @@
     "removeAll": "Remove all quotes",
     "panelLabel": "Quoted assistant replies"
   },
+  "speaker": {
+    "team": "Team",
+    "mainAgent": "Main agent",
+    "showAll": "Show all speakers",
+    "onlyThis": "Only {{name}}"
+  },
+  "reply": {
+    "expand": "Expand reply"
+  },
   "commandMenu": {
     "empty": "No commands available",
     "groups": {

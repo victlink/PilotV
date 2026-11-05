@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ChatInterfaceV2 from './ChatInterfaceV2';
 
@@ -17,6 +17,16 @@ const chatMocks = vi.hoisted(() => ({
   regenerateHandlers: [] as Array<
     ((message: unknown, editedText: string) => Promise<void>) | undefined
   >,
+  /**
+   * The speaker-filter props of every rendered message pane.
+   * `speakerFilterKey` is the filter the pane renders with, `onSelectSpeaker`
+   * is the callback the pane raises when the reader clicks a speaker name in
+   * the message body.
+   */
+  messagesPaneProps: [] as Array<{
+    speakerFilterKey?: string | null;
+    onSelectSpeaker?: (speakerKey: string | null) => void;
+  }>,
 }));
 
 vi.mock('react-i18next', () => ({
@@ -103,10 +113,15 @@ vi.mock('../../lib/projectTeamApi', () => ({
 vi.mock('./MessagesPaneV2', () => ({
   default: ({
     onRegenerate,
+    speakerFilterKey,
+    onSelectSpeaker,
   }: {
     onRegenerate?: (message: unknown, editedText: string) => Promise<void>;
+    speakerFilterKey?: string | null;
+    onSelectSpeaker?: (speakerKey: string | null) => void;
   }) => {
     chatMocks.regenerateHandlers.push(onRegenerate);
+    chatMocks.messagesPaneProps.push({ speakerFilterKey, onSelectSpeaker });
     return (
       <button
         type="button"
@@ -184,10 +199,14 @@ const GENERAL_PROJECT = {
   fullPath: '/home/tester/.pilotdeck',
 };
 
-function chatProps(project: Record<string, unknown>, sendMessage: ReturnType<typeof vi.fn>) {
+function chatProps(
+  project: Record<string, unknown>,
+  sendMessage: ReturnType<typeof vi.fn>,
+  sessionId = 'web:s_agent',
+) {
   return {
     selectedProject: project,
-    selectedSession: { id: 'web:s_agent' },
+    selectedSession: { id: sessionId },
     ws: { readyState: WebSocket.OPEN },
     sendMessage,
     subscribe: vi.fn(() => vi.fn()),
@@ -219,10 +238,40 @@ function renderChat(
 beforeEach(() => {
   chatMocks.composerAgentIds.length = 0;
   chatMocks.regenerateHandlers.length = 0;
+  chatMocks.messagesPaneProps.length = 0;
   chatMocks.fetchProjectTeam.mockReset();
 });
 
 afterEach(cleanup);
+
+/**
+ * The speaker keys the top strip renders for the demo project team.
+ * `agentIdentity.speakerKeyOfName` keys a team member by its name, so the
+ * reviewer of the mocked project team is `name:Agent B`.
+ */
+const REVIEWER_SPEAKER_KEY = 'name:Agent B';
+const EXECUTOR_SPEAKER_KEY = 'name:Agent A';
+
+/** The props the last rendered message pane received. */
+function latestMessagesPaneProps() {
+  const props = chatMocks.messagesPaneProps[chatMocks.messagesPaneProps.length - 1];
+  if (!props) throw new Error('the message pane was not rendered');
+  return props;
+}
+
+/** A speaker button of the top strip, found by its stable speaker key. */
+function speakerStripButton(speakerKey: string): HTMLElement {
+  const button = document.querySelector<HTMLElement>(`[data-speaker-key="${speakerKey}"]`);
+  if (!button) throw new Error(`speaker button not found: ${speakerKey}`);
+  return button;
+}
+
+/** The "团队" button of the top strip, which clears the speaker filter. */
+function teamStripButton(): HTMLElement {
+  const button = document.querySelector<HTMLElement>('[data-testid="speaker-filter-team"]');
+  if (!button) throw new Error('team button not found');
+  return button;
+}
 
 describe('ChatInterfaceV2 project agents', () => {
   it('carries the selected project agent into the turn payload', async () => {
@@ -334,5 +383,86 @@ describe('ChatInterfaceV2 project agents', () => {
     await waitFor(() => expect(sendMessage).toHaveBeenCalled());
     const [frame] = sendMessage.mock.calls[0] as [{ type: string; options: Record<string, unknown> }];
     expect(frame.options).not.toHaveProperty('agentId');
+  });
+});
+
+describe('ChatInterfaceV2 speaker filter wiring', () => {
+  it('renders the message pane without a speaker filter by default', async () => {
+    renderChat(vi.fn());
+
+    await waitFor(() => expect(chatMocks.fetchProjectTeam).toHaveBeenCalled());
+    await waitFor(() => expect(latestMessagesPaneProps().onSelectSpeaker).toBeTypeOf('function'));
+
+    expect(latestMessagesPaneProps().speakerFilterKey).toBeNull();
+    expect(teamStripButton().getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('applies the speaker picked in the top strip to the message pane', async () => {
+    renderChat(vi.fn());
+
+    await waitFor(() => expect(chatMocks.fetchProjectTeam).toHaveBeenCalled());
+    await waitFor(() => expect(speakerStripButton(REVIEWER_SPEAKER_KEY)).toBeTruthy());
+
+    fireEvent.click(speakerStripButton(REVIEWER_SPEAKER_KEY));
+
+    await waitFor(() => expect(latestMessagesPaneProps().speakerFilterKey).toBe(REVIEWER_SPEAKER_KEY));
+    expect(speakerStripButton(REVIEWER_SPEAKER_KEY).getAttribute('aria-pressed')).toBe('true');
+    expect(teamStripButton().getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('shares one filter state between the top strip and the message body', async () => {
+    renderChat(vi.fn());
+
+    await waitFor(() => expect(chatMocks.fetchProjectTeam).toHaveBeenCalled());
+    await waitFor(() => expect(speakerStripButton(REVIEWER_SPEAKER_KEY)).toBeTruthy());
+
+    fireEvent.click(speakerStripButton(REVIEWER_SPEAKER_KEY));
+    await waitFor(() => expect(latestMessagesPaneProps().speakerFilterKey).toBe(REVIEWER_SPEAKER_KEY));
+
+    /**
+     * The body callback has to move the very same filter the top strip owns.
+     * A second, independent filter would leave the strip showing the
+     * reviewer while the pane already shows the executor.
+     */
+    const onSelectSpeaker = latestMessagesPaneProps().onSelectSpeaker;
+    expect(onSelectSpeaker).toBeTypeOf('function');
+    act(() => {
+      onSelectSpeaker?.(EXECUTOR_SPEAKER_KEY);
+    });
+
+    await waitFor(() => expect(latestMessagesPaneProps().speakerFilterKey).toBe(EXECUTOR_SPEAKER_KEY));
+    expect(speakerStripButton(EXECUTOR_SPEAKER_KEY).getAttribute('aria-pressed')).toBe('true');
+    expect(speakerStripButton(REVIEWER_SPEAKER_KEY).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('clears the speaker filter when 团队 is clicked', async () => {
+    renderChat(vi.fn());
+
+    await waitFor(() => expect(chatMocks.fetchProjectTeam).toHaveBeenCalled());
+    await waitFor(() => expect(speakerStripButton(REVIEWER_SPEAKER_KEY)).toBeTruthy());
+
+    fireEvent.click(speakerStripButton(REVIEWER_SPEAKER_KEY));
+    await waitFor(() => expect(latestMessagesPaneProps().speakerFilterKey).toBe(REVIEWER_SPEAKER_KEY));
+
+    fireEvent.click(teamStripButton());
+
+    await waitFor(() => expect(latestMessagesPaneProps().speakerFilterKey).toBeNull());
+    expect(teamStripButton().getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('drops the speaker filter when the session changes', async () => {
+    const sendMessage = vi.fn();
+    const view = renderChat(sendMessage);
+
+    await waitFor(() => expect(chatMocks.fetchProjectTeam).toHaveBeenCalled());
+    await waitFor(() => expect(speakerStripButton(REVIEWER_SPEAKER_KEY)).toBeTruthy());
+
+    fireEvent.click(speakerStripButton(REVIEWER_SPEAKER_KEY));
+    await waitFor(() => expect(latestMessagesPaneProps().speakerFilterKey).toBe(REVIEWER_SPEAKER_KEY));
+
+    view.rerender(<ChatInterfaceV2 {...(chatProps(DEMO_PROJECT, sendMessage, 'web:s_other') as any)} />);
+
+    await waitFor(() => expect(latestMessagesPaneProps().speakerFilterKey).toBeNull());
+    expect(teamStripButton().getAttribute('aria-pressed')).toBe('true');
   });
 });

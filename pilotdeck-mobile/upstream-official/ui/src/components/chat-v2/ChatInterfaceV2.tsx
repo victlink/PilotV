@@ -1,4 +1,5 @@
 import ProjectTeamStrip from './ProjectTeamStrip';
+import { collectSpeakers } from './agentIdentity';
 import ErrorBoundary from '../main-content/view/ErrorBoundary';
 import { useContext } from 'react';
 import { SessionViewReadyContext } from '../app-shell/useSessionIndicators';
@@ -930,7 +931,18 @@ function ChatInterfaceV2({
     }
   }), [contextSubscribe, selectedSession?.id, currentSessionId]);
 
-  const teamStrip = <ProjectTeamStrip agents={teamAgents} selectedAgentId={activeAgentId} onSelect={setSelectedAgentId} participants={participantsState.sessionId === (selectedSession?.id || currentSessionId) ? participantsState.participants : []} />;
+  const speakerScope = `${projectRoot}:${selectedSession?.id || currentSessionId || ''}`;
+  const [speakerSelection, setSpeakerSelection] = useState<{ scope: string; key: string | null }>({ scope: '', key: null });
+  const speakerFilterKey = speakerSelection.scope === speakerScope ? speakerSelection.key : null;
+  const selectSpeaker = useCallback((key: string | null) => {
+    setSpeakerSelection({ scope: speakerScope, key });
+  }, [speakerScope]);
+  const speakers = React.useMemo(() => collectSpeakers({
+    agents: teamAgents,
+    participants: participantsState.sessionId === (selectedSession?.id || currentSessionId) ? participantsState.participants : [],
+    messages: chatMessages.filter((message) => message.type === 'assistant'),
+  }), [teamAgents, participantsState, selectedSession?.id, currentSessionId, chatMessages]);
+  const teamStrip = <ProjectTeamStrip speakers={speakers} activeSpeakerKey={speakerFilterKey} onSelectSpeaker={selectSpeaker} />;
 
   if (isWelcomeMode) {
     const projectName = selectedProject && !isGeneralProject(selectedProject)
@@ -991,6 +1003,8 @@ function ChatInterfaceV2({
           isLoadingSessionMessages={isLoadingSessionMessages}
           sessionLoadError={sessionLoadError}
           onRetrySessionLoad={handleWebSocketReconnect}
+          speakerFilterKey={speakerFilterKey}
+          onSelectSpeaker={selectSpeaker}
           chatMessages={chatMessages}
           sendingInputs={sendingInputs}
           activityMessages={activityMessages}

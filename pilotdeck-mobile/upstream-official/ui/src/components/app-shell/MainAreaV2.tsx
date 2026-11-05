@@ -149,6 +149,7 @@ type Tab = { id: AppTab; labelKey: string; icon: LucideIcon };
 const FILES_TAB: Tab = { id: 'files', labelKey: 'tabs.files', icon: Folder };
 // 「改动」这一页就是对话旁的评审面板（变更 / Git / 历史）。AppTab 里的 'git'
 // 是它早年的名字，管线（MainContent → ChatReviewProvider）一直都在。
+// 右侧页面抽屉里的入口已撤掉，REVIEW_TAB 现在只用来标识这一页的 tab id。
 const REVIEW_TAB: Tab = { id: 'git', labelKey: 'dashboardSwitcher.changes', icon: GitBranch };
 const DASHBOARD_TABS: Tab[] = [
   { id: 'dashboard', labelKey: 'tabs.dashboard', icon: BarChart3 },
@@ -233,6 +234,7 @@ function MainAreaV2Content(props: MainAreaV2Props) {
   // 「改动」是独立的一页，评审面板住在对话内部，两棵子树互不相通：
   // 侧栏的探索菜单用 pilotdeck:open-changes 把请求递进来，序号每次加一，
   // 面板才会重新弹一次（否则已经在这一页时再点一次没反应）。
+  // 右侧页面抽屉里的「改动」按钮已删，这条事件驱动的路径是唯一的入口。
   const openChangesPage = useCallback(() => {
     setShowArtifacts(false);
     // 落在「改动」这一页，标签条上的选中态才不会跳回对话。
@@ -423,12 +425,13 @@ function MainAreaV2Content(props: MainAreaV2Props) {
           />
           </FileConversationContext.Provider>
         </div>
-        {/* 悬浮抽屉式页面标签。四个页面依旧各自整窗显示，不把窗口分成两半；
+        {/* 悬浮抽屉式页面标签。各个页面依旧各自整窗显示，不把窗口分成两半；
             标签本身是一层浮在主区右缘的抽屉：absolute 定位，不占主区宽度，
             右侧圆角 + 投影让它读起来是「浮在上面」而不是「右边栏」。
             底部有收起按钮，收起后只留右缘一枚小把手，点把手再展开。
             抽屉上沿压在面板标题栏之下：侧面板的关闭按钮就在右上角，
-            两者重叠的话面板一旦打开就点不掉了。 */}
+            两者重叠的话面板一旦打开就点不掉了。
+            「改动」这一页的入口只保留在侧栏（事件驱动），抽屉里不再重复一份。 */}
         <div className="pd-page-drawer">
           {pageTabsOpen ? (
             <nav aria-label="页面切换" className="right-rail pd-page-drawer-panel">
@@ -452,15 +455,6 @@ function MainAreaV2Content(props: MainAreaV2Props) {
                   <span>文件</span>
                 </button>
               ) : null}
-              <button
-                type="button"
-                aria-pressed={!showArtifacts && displayActiveTab === REVIEW_TAB.id}
-                data-pane-state={!showArtifacts && displayActiveTab === REVIEW_TAB.id ? 'on' : 'off'}
-                onClick={openChangesPage}
-                className={!showArtifacts && displayActiveTab === REVIEW_TAB.id ? 'active' : ''}
-              >
-                <span>改动</span>
-              </button>
               <button
                 type="button"
                 aria-pressed={showArtifacts}
