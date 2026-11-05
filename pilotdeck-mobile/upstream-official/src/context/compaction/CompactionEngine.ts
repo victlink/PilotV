@@ -424,7 +424,13 @@ export class CompactionEngine {
       throw new Error("Summary model returned empty content");
     }
     if (finishReason === "length") {
-      throw new Error("Summary model output was truncated at the token limit");
+      // A truncated summary is still far better than no summary at all.
+      // Throwing here makes full compaction fail, so the session keeps growing
+      // past the blocking threshold (and eventually kills the gateway).
+      // Keep the text the model did produce and let compaction complete.
+      console.warn(
+        `[context:auto-compact] summary truncated at output limit; using partial summary (${text.length} chars)`,
+      );
     }
     if (finishReason === "content_filter") {
       throw new Error("Summary model output was stopped by content filtering");

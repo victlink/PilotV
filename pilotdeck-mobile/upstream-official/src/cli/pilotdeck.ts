@@ -427,12 +427,17 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       }
     };
     const shutdownAndExit = createShutdownAndExit(stop, (exitCode) => process.exit(exitCode));
-    process.on("uncaughtException", (error) => {
-      telemetry.trackError(error, { module: "runtime", metadata: { source: "uncaughtException" } });
-      void shutdownAndExit(1);
-    });
+    // An unhandled rejection is usually one turn's secondary promise (a failed
+    // compaction summary, a telemetry write, ...). Killing the whole gateway
+    // for that drops every other live WebSocket and makes the UI reply
+    // "PilotDeck gateway is unavailable." Log the full cause and keep serving.
     process.on("unhandledRejection", (reason) => {
+      console.error("[pilotdeck] unhandledRejection (gateway stays alive):", reason);
       telemetry.trackError(reason, { module: "runtime", metadata: { source: "unhandledRejection" } });
+    });
+    process.on("uncaughtException", (error) => {
+      console.error("[pilotdeck] uncaughtException (full stack):", error);
+      telemetry.trackError(error, { module: "runtime", metadata: { source: "uncaughtException" } });
       void shutdownAndExit(1);
     });
     process.on("SIGINT", () => {

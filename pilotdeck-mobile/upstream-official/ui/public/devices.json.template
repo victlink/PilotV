@@ -1,0 +1,7 @@
+{
+  "_comment": "设备清单模板。复制为 ui/public/devices.json，并在构建后同步到 ui/dist/devices.json。改完必须重启 5186（loadConfigFromEnv 只在启动时读取）。请勿把真实 Tailscale IP 提交进公共仓库。",
+  "devices": [
+    { "name": "REPLACE_WITH_DEVICE_NAME", "origin": "http://REPLACE_TAILSCALE_IP:3001", "artifactsPort": 8799 },
+    { "name": "leo-mac-studio", "origin": "http://REPLACE_TAILSCALE_IP:3002", "artifactsPort": 8799 }
+  ]
+}

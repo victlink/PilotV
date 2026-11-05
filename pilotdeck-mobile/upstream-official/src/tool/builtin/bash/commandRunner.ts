@@ -208,7 +208,13 @@ export function decodeShellOutput(chunk: Buffer): string {
 function createWindowsShellOutputDecoder(): ShellOutputDecoder {
   let mode: "unknown" | "utf8" | "gb18030" = "unknown";
   let pending = Buffer.alloc(0);
-  const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+  // Encoding is decided by inspectUtf8() on raw bytes, so this decoder does not
+  // need fatal mode. With fatal:true, a later chunk containing any non-UTF-8 byte
+  // (common on Windows when a command emits mixed GBK/UTF-8 or binary output)
+  // throws ERR_ENCODING_INVALID_ENCODED_DATA from the stdout data handler as an
+  // uncaughtException, which shuts down the whole gateway and drops every live
+  // WebSocket. Replacement characters are far better than losing the process.
+  const utf8Decoder = new TextDecoder("utf-8");
   let gb18030Decoder: TextDecoder | undefined;
 
   return {
