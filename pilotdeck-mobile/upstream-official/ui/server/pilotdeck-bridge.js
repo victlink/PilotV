@@ -72,6 +72,7 @@ import { readPermissionSettings } from './services/permissionSettings.js';
 import { createGatewayConnectionCache } from './services/gatewayConnectionCache.js';
 import { ensureGeneralWorkspaceDirectory } from './utils/generalWorkspace.js';
 import { resolveProjectTeamRuntime } from './services/projectTeamRuntime.js';
+import { buildProjectReviewRequest, selectProjectReviewer } from './services/projectTeamCollaboration.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -907,17 +908,23 @@ export function resolvePermissionMode(options, readPersisted = readPermissionSet
  * @returns {object}
  */
 export function attachProjectAgentToFrame(frame, projectRuntime) {
-    const name = projectRuntime?.agent?.name;
+    // Active snapshots restore the flat sidecar speaker record; live turns
+    // carry the same fields under runtime.agent.
+    const agent = projectRuntime?.agent || projectRuntime;
+    const name = agent?.name;
     if (!name) return frame;
     if (!frame) return frame;
     // 流式增量也要带名字：最终那条文字是由增量拼出来的，名字得跟着一路活下来。
     const isAssistantText = frame.kind === 'text' && frame.role === 'assistant';
     const isStreamDelta = frame.kind === 'stream_delta';
     if (!isAssistantText && !isStreamDelta) return frame;
+    // Native subagent detail frames already carry their own identity. Do not
+    // overwrite it with the parent project agent's name.
+    if (frame.isSubagentDetail === true || frame.subagentId) return frame;
     return {
         ...frame,
         agentName: name,
-        agentRole: typeof projectRuntime.agent.role === 'string' ? projectRuntime.agent.role : '',
+        agentRole: typeof agent.role === 'string' ? agent.role : '',
     };
 }
 
@@ -1925,7 +1932,10 @@ export async function runChatViaGateway(
         }
     }
     if (releasedSteeringItem) mutateInputQueue(state, writer);
-    if (state.inputQueue.length > 0) {
+    // Dispatch may finish newer turns (and their review) before returning.
+    // Never launch a stale review for this turn after that await.
+    const hadQueuedInput = state.inputQueue.length > 0;
+    if (hadQueuedInput) {
         const disposition = queuedInputDispositionAfterTurn(turnFinishReason, state.queuePaused);
         if (disposition === 'dispatch') {
             await dispatchNextQueuedInput(state, writer, provider);
@@ -1935,6 +1945,42 @@ export async function runChatViaGateway(
                 ? 'user_stopped'
                 : 'previous_turn_failed';
             mutateInputQueue(state, writer);
+        }
+    }
+
+    // Automatic review is a bounded, same-session independent run. User queue
+    // dispatch above always wins; review runs only after a successful user turn.
+    if (!options.internalReview && !hadQueuedInput && sawTurnCompleted
+        && turnFinishReason === 'completed'
+        && state.inputQueue.length === 0
+        && !state.active && !state.deleted && !state.deleting) {
+        const reviewer = selectProjectReviewer(projectRuntime?.teamConfig || {
+            collaboration: projectRuntime?.collaboration,
+            agents: projectRuntime?.agents,
+        }, { agentId: projectRuntime?.agentId, reviewDepth: options.reviewDepth || 0 });
+        if (reviewer) {
+            const {
+                images: _reviewImages,
+                attachments: _reviewAttachments,
+                uploadedAttachments: _reviewUploadedAttachments,
+                onInputAccepted: _reviewOnInputAccepted,
+                ...reviewBaseOptions
+            } = options;
+            await runChatViaGateway('', {
+                ...reviewBaseOptions,
+                sessionId: sessionKey,
+                sessionKey,
+                runId: undefined,
+                // Keep reviewer completion separate from the parent turn.
+                projectPath: projectRuntime.projectRoot,
+                agentId: reviewer.id,
+                internalReview: true,
+                reviewDepth: (options.reviewDepth || 0) + 1,
+                syntheticMessages: [{
+                    text: buildProjectReviewRequest({ agentName: projectRuntime.agent?.name || '默认 Agent', runId }),
+                    purpose: 'project_agent_review_request',
+                }],
+            }, writer, provider, { getGateway: hooks.getGateway });
         }
     }
     return { sessionKey, runId, inputAccepted, sawTurnCompleted, sawGatewayError };
@@ -2605,7 +2651,8 @@ export async function getSessionActivityViaGateway(
                 ? snapshot.runId
                 : null,
             activeTurnMessages: includeActiveTurnMessages && snapshot.active && Array.isArray(snapshot.events)
-                ? snapshot.events.flatMap((event) => mapGatewayEventToFrames(event, sessionId, provider) || [])
+                ? snapshot.events.flatMap((event) => (mapGatewayEventToFrames(event, sessionId, provider) || [])
+                    .map((frame) => attachProjectAgentToFrame(frame, getProjectAgentRun(localState?.projectAgentRuns, frame.runId || snapshot.runId))))
                 : [],
         };
     } catch (error) {

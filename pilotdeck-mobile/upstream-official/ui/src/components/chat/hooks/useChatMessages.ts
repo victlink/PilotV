@@ -356,6 +356,8 @@ function convertSingleMessage(
           id: msg.id,
           type: 'assistant',
           ...(msg.model ? { model: msg.model } : {}),
+          ...(msg.agentName ? { agentName: msg.agentName } : {}),
+          ...(msg.agentRole ? { agentRole: msg.agentRole } : {}),
           content: msg.content,
           timestamp: msg.timestamp,
           ...turnIdentity,

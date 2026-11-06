@@ -27,6 +27,18 @@ describe('project team speaker labels', () => {
         expect(frame.agentName).toBe('小林');
     });
 
+    it('restores the speaker from the flat sidecar record used by active snapshots', () => {
+        const state = { projectAgentRuns: {} };
+        recordProjectAgentRun(state, runtime, 'turn-1');
+        const speaker = getProjectAgentRun(state.projectAgentRuns, 'turn-1');
+        const frame = attachProjectAgentToFrame(
+            { kind: 'stream_delta', content: '审查意见' },
+            speaker,
+        );
+        expect(frame.agentName).toBe('小林');
+        expect(frame.agentRole).toBe('engineer');
+    });
+
     it('leaves the default agent unnamed', () => {
         const original = { kind: 'text', role: 'assistant', content: '好的' };
         expect(attachProjectAgentToFrame(original, null)).toBe(original);

@@ -79,6 +79,13 @@ type PendingSessionTitle = {
 
 const SESSION_LISTING_PROMPT_MAX_CHARS = 1_200;
 
+/**
+ * Synthetic purposes whose turn payload lives entirely in `syntheticMessages`.
+ * The submitted user text is only a placeholder for those turns, so an empty
+ * placeholder must not be persisted as an empty user message.
+ */
+const SYNTHETIC_ONLY_INPUT_PURPOSES = new Set(["project_agent_review_request"]);
+
 export class TurnRunner {
   private disposed = false;
   private pendingSessionTitle: PendingSessionTitle | undefined;
@@ -154,7 +161,14 @@ export class TurnRunner {
         return artifacts;
       };
       const accepted = this.inputProcessor.accept(options.input);
-      const allAcceptedMessages = [...accepted.messages, ...(options.syntheticMessages ?? [])];
+      const syntheticMessages = options.syntheticMessages ?? [];
+      // A synthetic turn carries its payload in `syntheticMessages`; the user
+      // text is only a transport placeholder. An empty placeholder must not
+      // become an empty user message in the transcript or in the model request.
+      const acceptedMessages = shouldDropEmptyUserMessage(options.input, syntheticMessages)
+        ? accepted.messages.filter((message) => !isEmptyUserMessage(message))
+        : accepted.messages;
+      const allAcceptedMessages = [...acceptedMessages, ...syntheticMessages];
       const messages = [...options.messages, ...allAcceptedMessages];
 
       try {
@@ -174,8 +188,8 @@ export class TurnRunner {
         return { result, messages: options.messages };
       }
 
-      await this.persistListingPromptMetadata(options, accepted.messages);
-      yield { type: "input_accepted", sessionId: options.sessionId, turnId: options.turnId, messages: accepted.messages };
+      await this.persistListingPromptMetadata(options, acceptedMessages);
+      yield { type: "input_accepted", sessionId: options.sessionId, turnId: options.turnId, messages: acceptedMessages };
 
       try {
         await this.turnDependencies.fileHistory?.beginTurn?.(options.sessionId, options.turnId, options.messages, options.abortSignal);
@@ -233,7 +247,7 @@ export class TurnRunner {
       }
       messages.push(...(userPromptHooks?.messages ?? []));
 
-      const sessionTitle = this.maybeGenerateSessionTitle(options, accepted.messages);
+      const sessionTitle = this.maybeGenerateSessionTitle(options, acceptedMessages);
 
       if (!accepted.shouldCallModel) {
         const error = agentError("agent_unsupported_feature", "Input was accepted but model execution was not requested.");
@@ -583,6 +597,34 @@ function allHumanText(messages: CanonicalMessage[]): string | null {
     }
   }
   return parts.length > 0 ? parts.join("\n") : null;
+}
+
+/**
+ * Whether the empty user text of this turn must be dropped.
+ *
+ * Only text input is considered: a block input carries attachments or other
+ * non-text content that must reach the model unchanged. The turn must also
+ * carry a synthetic message whose purpose states that the synthetic payload
+ * replaces the user text.
+ */
+function shouldDropEmptyUserMessage(
+  input: AgentInput,
+  syntheticMessages: CanonicalMessage[],
+): boolean {
+  if (input.type !== "text" || input.text.trim().length > 0) return false;
+  return syntheticMessages.some((message) => {
+    const purpose = message.metadata?.purpose;
+    return message.metadata?.synthetic === true
+      && typeof purpose === "string"
+      && SYNTHETIC_ONLY_INPUT_PURPOSES.has(purpose);
+  });
+}
+
+/** A user message without any readable content. */
+function isEmptyUserMessage(message: CanonicalMessage): boolean {
+  if (message.role !== "user" || message.metadata?.synthetic) return false;
+  return message.content.length > 0
+    && message.content.every((block) => block.type === "text" && block.text.trim().length === 0);
 }
 
 function linkAbortSignal(
