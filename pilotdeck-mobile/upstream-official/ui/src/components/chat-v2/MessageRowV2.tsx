@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next';
 import { AlertTriangle, Check, ChevronRight, Copy, GitBranch, Loader2, Pencil } from 'lucide-react';
 import { copyTextToClipboard } from '../../utils/clipboard';
 import { agentRoleLabelKey } from './agentRoleLabel';
-import { resolveAgentIdentity } from './agentIdentity';
+import { isSpeakerUtterance, resolveAgentIdentity } from './agentIdentity';
 import TurnChangesCard from '../chat-review/TurnChangesCard';
 import { isImeEnterEvent } from '../../utils/ime.js';
 import { cn } from '../../lib/utils.js';
@@ -180,6 +180,18 @@ function MessageRowV2({
     [message.content],
   );
   const contentDisplayText = useTypewriter(formattedContent, !!message.isStreaming && !message.isThinking, 6);
+  // 每个 agent 有自己的图标和颜色：回复之间一眼能认出是谁在说话。
+  // 这两个 Hook 必须留在早返回之前：同一条消息可能先以 thinking 渲染、
+  // 再切成普通回复，若 Hook 数量随分支变化会触发 React 的
+  // "Rendered fewer hooks than expected"。
+  const assistantIdentity = useMemo(
+    () => resolveAgentIdentity({ name: message.agentName, role: message.agentRole }),
+    [message.agentName, message.agentRole],
+  );
+  const collapsedSummary = useMemo(() => {
+    const text = contentDisplayText.replace(/\s+/g, ' ').trim();
+    return text.length > 140 ? `${text.slice(0, 140)}…` : text;
+  }, [contentDisplayText]);
   const assistantArtifacts = useMemo(
     () => (Array.isArray(message.artifacts) ? message.artifacts : []),
     [message.artifacts],
@@ -593,23 +605,23 @@ function MessageRowV2({
   const resolvedShowAssistantActions = showAssistantActions ?? true;
   // 每条回复都得看得见时间，所以时间不再跟着悬停才出现。
   const assistantMessageTime = formatMessageTime(message.timestamp);
-  // 项目成员的回复要标出是谁在回；默认 Agent 没有名字，就不标。
+  // 项目成员的回复要标出是谁在回；默认 Agent 没有名字，但要标出「主agent」这个身份，
+  // 否则这一栏完全没有颜色，筛选条里也没有一个能点的主 agent。
   const assistantSpeaker = typeof message.agentName === 'string' ? message.agentName.trim() : '';
   const assistantRoleKey = assistantSpeaker ? agentRoleLabelKey(message.agentRole) : null;
   const assistantRoleLabel = assistantRoleKey
     ? String(t(assistantRoleKey, { defaultValue: '' }))
     : '';
   const showAssistantRole = Boolean(assistantRoleLabel) && assistantRoleLabel !== assistantRoleKey;
+  // 只有「说出口的话」才带发言人标签；工具调用、思考过程、活动摘要不算发言。
+  const assistantIsUtterance = isSpeakerUtterance(message);
+  const mainAgentLabel = String(t('speaker.mainAgent', { defaultValue: '主agent' }));
+  const assistantSpeakerLabel = assistantSpeaker || (assistantIsUtterance ? mainAgentLabel : '');
+  const assistantSpeakerTitle = assistantSpeaker
+    ? (showAssistantRole ? `${assistantSpeaker} · ${assistantRoleLabel}` : assistantSpeaker)
+    : mainAgentLabel;
   // 每个 agent 有自己的图标和颜色：回复之间一眼能认出是谁在说话。
-  const assistantIdentity = useMemo(
-    () => resolveAgentIdentity({ name: message.agentName, role: message.agentRole }),
-    [message.agentName, message.agentRole],
-  );
   const SpeakerIcon = assistantIdentity.Icon;
-  const collapsedSummary = useMemo(() => {
-    const text = contentDisplayText.replace(/\s+/g, ' ').trim();
-    return text.length > 140 ? `${text.slice(0, 140)}…` : text;
-  }, [contentDisplayText]);
   const showAssistantCopyButton = resolvedShowAssistantActions && hasAssistantProse;
   const canRenderAssistantForkButton = Boolean(resolvedShowAssistantActions && onFork && hasAssistantProse);
   const shouldRenderAssistantActions = Boolean(
@@ -623,21 +635,22 @@ function MessageRowV2({
       data-chat-search-render-pending={isTextRenderingPending ? 'true' : undefined}
       className="group/assistant-msg min-w-0 text-[14px] leading-relaxed text-neutral-900 dark:text-neutral-100"
     >
-      {(assistantSpeaker || assistantMessageTime) ? (
+      {(assistantSpeakerLabel || assistantMessageTime) ? (
         <div
           data-testid="assistant-message-meta"
           className="mb-1 flex items-center gap-2 text-xs leading-none text-neutral-400 dark:text-neutral-500"
         >
-          {assistantSpeaker ? (
+          {assistantSpeakerLabel ? (
             <button
               type="button"
               data-testid="assistant-message-speaker"
+              data-speaker-key={assistantIdentity.key}
               className={`inline-flex max-w-[45%] items-center gap-1 truncate font-medium ${assistantIdentity.textClass}`}
-              title={showAssistantRole ? `${assistantSpeaker} · ${assistantRoleLabel}` : assistantSpeaker}
+              title={assistantSpeakerTitle}
               onClick={() => onSelectSpeaker?.(assistantIdentity.key)}
             >
               <SpeakerIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">{assistantSpeaker}</span>
+              <span className="truncate">{assistantSpeakerLabel}</span>
             </button>
           ) : null}
           {showAssistantRole ? (

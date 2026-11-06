@@ -36,7 +36,7 @@ describe('MessageRowV2 speaker labels', () => {
     expect(screen.getByTestId('assistant-message-time').getAttribute('datetime')).toBe(TIMESTAMP);
   });
 
-  it('keeps the default agent reply unnamed but still timed', () => {
+  it('labels the default agent reply with the main agent identity', () => {
     render(
       <MessageRowV2
         message={{ id: 'default-reply', type: 'assistant', content: '好的。', timestamp: TIMESTAMP }}
@@ -47,8 +47,46 @@ describe('MessageRowV2 speaker labels', () => {
       />,
     );
 
-    expect(screen.queryByTestId('assistant-message-speaker')).toBeNull();
+    // 主 agent 没有名字，但回复照样要带身份标签、图标和颜色。
+    const speaker = screen.getByTestId('assistant-message-speaker');
+    expect(speaker.textContent).toBe('主agent');
+    expect(speaker.getAttribute('data-speaker-key')).toBe('main');
+    expect(speaker.className).toContain('text-zinc');
     expect(screen.getByTestId('assistant-message-time').getAttribute('datetime')).toBe(TIMESTAMP);
+  });
+
+  it('gives the default agent reply a different color than a project member', () => {
+    const { unmount } = render(
+      <MessageRowV2
+        message={{ id: 'default-reply', type: 'assistant', content: '好的。', timestamp: TIMESTAMP }}
+        prevMessage={null}
+        provider="pilotdeck"
+        selectedProject={null}
+        createDiff={() => []}
+      />,
+    );
+    const mainClass = screen.getByTestId('assistant-message-speaker').className;
+    unmount();
+
+    render(
+      <MessageRowV2
+        message={{
+          id: 'member-reply',
+          type: 'assistant',
+          content: '我来处理这件事。',
+          agentName: '审查员',
+          agentRole: 'reviewer',
+          timestamp: TIMESTAMP,
+        }}
+        prevMessage={null}
+        provider="pilotdeck"
+        selectedProject={null}
+        createDiff={() => []}
+      />,
+    );
+    const memberClass = screen.getByTestId('assistant-message-speaker').className;
+
+    expect(memberClass).not.toBe(mainClass);
   });
 
   it('gives every message a visible time, user messages included', () => {
