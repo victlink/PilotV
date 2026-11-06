@@ -9,6 +9,8 @@ import {
   loadSessionArtifacts,
   mediaType,
   ownsSession,
+  scopeArtifacts,
+  scopeCounts,
 } from './artifactsMedia';
 import type { Artifact } from './artifactsMedia';
 
@@ -28,6 +30,86 @@ it('loads a bare workspace session for the qualified selected conversation', asy
     { sessions: [{ id: 'logo', artifacts: [{ id: 'art_logo' }] }] },
   ] }) }));
   expect(await loadSessionArtifacts('web:logo', new AbortController().signal)).toEqual([{ id: 'art_logo' }]);
+});
+
+it('asks the session query for the whole library, so old rounds do not fall off the window', async () => {
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ projects: [] }) });
+  vi.stubGlobal('fetch', fetchMock);
+  await loadSessionArtifacts('web:logo', new AbortController().signal);
+  const url = String(fetchMock.mock.calls[0][0]);
+  expect(url).toContain('session=web%3Alogo');
+  // 服务端的 limit 是「全库最近多少条」，默认 400 会把老成果挤掉。
+  expect(url).toContain('limit=2000');
+});
+
+it('splits the workspace tree into session, project and all scopes', () => {
+  const tree = [
+    {
+      name: 'project-1',
+      displayName: 'PilotV',
+      fullPath: '/vol3/1000/Work/00/PilotV',
+      artifacts: [artifact({ id: 'direct-1' })],
+      sessions: [
+        { id: 'session-1', title: '当前对话', artifacts: [artifact({ id: 'a1' }), artifact({ id: 'a2' })] },
+        { id: 'session-2', title: '另一个对话', artifacts: [artifact({ id: 'a3' })] },
+      ],
+    },
+    {
+      name: 'project-2',
+      displayName: '别处',
+      sessions: [{ id: 'session-3', title: '别的项目', artifacts: [artifact({ id: 'b1' })] }],
+    },
+  ];
+
+  // 当前会话：带不带 web: 前缀都认同一个会话。
+  expect(scopeArtifacts(tree, 'session', { sessionId: 'session-1' }).map(item => item.artifact.id)).toEqual(['a1', 'a2']);
+  expect(scopeArtifacts(tree, 'session', { sessionId: 'web:session-1' }).map(item => item.artifact.id)).toEqual(['a1', 'a2']);
+  // 本项目：跨会话，但不越到别的项目；项目直属的成果也算本项目的。
+  expect(scopeArtifacts(tree, 'project', { projectName: 'project-1' }).map(item => item.artifact.id))
+    .toEqual(['a1', 'a2', 'a3', 'direct-1']);
+  // 全部对话：所有项目加起来。
+  expect(scopeArtifacts(tree, 'all', {}).map(item => item.artifact.id)).toEqual(['a1', 'a2', 'a3', 'direct-1', 'b1']);
+  // 跨会话时得带着归属，才知道这份成果是谁的。
+  expect(scopeArtifacts(tree, 'all', {})[2].sessionTitle).toBe('另一个对话');
+  expect(scopeCounts(tree, { sessionId: 'session-1', projectName: 'project-1' }))
+    .toEqual({ session: 2, project: 4, all: 5 });
+});
+
+// 跨会话是翻档案：同一秒里批量发布的每一份都得在，不能只留最后一份。
+// 折叠是会话内时间线的规矩，套到全库上会把真成果收没。
+it('keeps every raw artifact in the cross-session scopes and orders them newest first', () => {
+  const tree = [
+    {
+      name: 'project-1',
+      displayName: 'PilotV',
+      sessions: [
+        { id: 'session-1', title: '当前对话', artifacts: [
+          artifact({ id: 'a1', ts: '2026-10-01T00:00:00Z' }),
+          artifact({ id: 'a2', ts: '2026-10-01T00:00:00Z' }),
+          artifact({ id: 'a3', ts: '2026-10-01T00:00:00Z' }),
+        ] },
+        { id: 'session-2', title: '另一个对话', artifacts: [artifact({ id: 'b1', ts: '2026-10-02T00:00:00Z' })] },
+      ],
+    },
+  ];
+
+  // 最新的排前面；同一秒里的先后保持服务端给的样子。
+  expect(scopeArtifacts(tree, 'project', { projectName: 'project-1' }).map(item => item.artifact.id))
+    .toEqual(['b1', 'a1', 'a2', 'a3']);
+  // 条数就是成果库里那份数：下拉上的数字和列表长度永远对得上。
+  expect(scopeCounts(tree, { projectName: 'project-1' }).project).toBe(4);
+});
+
+it('keeps unassigned artifacts out of the project scope but inside the all scope', () => {  const tree = [
+    { name: 'project-1', sessions: [{ id: 'session-1', artifacts: [artifact({ id: 'a1' })] }] },
+    {
+      name: '__unassigned__',
+      displayName: '未归属',
+      sessions: [{ id: '__unassigned__', title: '未归属', artifacts: [artifact({ id: 'x1' })] }],
+    },
+  ];
+  expect(scopeArtifacts(tree, 'project', { projectName: 'project-1' }).map(item => item.artifact.id)).toEqual(['a1']);
+  expect(scopeArtifacts(tree, 'all', {}).map(item => item.artifact.id)).toEqual(['a1', 'x1']);
 });
 
 it('treats STEP and IGES as 3D whatever kind the publisher declared', () => {

@@ -26,12 +26,16 @@ const artifact = (id: string, title: string) => ({
 });
 
 const loadSessionArtifacts = vi.fn<(sessionId: string, signal?: AbortSignal) => Promise<unknown[]>>();
+const loadWorkspaceTree = vi.fn<(force?: boolean) => Promise<unknown[]>>();
 const attachInkAndSubmit = vi.fn(async (_blob: Blob, _text?: string) => true);
 
 vi.mock('./artifactsMedia', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./artifactsMedia')>()),
   loadSessionArtifacts: (sessionId: string, signal?: AbortSignal) =>
     loadSessionArtifacts(sessionId, signal),
+  // 工作区树也走真实的取数逻辑（scopeArtifacts / scopeCounts 就是被它喂的），
+  // 只有网络那一步被替掉：jsdom 里没有相对地址的 fetch。
+  loadWorkspaceTree: (force?: boolean) => loadWorkspaceTree(force),
 }));
 
 vi.mock('./artifactAnnotations', async (importOriginal) => ({
@@ -86,9 +90,15 @@ vi.mock('./artifactFeedback', () => ({
   buildComposerText: vi.fn(),
 }));
 
+beforeEach(() => {
+  // 默认没有成果：每个用例要什么树自己摆。
+  loadWorkspaceTree.mockResolvedValue([]);
+});
+
 afterEach(() => {
   cleanup();
   loadSessionArtifacts.mockReset();
+  loadWorkspaceTree.mockReset();
   attachInkAndSubmit.mockReset();
 });
 
@@ -270,5 +280,98 @@ describe('手绘笔迹颜色', () => {
     expect(within(toolbar).queryByRole('group', { name: '笔迹颜色' })).toBeNull();
     fireEvent.click(within(toolbar).getByRole('button', { name: '手绘' }));
     await waitFor(() => expect(within(toolbar).getByRole('group', { name: '笔迹颜色' })).toBeTruthy());
+  });
+});
+describe('成果范围', () => {
+  const tree = [
+    {
+      name: 'project-1',
+      displayName: 'PilotV',
+      fullPath: '/vol3/1000/Work/00/PilotV',
+      sessions: [
+        // 当前对话是空的：成果在别的对话里。
+        { id: 'session-1', title: '当前对话', artifacts: [] },
+        { id: 'session-2', title: '另一个对话', artifacts: [artifact('a2', '第二张图'), artifact('a3', '第三张图')] },
+      ],
+    },
+  ];
+  const scopeValue = () => (screen.getByLabelText('成果范围') as HTMLSelectElement).value;
+  const scopeOptions = () =>
+    within(screen.getByLabelText('成果范围')).getAllByRole('option').map(option => option.textContent);
+
+  it('当前会话没有成果时，自动把本项目的成果摆出来并说明原因', async () => {
+    loadSessionArtifacts.mockResolvedValue([]);
+    loadWorkspaceTree.mockResolvedValue(tree);
+
+    render(<ArtifactsConsolePane sessionId="session-1" projectName="project-1" />);
+
+    await waitFor(() => expect(scopeValue()).toBe('project'));
+    expect(screen.getByText(/当前会话还没有成果，这里先摆出本项目的成果/)).toBeTruthy();
+    // 跨会话看成果时，每份都要标出它属于哪个对话。
+    // 列表是异步落地的：等它出现再断言，别拿同步查询去撞还没到的 DOM。
+    const picker = await screen.findByLabelText('选择成果');
+    expect(within(picker).getAllByRole('option').map(option => option.textContent))
+      .toEqual(['1. 第二张图 · 另一个对话', '2. 第三张图 · 另一个对话']);
+  });
+
+  it('范围下拉写清楚每个范围各有几份成果', async () => {
+    loadSessionArtifacts.mockResolvedValue([]);
+    loadWorkspaceTree.mockResolvedValue(tree);
+
+    render(<ArtifactsConsolePane sessionId="session-1" projectName="project-1" />);
+
+    await waitFor(() => expect(scopeOptions()).toEqual(['当前会话（0）', '本项目（2）', '全部对话（2）']));
+  });
+
+  it('同一秒发了好几份时，会话视图只留最后一份，跨会话一份都不少', async () => {
+    // 一秒之内连发三份：会话内看是「一轮」，跨会话看是三份真成果。
+    const batch = [
+      { id: 'b1', title: 'logo.svg', ts: '2026-10-01T00:00:00Z' },
+      { id: 'b2', title: 'logo-dark.svg', ts: '2026-10-01T00:00:00Z' },
+      { id: 'b3', title: 'preview.html', ts: '2026-10-01T00:00:01Z' },
+    ];
+    loadSessionArtifacts.mockResolvedValue(batch);
+    loadWorkspaceTree.mockResolvedValue([
+      { name: 'project-1', displayName: 'PilotV', sessions: [{ id: 'session-1', title: '当前对话', artifacts: batch }] },
+    ]);
+
+    render(<ArtifactsConsolePane sessionId="session-1" projectName="project-1" />);
+
+    // 当前会话的数字按折叠后的条数写，和会话视图看到的对得上。
+    await waitFor(() => expect(scopeOptions()).toEqual(['当前会话（2）', '本项目（3）', '全部对话（3）']));
+    const picker = await screen.findByLabelText('选择成果');
+    expect(within(picker).getAllByRole('option').map(option => option.textContent))
+      .toEqual(['1. logo.svg', '2. preview.html']);
+
+    // 切到本项目：三份都在，数字和列表长度一样。
+    fireEvent.change(screen.getByLabelText('成果范围'), { target: { value: 'project' } });
+    const archived = await screen.findByLabelText('选择成果');
+    expect(within(archived).getAllByRole('option').map(option => option.textContent))
+      .toEqual(['1. preview.html · 当前对话', '2. logo.svg · 当前对话', '3. logo-dark.svg · 当前对话']);
+  });
+
+  it('用户手动选过范围后就不再自动让位', async () => {
+    loadSessionArtifacts.mockResolvedValue([]);
+    loadWorkspaceTree.mockResolvedValue(tree);
+
+    render(<ArtifactsConsolePane sessionId="session-1" projectName="project-1" />);
+    await waitFor(() => expect(scopeValue()).toBe('project'));
+
+    fireEvent.change(screen.getByLabelText('成果范围'), { target: { value: 'session' } });
+    await waitFor(() => expect(scopeValue()).toBe('session'));
+    await waitFor(() => expect(screen.getByText('当前会话还没有成果')).toBeTruthy());
+    expect(scopeValue()).toBe('session');
+  });
+
+  it('没有选中对话时也把成果指出来，点一下就能看本项目的成果', async () => {
+    loadWorkspaceTree.mockResolvedValue(tree);
+
+    render(<ArtifactsConsolePane projectName="project-1" />);
+
+    const button = await screen.findByRole('button', { name: /查看本项目成果/ });
+    expect(button.textContent).toContain('2');
+    fireEvent.click(button);
+    await waitFor(() => expect(screen.getByLabelText('选择成果')).toBeTruthy());
+    expect(scopeValue()).toBe('project');
   });
 });

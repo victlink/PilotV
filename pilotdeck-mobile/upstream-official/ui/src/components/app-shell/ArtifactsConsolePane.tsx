@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { artifactTypeFacets, loadSessionArtifacts, mediaType, type Artifact, type MediaType } from './artifactsMedia';
+import {
+  artifactTypeFacets,
+  loadSessionArtifacts,
+  loadWorkspaceTree,
+  mediaType,
+  scopeArtifacts,
+  scopeCounts,
+  type Artifact,
+  type ArtifactScope,
+  type MediaType,
+  type ScopeCounts,
+  type ScopedArtifact,
+  type WorkspaceProject,
+} from './artifactsMedia';
 import { finalArtifacts } from './artifactRounds';
 import {
   createAnnotation,
@@ -60,8 +73,28 @@ async function createWhiteboard(sessionId: string): Promise<string> {
   return String(id);
 }
 
-function SessionArtifacts({ sessionId }: { sessionId: string }) {
+/** 成果范围。'sketch' 是没选中对话时的草稿纸，不是成果列表的一种范围。 */
+type PaneScope = ArtifactScope | 'sketch';
+
+function SessionArtifacts({
+  sessionId,
+  projectName,
+  scope,
+  counts,
+  sessionListed,
+  autoScoped,
+  onScopeChange,
+}: {
+  sessionId?: string;
+  projectName?: string;
+  scope: PaneScope;
+  counts: ScopeCounts | null;
+  sessionListed: number;
+  autoScoped: boolean;
+  onScopeChange: (scope: PaneScope, manual: boolean) => void;
+}) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [scopedItems, setScopedItems] = useState<ScopedArtifact[]>([]);
   const [index, setIndex] = useState(0);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
@@ -78,13 +111,34 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     const controller = new AbortController();
     setArtifacts([]);
+    setScopedItems([]);
     setIndex(0);
     setStatus('loading');
     setError('');
-    void loadSessionArtifacts(sessionId, controller.signal).then(items => {
+    if (scope === 'sketch') return () => controller.abort();
+    if (scope === 'session' && sessionId) {
+      // 当前会话：过滤在服务端做（?session=），别的会话的成果不进浏览器。
+      void loadSessionArtifacts(sessionId, controller.signal).then(items => {
+        if (controller.signal.aborted) return;
+        // 一轮里发了好几份的，只给看最后一份；声明了对比组的整组留着。
+        setArtifacts(finalArtifacts(items));
+        setStatus('ready');
+      }).catch(cause => {
+        if (controller.signal.aborted) return;
+        setStatus('error');
+        setError(cause instanceof Error ? cause.message : '成果列表请求失败');
+      });
+      return () => controller.abort();
+    }
+    // 本项目 / 全部对话：同一棵工作区树，切范围不再另外发请求。
+    void loadWorkspaceTree(refresh > 0).then(tree => {
       if (controller.signal.aborted) return;
-      // 一轮里发了好几份的，只给看最后一份；声明了对比组的整组留着。
-      setArtifacts(finalArtifacts(items));
+      const picked = scopeArtifacts(tree, scope, { sessionId, projectName });
+      setScopedItems(picked);
+      // 这里不做「一轮只留最后一份」的折叠：那是会话内时间线的规矩，套到全库上
+      // 会把同一秒批量发布的几十份真成果收成一份，用户又该说成果丢了。归档视图
+      // 每份都在，下拉上的条数也正好是列表长度。
+      setArtifacts(picked.map(item => item.artifact));
       setStatus('ready');
     }).catch(cause => {
       if (controller.signal.aborted) return;
@@ -92,7 +146,16 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
       setError(cause instanceof Error ? cause.message : '成果列表请求失败');
     });
     return () => controller.abort();
-  }, [sessionId, refresh]);
+  }, [sessionId, projectName, scope, refresh]);
+
+  // 当前会话空空如也时，先把本项目（再不行就全库）的成果摆出来。
+  // 停在「当前会话还没有成果」这一句上，用户会以为成果丢了——成果其实在别的
+  // 对话里。没被用户手动改过范围时才自动让位，手动选过的范围不动。
+  useEffect(() => {
+    if (scope !== 'session' || status !== 'ready' || artifacts.length > 0 || !counts) return;
+    if (counts.project > 0) onScopeChange('project', false);
+    else if (counts.all > 0) onScopeChange('all', false);
+  }, [scope, status, artifacts.length, counts, onScopeChange]);
 
   // 类型筛选只在这一批成果里生效：记住的类型在这个会话没有对应成果时，
   // 悄悄退回「全部」，而不是给一块空白画面 + 一句「没有成果」。这样 activeType
@@ -104,6 +167,13 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
     () => (activeType ? artifacts.filter(item => mediaType(item) === activeType) : artifacts),
     [artifacts, activeType],
   );
+
+  // 跨会话看成果时，每份成果标出它属于哪个对话：不然同名的图分不清是谁的。
+  const ownerTitle = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of scopedItems) map.set(item.artifact.id, item.sessionTitle);
+    return map;
+  }, [scopedItems]);
 
   useEffect(() => {
     try { if (typeof window !== 'undefined') window.localStorage.setItem(TYPE_FILTER_KEY, typeFilter); }
@@ -156,7 +226,9 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
     setNoteError('');
     try {
       // An empty session has no artifact to hang the note on yet.
-      const targetId = selected?.id || await createWhiteboard(sessionId);
+      // 跨会话范围里没有「当前对话」可挂靠，标注得先回到当前会话再存。
+      const targetId = selected?.id || (sessionId ? await createWhiteboard(sessionId) : '');
+      if (!targetId) { setNoteError('这个范围里没有可挂靠的对话，先切回「当前会话」再保存'); return; }
       await createAnnotation(targetId, { rect, strokes, body, t: draft?.t ?? null });
       if (targetId !== selected?.id) {
         setSyncState('已在空白手绘页上保存，并新建了白板成果');
@@ -233,10 +305,19 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
         翻页／刷新／工具都浮在画面上沿（ArtifactStage），不再往顶栏塞第二排控件，
         手机上也不会和「对话/成果」那一行叠在一起。 */}
     <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
+      {/* 范围是成果台的第一件事：当前会话没有成果时，用户得能一眼看到
+          「成果在哪个范围里」，而不是只看到一句「当前会话还没有成果」。 */}
+      <label className="shrink-0"><span className="sr-only">成果范围</span>
+        <select aria-label="成果范围" value={scope} onChange={event => onScopeChange(event.target.value as PaneScope, true)}
+          className="max-w-44 rounded border border-border bg-background px-1.5 py-1 text-xs">
+          {sessionId && <option value="session">当前会话（{sessionListed}）</option>}
+          <option value="project">本项目（{counts?.project ?? 0}）</option>
+          <option value="all">全部对话（{counts?.all ?? 0}）</option>
+          {!sessionId && <option value="sketch">草稿纸</option>}
+        </select>
+      </label>
       {artifacts.length ? (
         <>
-          {/* 只剩一种类型时也摆出来：同一个位置、同一套交互，才不会让用户以为
-              「这个会话的筛选坏了」。选项里本来就写着数量，一眼能看出只有这一类。 */}
           <label className="shrink-0"><span className="sr-only">按类型筛选</span>
             <select aria-label="按类型筛选" value={activeType} onChange={event => pickType(event.target.value)}
               className="max-w-40 rounded border border-border bg-background px-1.5 py-1 text-xs">
@@ -247,19 +328,25 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
           <label className="min-w-0 flex-1"><span className="sr-only">选择成果</span>
             <select aria-label="选择成果" className="w-full truncate rounded border border-border bg-background px-2 py-1 text-xs"
               value={selected?.id || ''} onChange={event => setIndex(visible.findIndex(item => item.id === event.target.value))}>
-              {visible.map((item, position) => <option key={`${item.id}-${position}`} value={item.id}>{position + 1}. {item.title || item.file_name || item.id}</option>)}
+              {visible.map((item, position) => <option key={`${item.id}-${position}`} value={item.id}>{position + 1}. {item.title || item.file_name || item.id}{scope === 'session' ? '' : ` · ${ownerTitle.get(item.id) || '未知对话'}`}</option>)}
             </select>
           </label>
         </>
       ) : (
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {status === 'loading' ? '正在加载当前会话成果…' : status === 'error' ? error : '当前会话还没有成果'}
+          {status === 'loading' ? '正在加载成果…' : status === 'error' ? error
+            : scope === 'project' ? '本项目还没有成果'
+              : scope === 'all' ? '还没有任何成果'
+                : '当前会话还没有成果'}
         </span>
       )}
     </div>
+    {autoScoped && scope !== 'session' && <p role="status" className="shrink-0 px-3 py-1 text-xs text-muted-foreground">
+      当前会话还没有成果，这里先摆出{scope === 'project' ? '本项目' : '全库'}的成果；上面可以随时切回当前会话。
+    </p>}
     {/* 工具和翻页浮在成果画面上沿。不做滑动翻页：框选／手绘都靠拖动手势，
         滑动切页和它们抢同一个手势，误触比多按一次更烦。 */}
-    {status === 'loading' && artifacts.length === 0 && <p role="status" className="p-4">正在加载当前会话成果…</p>}
+    {status === 'loading' && artifacts.length === 0 && <p role="status" className="p-4">正在加载成果…</p>}
     {status === 'error' && <p role="alert" className="p-4">{error}。请检查成果 API 是否可用后刷新。</p>}
 
     {showStage && <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
@@ -316,7 +403,15 @@ function SessionArtifacts({ sessionId }: { sessionId: string }) {
  * 消息才建会话），所以这里只需要先把项目切到「新对话」态，再把图片贴进去并
  * 按下发送。发送失败时留在输入框里，宁可让用户自己按一次发送，也不要把草图丢掉。
  */
-function NewConversationSketch({ onStartNewConversation }: { onStartNewConversation?: () => void }) {
+function NewConversationSketch({
+  onStartNewConversation,
+  counts,
+  onOpenScope,
+}: {
+  onStartNewConversation?: () => void;
+  counts: ScopeCounts | null;
+  onOpenScope: (scope: PaneScope) => void;
+}) {
   const [draft, setDraft] = useState<Draft>(null);
   const [noteError, setNoteError] = useState('');
   const [state, setState] = useState('');
@@ -342,6 +437,14 @@ function NewConversationSketch({ onStartNewConversation }: { onStartNewConversat
   return <section aria-label="当前会话成果" className="flex h-full min-h-0 flex-col">
     <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">没有选中对话 · 画完直接发到新对话</span>
+      {/* 草稿纸不该是成果台唯一的样子：没选中对话时也把成果指出来，
+          否则用户以为这里本来就是空的。 */}
+      {(counts?.project || counts?.all) ? (
+        <button type="button" onClick={() => onOpenScope(counts?.project ? 'project' : 'all')}
+          className="shrink-0 rounded border border-border px-2 py-1 text-xs hover:bg-muted">
+          查看本项目成果（{counts?.project || 0}）
+        </button>
+      ) : null}
     </div>
     <div className="flex min-h-0 min-w-0 flex-1 flex-col p-2">
       <ArtifactStage artifact={null} annotations={[]} draft={draft} activeNoteId={null}
@@ -358,12 +461,62 @@ function NewConversationSketch({ onStartNewConversation }: { onStartNewConversat
 
 export default function ArtifactsConsolePane({
   sessionId,
+  projectName,
   onStartNewConversation,
 }: {
   sessionId?: string;
+  projectName?: string;
   onStartNewConversation?: () => void;
 }) {
-  if (!sessionId) return <NewConversationSketch onStartNewConversation={onStartNewConversation} />;
+  const scopeKey = sessionId || '';
+  const [view, setView] = useState<{ key: string; scope: PaneScope; auto: boolean }>(() => ({
+    key: scopeKey,
+    scope: scopeKey ? 'session' : 'sketch',
+    auto: false,
+  }));
+  const [counts, setCounts] = useState<ScopeCounts | null>(null);
+  // 用户手动选过范围，就不再自动让位：这个标记跟着对话走。
+  const pinnedRef = useRef<{ key: string; pinned: boolean }>({ key: scopeKey, pinned: false });
+
+  // 换对话就回到「当前会话」：范围是跟着对话走的。
+  const scope: PaneScope = view.key === scopeKey ? view.scope : (scopeKey ? 'session' : 'sketch');
+  const autoScoped = view.key === scopeKey ? view.auto : false;
+
+  // 范围下拉里的数字：侧栏徽标已经在拉同一棵树，这里复用，不额外发请求。
+  const [tree, setTree] = useState<WorkspaceProject[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void loadWorkspaceTree().then(loaded => {
+      if (!alive) return;
+      setTree(loaded);
+      setCounts(scopeCounts(loaded, { sessionId, projectName }));
+    }).catch(() => { if (alive) setCounts({ session: 0, project: 0, all: 0 }); });
+    return () => { alive = false; };
+  }, [sessionId, projectName]);
+
+  // 当前会话真正会列出多少条：会话里同一秒发的好几份只给看最后一份（上游规矩），
+  // 所以条数不是树上的原始条数。下拉上写的是这个数，列表才和它对得上。
+  const sessionListed = useMemo(() => {
+    if (!tree || !sessionId) return 0;
+    const raw = scopeArtifacts(tree, 'session', { sessionId }).map(item => item.artifact);
+    return finalArtifacts(raw).length;
+  }, [tree, sessionId]);
+
+  const changeScope = useCallback((next: PaneScope, manual: boolean) => {
+    if (manual) {
+      pinnedRef.current = { key: scopeKey, pinned: true };
+      setView({ key: scopeKey, scope: next, auto: false });
+      return;
+    }
+    if (pinnedRef.current.key === scopeKey && pinnedRef.current.pinned) return;
+    setView({ key: scopeKey, scope: next, auto: true });
+  }, [scopeKey]);
+
+  if (!sessionId && scope === 'sketch') {
+    return <NewConversationSketch onStartNewConversation={onStartNewConversation} counts={counts}
+      onOpenScope={next => changeScope(next, true)} />;
+  }
   // Keying the subtree drops both selection and data before a new session's first render.
-  return <SessionArtifacts key={sessionId} sessionId={sessionId} />;
+  return <SessionArtifacts key={scopeKey || 'scope'} sessionId={sessionId} projectName={projectName}
+    scope={scope} counts={counts} sessionListed={sessionListed} autoScoped={autoScoped} onScopeChange={changeScope} />;
 }

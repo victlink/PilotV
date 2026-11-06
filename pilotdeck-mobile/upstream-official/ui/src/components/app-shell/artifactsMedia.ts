@@ -143,8 +143,30 @@ export function artifactTypeFacets(items: readonly Artifact[]): { value: MediaTy
     .map(type => ({ value: type, label: artifactTypeLabel(type), count: counts.get(type) as number }));
 }
 
-type WorkspaceProject = { id?: string | null; sessions?: WorkspaceSession[] | null };
-type WorkspaceSession = { id?: string | null; artifacts?: Artifact[] | null };
+export type WorkspaceProject = {
+  id?: string | null;
+  name?: string | null;
+  displayName?: string | null;
+  fullPath?: string | null;
+  artifacts?: Artifact[] | null;
+  sessions?: WorkspaceSession[] | null;
+};
+export type WorkspaceSession = { id?: string | null; title?: string | null; artifacts?: Artifact[] | null };
+
+/** 成果范围：当前会话 / 本项目 / 全部对话。 */
+export type ArtifactScope = 'session' | 'project' | 'all';
+
+/** 跨会话看成果时，每条成果得带着归属：它属于哪个对话、哪个项目。 */
+export type ScopedArtifact = {
+  artifact: Artifact;
+  sessionId: string;
+  sessionTitle: string;
+  projectName: string;
+  projectTitle: string;
+};
+
+/** 每个范围各有几份成果。 */
+export type ScopeCounts = Record<ArtifactScope, number>;
 
 /**
  * 取某个会话的成果。
@@ -156,9 +178,13 @@ type WorkspaceSession = { id?: string | null; artifacts?: Artifact[] | null };
  *
  * 仍然保留一次 id 比对作为兜底：万一服务端把 session 参数丢了（比如中间有代理
  * 改了 query），这里还能认出自己那个会话，而不是安静地返回空列表。
+ *
+ * limit=2000 是必须的：服务端的 limit 是「全库最近多少条」，不是「这个会话多少条」。
+ * 不传就用默认的 400，别的会话的新成果会把本会话的老成果挤出窗口，于是下拉写着
+ * 「当前会话（9）」、列表里却只有 8 份。
  */
 export async function loadSessionArtifacts(sessionId: string, signal: AbortSignal): Promise<Artifact[]> {
-  const query = `?session=${encodeURIComponent(sessionId)}`;
+  const query = `?session=${encodeURIComponent(sessionId)}&limit=2000`;
   const response = await fetch(`/api/artifacts/workspace${query}`, { signal });
   if (!response.ok) throw new Error(`成果列表请求失败（HTTP ${response.status}）`);
   const data: unknown = await response.json();
@@ -173,6 +199,134 @@ export async function loadSessionArtifacts(sessionId: string, signal: AbortSigna
     }
   }
   return [];
+}
+
+/**
+ * 整棵工作区树（项目 → 会话 → 成果），全站只取一份。
+ *
+ * 侧栏的成果徽标本来就在拉这棵树（loadArtifactCounts），成果台按「本项目 /
+ * 全部对话」换范围时也用同一份数据：一次请求，切换范围不用来回打接口，
+ * 范围里的条数也永远和侧栏徽标对得上。
+ */
+let workspaceTreePromise: Promise<WorkspaceProject[]> | null = null;
+
+export function loadWorkspaceTree(force = false): Promise<WorkspaceProject[]> {
+  if (force || !workspaceTreePromise) {
+    // limit=2000：默认的 400 条只覆盖最近的一半成果，范围下拉上的数字会少算，
+    // 用户按着「本项目（411）」去找就找不到自己那份。整棵树 788 条约 1MB，
+    // 本机网关上一次性取回、模块级缓存，比算错数字便宜。
+    workspaceTreePromise = fetch('/api/artifacts/workspace?limit=2000')
+      .then(response => {
+        if (!response.ok) throw new Error(`成果列表请求失败（HTTP ${response.status}）`);
+        return response.json();
+      })
+      .then(data => (data && typeof data === 'object' && 'projects' in data && Array.isArray(data.projects)
+        ? data.projects as WorkspaceProject[]
+        : []))
+      // 失败就别把坏结果留在缓存里：下一次调用还能重新试。
+      .catch(cause => { workspaceTreePromise = null; throw cause; });
+  }
+  return workspaceTreePromise;
+}
+
+/** 树里的项目是不是用户正在看的那个项目。 */
+function matchesProject(project: WorkspaceProject, projectName?: string): boolean {
+  if (!projectName) return false;
+  const name = project.name || '';
+  const title = project.displayName || '';
+  if (name && (name === projectName || title === projectName)) return true;
+  // 项目名有时是路径：结尾对上也算同一个项目。
+  const full = project.fullPath || '';
+  return Boolean(full) && (projectName === full || projectName.endsWith(`/${full}`) || full.endsWith(`/${projectName}`));
+}
+
+/**
+ * 把工作区树按范围摊平。
+ *
+ * 'session' 认当前会话（含 web: 前缀与不带前缀的同一会话）；'project' 认当前
+ * 项目下的所有对话；'all' 是全库。未归属的成果挂在「未归属」这个伪项目下，
+ * 只在 'all' 里出现 —— 它本来就不属于任何项目。
+ *
+ * 跨会话的范围是「归档视图」：每一份原始成果都在，不做「一轮只留最后一份」的
+ * 折叠 —— 折叠是会话内时间线的规矩（finalArtifacts），拿它去筛全库会把
+ * 同一秒里批量发布的几十份真成果收成一份，用户又该说成果丢了。范围下拉上的
+ * 条数也按这里算，所以数字和列表永远对得上。
+ */
+export function scopeArtifacts(
+  tree: readonly WorkspaceProject[],
+  scope: ArtifactScope,
+  params: { sessionId?: string; projectName?: string },
+): ScopedArtifact[] {
+  const out: ScopedArtifact[] = [];
+  for (const project of tree) {
+    const projectName = project.name || '';
+    const projectTitle = project.displayName || projectName;
+    const projectHit = matchesProject(project, params.projectName);
+    for (const session of project.sessions || []) {
+      const sessionId = session.id || '';
+      const keep = scope === 'all'
+        || (scope === 'project'
+          ? projectHit
+          : (sessionId === params.sessionId || ownsSession(sessionId, params.sessionId || '')));
+      if (!keep) continue;
+      for (const artifact of session.artifacts || []) {
+        out.push({
+          artifact,
+          sessionId,
+          sessionTitle: session.title || sessionId,
+          projectName,
+          projectTitle,
+        });
+      }
+    }
+    // 项目直属的成果不属于任何会话，但属于这个项目：按范围看时别漏掉。
+    if (scope === 'all' || (scope === 'project' && projectHit)) {
+      for (const artifact of project.artifacts || []) {
+        out.push({
+          artifact,
+          sessionId: '',
+          sessionTitle: '项目直属',
+          projectName,
+          projectTitle,
+        });
+      }
+    }
+  }
+  // 跨会话看是翻档案：一律按发布时间倒序，跟翻聊天记录一样。同一秒里的顺序
+  // 保持服务端给的样子（稳定排序），不自己重排。
+  if (scope !== 'session') {
+    out.sort((left, right) => {
+      const leftTime = artifactTime(left.artifact);
+      const rightTime = artifactTime(right.artifact);
+      if (leftTime === rightTime) return 0;
+      return rightTime > leftTime ? 1 : -1;
+    });
+  }
+  return out;
+}
+
+/** 成果的发布时间（毫秒）。没有 ts 的老成果排最后，但不会消失。 */
+function artifactTime(artifact: Artifact): number {
+  if (!artifact.ts) return Number.NEGATIVE_INFINITY;
+  const parsed = Date.parse(artifact.ts);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
+/**
+ * 三个范围各有多少成果：范围下拉上的数字就是它。
+ *
+ * 这是树上的原始条数，和成果库里的条数一致（跨会话范围不折叠，所以列表长度
+ * 也等于这个数）。当前会话在面板里会折叠成「每轮最后一份」，面板自己算那个数。
+ */
+export function scopeCounts(
+  tree: readonly WorkspaceProject[],
+  params: { sessionId?: string; projectName?: string },
+): ScopeCounts {
+  return {
+    session: scopeArtifacts(tree, 'session', params).length,
+    project: scopeArtifacts(tree, 'project', params).length,
+    all: scopeArtifacts(tree, 'all', params).length,
+  };
 }
 
 /** Stored file of an artifact; the workspace carries the console's own url for it. */
@@ -218,9 +372,10 @@ let artifactCountsPromise: Promise<Map<string, number>> | null = null;
 /** 拿到会话 → 成果数。失败时回落到空表：没有标记只是少个徽标，不该拖垮侧栏。 */
 export function loadArtifactCounts(force = false): Promise<Map<string, number>> {
   if (force || !artifactCountsPromise) {
-    artifactCountsPromise = fetch('/api/artifacts/workspace')
-      .then(response => (response.ok ? response.json() : null))
-      .then(data => artifactCounts(data))
+    // 徽标和成果台的范围切换共用同一棵树：全站只发这一次请求。
+    // loadWorkspaceTree 已经把 {projects} 拆成数组了，artifactCounts 认的是原始信封，得包回去。
+    artifactCountsPromise = loadWorkspaceTree(force)
+      .then(projects => artifactCounts({ projects }))
       .catch(() => new Map<string, number>());
   }
   return artifactCountsPromise;
@@ -229,4 +384,5 @@ export function loadArtifactCounts(force = false): Promise<Map<string, number>> 
 /** 发布新成果后要马上反映到侧栏，否则新出现的对话还是「没有成果」的样子。 */
 export function resetArtifactCounts(): void {
   artifactCountsPromise = null;
+  workspaceTreePromise = null;
 }

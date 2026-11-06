@@ -412,7 +412,7 @@ function MainAreaV2Content(props: MainAreaV2Props) {
       ) : null}
 
       <div className="relative z-0 flex min-h-0 flex-1 overflow-hidden">
-        {showArtifacts && <div className="min-h-0 flex-1 overflow-hidden"><ArtifactsConsolePane sessionId={selectedSession?.id} onStartNewConversation={startConversationFromInk} /></div>}
+        {showArtifacts && <div className="min-h-0 flex-1 overflow-hidden"><ArtifactsConsolePane sessionId={selectedSession?.id} projectName={selectedProject?.name} onStartNewConversation={startConversationFromInk} /></div>}
         {/* Keep chat mounted so switching views does not discard the composer. */}
         <div hidden={showArtifacts} className={showArtifacts ? 'hidden' : 'relative min-h-0 flex-1 overflow-hidden'}>
           <FileConversationContext.Provider value={{ id: selectedSession?.id, cwd: typeof selectedSession?.cwd === 'string' ? selectedSession.cwd : undefined }}>
