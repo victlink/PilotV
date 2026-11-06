@@ -1,4 +1,6 @@
 import { ProjectTeamConfigError, readProjectTeamConfig } from './projectTeamConfig.js';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 
 async function defaultSnapshotProvider() {
     try {
@@ -133,15 +135,37 @@ export function buildProjectAgentToolPolicy(agent, { projectRoot } = {}) {
 }
 
 export async function resolveProjectTeamRuntime({ projectKey, cwd, agentId, snapshotProvider = defaultSnapshotProvider } = {}) {
-    if (agentId === undefined || agentId === null || agentId === '') return null;
     const root = projectKey || cwd;
     if (typeof root !== 'string' || !root) {
+        if (agentId === undefined || agentId === null || agentId === '') return null;
         throw new ProjectTeamConfigError('An agent requires a project root.', { statusCode: 400, code: 'PROJECT_ROOT_REQUIRED' });
     }
+    // In commander/automated collaboration, an omitted UI selection still
+    // runs through the configured commander (or first enabled worker). This
+    // keeps the default chat turn eligible for a bounded reviewer turn.
+    const hasExplicitAgent = agentId !== undefined && agentId !== null && agentId !== '';
+    // Ordinary chats without a team file must not wait for a gateway snapshot.
+    if (!hasExplicitAgent && !existsSync(path.join(root, '.pilotdeck', 'project-team.json'))) return null;
+    let selectedAgentId = agentId;
+    if (selectedAgentId === undefined || selectedAgentId === null || selectedAgentId === '') {
+        let config;
+        try {
+            config = await readProjectTeamConfig({ projectRoot: root, snapshotProvider });
+        } catch (error) {
+            if (error?.code === 'PROJECT_NOT_REGISTERED') return null;
+            throw error;
+        }
+        const mode = config.collaboration?.mode || 'manual';
+        if (mode === 'manual') return null;
+        const fallback = config.agents.find((candidate) => candidate.enabled && candidate.role === 'commander')
+            || config.agents.find((candidate) => candidate.enabled && candidate.role !== 'reviewer');
+        if (!fallback) return { projectRoot: root, teamConfig: config, syntheticMessages: [] };
+        selectedAgentId = fallback.id;
+    }
     const config = await readProjectTeamConfig({ projectRoot: root, snapshotProvider });
-    const agent = config.agents.find((candidate) => candidate.id === agentId && candidate.enabled);
+    const agent = config.agents.find((candidate) => candidate.id === selectedAgentId && candidate.enabled);
     if (!agent) {
-        throw new ProjectTeamConfigError(`Project agent is not enabled or does not exist: ${agentId}`, {
+        throw new ProjectTeamConfigError(`Project agent is not enabled or does not exist: ${selectedAgentId}`, {
             statusCode: 404,
             code: 'PROJECT_AGENT_UNAVAILABLE',
         });
@@ -150,6 +174,9 @@ export async function resolveProjectTeamRuntime({ projectKey, cwd, agentId, snap
         projectRoot: root,
         agentId: agent.id,
         agent,
+        collaboration: config.collaboration,
+        agents: config.agents,
+        teamConfig: config,
         syntheticMessages: [{ text: buildProjectAgentBriefing(agent), purpose: 'project_agent_role' }],
         toolPolicy: buildProjectAgentToolPolicy(agent, { projectRoot: root }),
         modelSelection: agent.model ? { mode: 'model', provider: agent.model.provider, model: agent.model.model } : undefined,

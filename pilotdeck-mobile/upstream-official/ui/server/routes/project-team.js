@@ -10,7 +10,17 @@ import {
 // The gateway snapshot is a nice-to-have: when the gateway is unavailable the
 // local `.cwd` markers still allow locally registered projects to be
 // configured. Never let a hanging gateway stall the request.
-const SNAPSHOT_TIMEOUT_MS = 1000;
+//
+// The bound has to clear the real gateway latency: `getProjectsSnapshot()`
+// walks every project to count its sessions and takes ~1.3-1.6s in
+// production. A 1s timeout truncated the snapshot, so every project root that
+// only the gateway knows about (no local `.cwd` marker) was reported as
+// "not a registered project root" and the settings panel showed a 404.
+export const SNAPSHOT_TIMEOUT_MS = 8000;
+
+// The snapshot is cached so opening the settings panel does not wait for the
+// gateway on every request. Roots registered locally never reach this path.
+const SNAPSHOT_CACHE_TTL_MS = 30000;
 
 function withTimeout(promise, timeoutMs) {
     let timer = null;
@@ -36,6 +46,43 @@ async function defaultSnapshotProvider() {
     } catch {
         return [];
     }
+}
+
+/**
+ * Wrap a snapshot provider with a short-lived cache.
+ *
+ * - concurrent requests share one in-flight snapshot;
+ * - a successful snapshot is reused for `SNAPSHOT_CACHE_TTL_MS`;
+ * - when the gateway fails we keep serving the last known snapshot instead
+ *   of dropping every gateway-registered project root.
+ */
+function createSnapshotCache(loadSnapshot) {
+    let cached = null;
+    let cachedAt = 0;
+    let inflight = null;
+
+    return async function snapshotProvider() {
+        const now = Date.now();
+        if (cached && now - cachedAt < SNAPSHOT_CACHE_TTL_MS) {
+            return cached;
+        }
+        if (!inflight) {
+            inflight = (async () => {
+                try {
+                    const projects = await loadSnapshot();
+                    const list = Array.isArray(projects) ? projects : [];
+                    cached = list;
+                    cachedAt = Date.now();
+                    return list;
+                } catch {
+                    return cached ?? [];
+                } finally {
+                    inflight = null;
+                }
+            })();
+        }
+        return inflight;
+    };
 }
 
 function readProjectRootParam(req) {
@@ -73,7 +120,7 @@ function sendError(res, error) {
  */
 export function createProjectTeamRouter({ snapshotProvider = null } = {}) {
     const router = express.Router();
-    const provider = snapshotProvider ?? defaultSnapshotProvider;
+    const provider = createSnapshotCache(snapshotProvider ?? defaultSnapshotProvider);
 
     router.get('/', async (req, res) => {
         try {

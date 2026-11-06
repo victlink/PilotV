@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createProjectTeamRouter } from './project-team.js';
+import { createProjectTeamRouter, SNAPSHOT_TIMEOUT_MS } from './project-team.js';
 
 const nativeFetch = globalThis.fetch;
 const workspaces = [];
@@ -101,6 +101,33 @@ describe('GET /api/project-team', () => {
 
         expect(result.status).toBe(200);
         expect(result.body.revision).toBe('0');
+    });
+
+    it('reuses the gateway snapshot across requests instead of refetching it every time', async () => {
+        const workspace = createWorkspace();
+        const root = join(workspace.base, 'gateway-project');
+        mkdirSync(root, { recursive: true });
+        let calls = 0;
+        const app = createApp({
+            snapshotProvider: async () => {
+                calls += 1;
+                return [{ fullPath: root, name: 'gateway-project' }];
+            },
+        });
+
+        const first = await requestJson(app, `/api/project-team?projectRoot=${encodeURIComponent(root)}`);
+        const second = await requestJson(app, `/api/project-team?projectRoot=${encodeURIComponent(root)}`);
+
+        expect(first.status).toBe(200);
+        expect(second.status).toBe(200);
+        expect(calls).toBe(1);
+    });
+
+    it('keeps the gateway snapshot timeout above the real gateway latency', () => {
+        // 生产环境的 getProjectsSnapshot() 要 1.3~1.6s（它会逐个项目统计会话）。
+        // 超时低于这个值时，gateway 快照会被截断，所有「只有 gateway 知道」
+        // 的项目根都会被判成未注册，设置页项目团队面板直接报 404。
+        expect(SNAPSHOT_TIMEOUT_MS).toBeGreaterThanOrEqual(5000);
     });
 
     it('rejects a missing projectRoot parameter', async () => {
