@@ -365,3 +365,76 @@ def test_cli_reports_a_conflict_with_exit_code_one(tmp_path):
 
     assert exit_code == 1
     assert not backup_root.exists()
+
+
+# --------------------------------------------------------------------------- #
+# superset analysis
+# --------------------------------------------------------------------------- #
+def test_superset_notes_accept_a_rewritten_local_line():
+    """A reviewed revision that rewrote the local line keeps its meaning."""
+    local = b"if (state.queue.length === 0) {\n    return;\n}\n"
+    source = b"if (state.queue.length === 0 && !state.agentRuns.length) {\n    return;\n}\n"
+    notes, dropped = sync_mod._supersede_notes(local, source)
+    assert dropped == []
+    assert notes
+
+
+def test_superset_notes_reject_a_dropped_local_function():
+    local = b"export function legacyHelper() {\n    return 1;\n}\n"
+    source = b"export function reviewedHelper() {\n    return 1;\n}\n"
+    notes, dropped = sync_mod._supersede_notes(local, source)
+    assert dropped, "a dropped local function must not be subsumed"
+    assert not notes
+
+
+def test_superset_local_edit_is_synced_instead_of_refused(tmp_path):
+    """The live bridge carries an older revision of the reviewed change.
+
+    The reviewed file rewrote that statement, so the strict HEAD-region check
+    refuses it even though nothing is lost.  The superset check has to let it
+    through and report what was subsumed.
+    """
+    source = tmp_path / "src"
+    target = tmp_path / "target"
+    backup_root = tmp_path / "backups"
+
+    base = "export function send(frame) {\n    writer.send(frame);\n}\n"
+    local = "export function send(frame) {\n    if (state.queue.length === 0) {\n        return;\n    }\n    writer.send(frame);\n}\n"
+    reviewed = "export function send(frame) {\n    if (state.queue.length === 0 && !state.agentRuns.length) {\n        return;\n    }\n    writer.send(attachSpeaker(frame, projectRuntime));\n}\n"
+    write(source / "a.js", reviewed)
+    make_git_repo(target, {"a.js": base})
+    write(target / "a.js", local)
+
+    plans = sync_mod.build_plan(source, target, ("a.js",))
+    plan = plans[0]
+    assert plan.relation == "superset", plan.conflicts
+    assert not plan.refused
+    assert plan.notes
+
+    sync_mod.sync(
+        source=source,
+        target=target,
+        files=("a.js",),
+        backup_root=backup_root,
+    )
+    assert (target / "a.js").read_text(encoding="utf-8") == reviewed
+
+
+def test_unrelated_local_edit_is_still_refused_under_superset_check(tmp_path):
+    source = tmp_path / "src"
+    target = tmp_path / "target"
+    backup_root = tmp_path / "backups"
+
+    base = "export function send(frame) {\n    writer.send(frame);\n}\n"
+    write(source / "a.js", "export function send(frame) {\n    writer.send(frame);\n}\n")
+    make_git_repo(target, {"a.js": base})
+    write(target / "a.js", base + "export function localOnly() {\n    return 42;\n}\n")
+
+    with pytest.raises(sync_mod.SyncError):
+        sync_mod.sync(
+            source=source,
+            target=target,
+            files=("a.js",),
+            backup_root=backup_root,
+        )
+    assert not backup_root.exists()

@@ -29,6 +29,7 @@ import datetime
 import difflib
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -59,12 +60,20 @@ FILES: tuple[str, ...] = (
     "src/permission/settings.ts",
     "src/web/client/protocol.ts",
     "ui/server/pilotdeck-bridge.js",
+    "ui/server/pilotdeck-bridge.speaker.test.js",
+    "ui/server/pending-permissions.js",
+    "ui/server/routes/messages.js",
+    "ui/server/routes/messages.test.js",
     "ui/server/routes/project-team.js",
     "ui/server/routes/project-team.test.js",
     "ui/server/services/projectTeamConfig.js",
     "ui/server/services/projectTeamConfig.test.js",
     "ui/server/services/projectTeamRuntime.js",
+    "ui/server/services/projectTeamCollaboration.js",
+    "ui/server/services/projectTeamCollaboration.test.js",
+    "ui/server/pilotdeck-bridge.review.test.js",
     "ui/server/services/projectTeamParticipants.js",
+    "ui/server/services/projectTeamRuns.js",
     "ui/server/services/projectTeamRuntime.test.js",
 )
 
@@ -80,10 +89,11 @@ class FilePlan:
     name: str
     action: str  # "identical" | "create" | "update"
     tracked: bool = False
-    relation: str = "none"  # in-sync | no-local-edit | superseded | untracked | unrelated
+    relation: str = "none"  # in-sync | no-local-edit | superseded | superset | untracked | unrelated
     needs_backup: bool = False
     staged: bool = False
     conflicts: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
     @property
     def refused(self) -> bool:
@@ -190,6 +200,83 @@ def local_edit_conflicts(base: bytes, local: bytes, source: bytes) -> list[str]:
 
 
 # --------------------------------------------------------------------------- #
+# superset analysis
+# --------------------------------------------------------------------------- #
+#: Tokens that carry no meaning for the containment check.
+_NOISE_TOKENS = frozenset(
+    {
+        "const", "let", "var", "return", "else", "for", "while", "await", "async",
+        "function", "new", "this", "import", "export", "default", "from", "try",
+        "catch", "finally", "throw", "typeof", "instanceof", "null", "true",
+        "false", "undefined", "yield", "delete", "void", "switch", "case",
+        "break", "continue", "class", "extends", "super", "with", "debugger",
+    }
+)
+
+_TOKEN_RE = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
+
+
+def _tokens(line: str) -> list[str]:
+    """Distinctive identifiers of a source line (keywords and short words dropped)."""
+    seen: list[str] = []
+    for token in _TOKEN_RE.findall(line):
+        if len(token) < 3 or token.lower() in _NOISE_TOKENS:
+            continue
+        if token not in seen:
+            seen.append(token)
+    return seen
+
+
+def _supersede_notes(local: bytes, source: bytes) -> tuple[list[str], list[str]]:
+    """Check whether the reviewed file is a semantic superset of the local one.
+
+    The reviewed file replaces the local file.  That is safe when every line
+    the local file has and the reviewed file does *not* still finds its
+    meaning inside the reviewed file: the reviewed revision simply rewrote
+    that statement (longer condition, renamed helper, extra argument).
+
+    The check is deliberately conservative: every distinctive identifier of
+    the local-only line has to show up inside a small window of the reviewed
+    file.  A removed function or a changed constant does not survive it, so
+    real local work is still refused.
+
+    Returns ``(notes, dropped)`` where ``notes`` describes every subsumed
+    local-only line and ``dropped`` lists the local-only lines that could not
+    be subsumed.
+    """
+    local_lines = _lines(local)
+    source_lines = _lines(source)
+    source_lower = [line.lower() for line in source_lines]
+
+    local_only: list[str] = []
+    for tag, i1, i2, j1, j2 in _hunks(local, source):
+        if tag == "equal":
+            continue
+        if tag in ("delete", "replace"):
+            local_only.extend(line.rstrip("\n") for line in local_lines[i1:i2])
+
+    notes: list[str] = []
+    dropped: list[str] = []
+    for line in local_only:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        tokens = _tokens(line)
+        if not tokens:
+            # Nothing meaningful to preserve (braces, comments, blank lines).
+            continue
+        window_texts: list[str] = []
+        for size in (1, 2, 3):
+            for start in range(0, max(0, len(source_lower) - size + 1)):
+                window_texts.append("".join(source_lower[start : start + size]))
+        if any(all(token.lower() in window for token in tokens) for window in window_texts):
+            notes.append(f"subsumed by the reviewed revision: {stripped}")
+        else:
+            dropped.append(stripped)
+    return notes, dropped
+
+
+# --------------------------------------------------------------------------- #
 # preflight
 # --------------------------------------------------------------------------- #
 def build_plan(
@@ -273,8 +360,23 @@ def build_plan(
             for reason in local_edit_conflicts(base, variant, src_bytes):
                 reasons.append(f"{label}: {reason}")
         if reasons:
-            plan.relation = "unrelated"
-            plan.conflicts.extend(reasons)
+            # The strict HEAD-region check can miss a reviewed revision that
+            # rewrote the whole region (a longer condition, a renamed helper).
+            # Before refusing, check whether the reviewed file is a semantic
+            # superset of the local one.
+            notes: list[str] = []
+            dropped: list[str] = []
+            for label, variant in variants:
+                sub_notes, sub_dropped = _supersede_notes(variant, src_bytes)
+                notes.extend(f"{label}: {note}" for note in sub_notes)
+                dropped.extend(f"{label}: {line}" for line in sub_dropped)
+            if notes and not dropped:
+                plan.relation = "superset"
+                plan.notes = notes
+            else:
+                plan.relation = "unrelated"
+                plan.conflicts.extend(reasons)
+                plan.notes = notes
         else:
             plan.relation = "superseded"
         plans.append(plan)
@@ -296,6 +398,9 @@ def _describe(plan: FilePlan) -> str:
     if plan.relation == "superseded":
         note = "staged copy present" if plan.staged else "local edits superseded by the reviewed change"
         return f"tracked, {note}, will be backed up"
+    if plan.relation == "superset":
+        note = "staged copy present" if plan.staged else "reviewed file is a semantic superset of the local edit"
+        return f"tracked, {note}, will be backed up"
     return "tracked, local edits not superseded by the reviewed change"
 
 
@@ -307,6 +412,8 @@ def print_plan(plans: list[FilePlan], *, dry_run: bool) -> None:
         print(f"  {marker} {plan.name}  ({_describe(plan)})")
         for reason in plan.conflicts:
             print(f"            - {reason}")
+        for note in plan.notes:
+            print(f"            * {note}")
 
 
 # --------------------------------------------------------------------------- #
