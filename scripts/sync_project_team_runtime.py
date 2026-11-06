@@ -49,6 +49,8 @@ DEFAULT_BACKUP_ROOT = REPO_ROOT / ".pilotdeck" / "work" / "team-runtime-backups"
 FILES: tuple[str, ...] = (
     "src/agent/loop/AgentLoop.ts",
     "src/agent/sub/SubAgentSession.ts",
+    "src/agent/turn/TurnRunner.ts",
+    "src/agent/turn/TurnRunner.synthetic.spec.ts",
     "src/gateway/client/InProcessGateway.ts",
     "src/gateway/protocol/types.ts",
     "src/permission/decision/PermissionRuntime.ts",
