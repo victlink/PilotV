@@ -202,6 +202,26 @@ export type SpeakerEntry = {
 };
 
 /**
+ * chip 上显示的名字。
+ *
+ * 优先用角色的语义（指挥 / 审查 …），没有角色才退回 agent 名字，
+ * 主 agent 没有名字也没有角色，用「主agent」这个身份词。
+ */
+export function speakerDisplayLabel(
+  speaker: SpeakerEntry,
+  translate: (key: string) => string,
+  mainAgentLabel: string,
+): string {
+  const roleLabelKey = speaker.identity.roleLabelKey;
+  if (roleLabelKey) {
+    const roleLabel = translate(roleLabelKey);
+    if (roleLabel && roleLabel !== roleLabelKey) return roleLabel;
+  }
+  if (!speaker.name) return mainAgentLabel;
+  return speaker.name;
+}
+
+/**
  * 汇总这一轮对话里出现过的发言人。
  *
  * 顺序：主 agent → 团队配置里的成员 → 实际参与者 → 消息里出现过的其它发言人。

@@ -1,5 +1,5 @@
 import ProjectTeamStrip from './ProjectTeamStrip';
-import { collectSpeakers } from './agentIdentity';
+import { collectSpeakers, speakerDisplayLabel } from './agentIdentity';
 import ErrorBoundary from '../main-content/view/ErrorBoundary';
 import { useContext } from 'react';
 import { SessionViewReadyContext } from '../app-shell/useSessionIndicators';
@@ -942,6 +942,18 @@ function ChatInterfaceV2({
     participants: participantsState.sessionId === (selectedSession?.id || currentSessionId) ? participantsState.participants : [],
     messages: chatMessages.filter((message) => message.type === 'assistant'),
   }), [teamAgents, participantsState, selectedSession?.id, currentSessionId, chatMessages]);
+  // 正在生效的筛选：条带上的 chip 之外，正文里也挂一条提示，
+  // 让「已经过滤了」这件事看得见（不然用户会以为筛选没生效）。
+  const speakerFilterLabel = React.useMemo(() => {
+    if (!speakerFilterKey) return null;
+    const speaker = speakers.find((entry) => entry.identity.key === speakerFilterKey);
+    if (!speaker) return null;
+    return speakerDisplayLabel(
+      speaker,
+      (key) => String(t(key, { defaultValue: '' })),
+      String(t('speaker.mainAgent', { defaultValue: '主agent' })),
+    );
+  }, [speakerFilterKey, speakers, t]);
   const teamStrip = <ProjectTeamStrip speakers={speakers} activeSpeakerKey={speakerFilterKey} onSelectSpeaker={selectSpeaker} />;
 
   if (isWelcomeMode) {
@@ -1004,6 +1016,7 @@ function ChatInterfaceV2({
           sessionLoadError={sessionLoadError}
           onRetrySessionLoad={handleWebSocketReconnect}
           speakerFilterKey={speakerFilterKey}
+          speakerFilterLabel={speakerFilterLabel}
           onSelectSpeaker={selectSpeaker}
           chatMessages={chatMessages}
           sendingInputs={sendingInputs}

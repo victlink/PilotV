@@ -122,7 +122,7 @@ type MessageRowV2Props = {
   /** 展开 / 折叠这条回复 */
   onToggleReplyCollapsed?: () => void;
   /** 点发言人名字：只看这个发言人的发言内容 */
-  onSelectSpeaker?: (speakerKey: string) => void;
+  onSelectSpeaker?: (speakerKey: string | null) => void;
 };
 
 // Fall back to the heavy legacy renderer for anything that isn't a vanilla
@@ -645,7 +645,7 @@ function MessageRowV2({
               type="button"
               data-testid="assistant-message-speaker"
               data-speaker-key={assistantIdentity.key}
-              className={`inline-flex max-w-[45%] items-center gap-1 truncate font-medium ${assistantIdentity.textClass}`}
+              className={`inline-flex max-w-[45%] items-center gap-1 truncate font-medium underline decoration-dotted underline-offset-2 transition-colors hover:decoration-solid ${assistantIdentity.textClass}`}
               title={assistantSpeakerTitle}
               onClick={() => onSelectSpeaker?.(assistantIdentity.key)}
             >

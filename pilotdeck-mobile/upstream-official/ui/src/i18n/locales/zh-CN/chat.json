@@ -406,7 +406,10 @@
     "team": "团队",
     "mainAgent": "主agent",
     "showAll": "显示全部发言人",
-    "onlyThis": "只看 {{name}}"
+    "onlyThis": "只看 {{name}}",
+    "filtering": "只看 {{name}} 的回复",
+    "filteringHidden": "只看 {{name}} 的回复，已隐藏 {{count}} 条其他发言",
+    "clearFilter": "显示全部"
   },
   "reply": {
     "expand": "展开回复"

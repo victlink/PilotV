@@ -425,7 +425,10 @@
     "team": "Team",
     "mainAgent": "Main agent",
     "showAll": "Show all speakers",
-    "onlyThis": "Only {{name}}"
+    "onlyThis": "Only {{name}}",
+    "filtering": "Showing replies from {{name}} only",
+    "filteringHidden": "Showing replies from {{name}} only · {{count}} other replies hidden",
+    "clearFilter": "Show all"
   },
   "reply": {
     "expand": "Expand reply"

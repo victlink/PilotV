@@ -93,8 +93,10 @@ type MessagesPaneV2Props = {
   forkParentSessionTitle?: string | null;
   /** 只看某个发言人的发言内容；null = 显示全部发言人 */
   speakerFilterKey?: string | null;
-  /** 点发言人名字：只看这个发言人 */
-  onSelectSpeaker?: (speakerKey: string) => void;
+  /** 当前筛选对象的显示名（角色语义），用来在正文里说明「正在只看谁」 */
+  speakerFilterLabel?: string | null;
+  /** 点发言人名字：只看这个发言人；传 null = 回到显示全部 */
+  onSelectSpeaker?: (speakerKey: string | null) => void;
 };
 
 type KeyedRenderableMessageItem = RenderableMessageItem & {
@@ -180,14 +182,19 @@ function findTurnIndex(originalIndex: number, starts: number[], ends: number[]):
 }
 
 /**
- * 找出每一轮的「最终结果」。
+ * 找出「当前任务」的最终结果。
  *
  * 判定必须基于「未筛选」的折叠结果：换一个发言人视角只是换个看法，
  * 不改变谁是一轮的最终结果。
  *
+ * 只有当前任务（最后一次用户提问所在的那一轮）的结论默认展开：
+ *
  * - 折叠之后紧跟在 turnTrace 后面的那条，就是这一轮的结果；
  * - 没有过程可折叠的那一轮（没有 trace），最后一条回复就是这一轮的结果：
  *   没有过程要折叠，就不该把结论也折起来。
+ *
+ * 更早的轮次属于已完成的历史，按「已经完成的回复默认折叠」收起：
+ * 否则历史越长越没法看——每条旧回复都摊开，跟没折叠没有区别。
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export function collectFinalResultMessages(
@@ -195,28 +202,41 @@ export function collectFinalResultMessages(
   turnStarts: number[],
 ): Set<ChatMessage> {
   const finalResults = new Set<ChatMessage>();
-
-  // 折叠之后紧跟 turnTrace 的那条，就是这一轮的结果。
-  for (let index = 0; index < items.length - 1; index += 1) {
-    if (!items[index].turnTrace) continue;
-    const next = items[index + 1];
-    if (next && !next.turnTrace) finalResults.add(next.message);
-  }
-
-  // 没有 trace 的那一轮：最后一条回复就是这一轮的结果。
   const ends = turnStarts.map((start, index) => turnStarts[index + 1] ?? Number.POSITIVE_INFINITY);
+
   const lastItemOfTurn = new Map<number, RenderableMessageItem>();
   const foldedTurns = new Set<number>();
+  // 最后一次用户提问所在的那一轮，就是「当前任务」。
+  let currentTurn = -1;
   for (const item of items) {
     const turnIndex = findTurnIndex(Math.floor(item.originalIndex), turnStarts, ends);
     if (turnIndex < 0) continue;
     if (item.turnTrace) foldedTurns.add(turnIndex);
     lastItemOfTurn.set(turnIndex, item);
+    if (item.message.type === 'user') currentTurn = turnIndex;
   }
-  for (const [turnIndex, item] of lastItemOfTurn) {
-    if (foldedTurns.has(turnIndex)) continue;
-    if (!isSpeakerUtterance(item.message)) continue;
-    finalResults.add(item.message);
+  if (currentTurn < 0) {
+    // 没有用户提问的纯回复（导入的历史等）：退回最后一个有发言的轮次。
+    for (const [turnIndex, item] of lastItemOfTurn) {
+      if (isSpeakerUtterance(item.message)) currentTurn = turnIndex;
+    }
+  }
+  if (currentTurn < 0) return finalResults;
+
+  // 折叠之后紧跟 turnTrace 的那条，就是当前任务的结果。
+  for (let index = 0; index < items.length - 1; index += 1) {
+    if (!items[index].turnTrace) continue;
+    const next = items[index + 1];
+    if (!next || next.turnTrace) continue;
+    if (findTurnIndex(Math.floor(next.originalIndex), turnStarts, ends) === currentTurn) {
+      finalResults.add(next.message);
+    }
+  }
+
+  // 当前任务没有 trace：它的最后一条回复就是结果。
+  const currentItem = lastItemOfTurn.get(currentTurn);
+  if (currentItem && !foldedTurns.has(currentTurn) && isSpeakerUtterance(currentItem.message)) {
+    finalResults.add(currentItem.message);
   }
 
   return finalResults;
@@ -539,6 +559,7 @@ function MessagesPaneV2({
   forkDisabled = false,
   forkParentSessionTitle = null,
   speakerFilterKey = null,
+  speakerFilterLabel = null,
   onSelectSpeaker,
 }: MessagesPaneV2Props) {
   const { t } = useTranslation('chat');
@@ -749,6 +770,23 @@ function MessagesPaneV2({
     () => filterRenderableItemsBySpeaker(foldedMessageItems, speakerFilterKey),
     [foldedMessageItems, speakerFilterKey],
   );
+  // 被筛掉的其他发言人的回复条数。过滤生效时要说清楚「藏了多少条」，
+  // 否则回复变少会让人以为消息丢了，而不是被筛选器藏起来了。
+  const hiddenUtteranceCount = useMemo(() => {
+    if (!speakerFilterKey) return 0;
+    const countUtterances = (items: RenderableMessageItem[]): number => {
+      let total = 0;
+      for (const item of items) {
+        if (isSpeakerUtterance(item.message)) total += 1;
+        if (item.turnTrace?.items?.length) total += countUtterances(item.turnTrace.items);
+      }
+      return total;
+    };
+    return Math.max(
+      0,
+      countUtterances(foldedMessageItems) - countUtterances(renderableMessageItems),
+    );
+  }, [foldedMessageItems, renderableMessageItems, speakerFilterKey]);
   const keyedMessageItems = useMemo<KeyedRenderableMessageItem[]>(
     () => renderableMessageItems.map((item, index) => ({
       ...item,
@@ -1484,6 +1522,33 @@ function MessagesPaneV2({
           onClose={chatHistorySearch.closeSearch}
           inputRef={chatHistorySearch.inputRef}
         />
+      ) : null}
+      {speakerFilterKey ? (
+        <div
+          data-testid="speaker-filter-banner"
+          className="mx-auto flex w-full max-w-[720px] items-center justify-between gap-3 px-6 pt-2"
+        >
+          <span className="min-w-0 truncate text-xs text-neutral-500 dark:text-neutral-400">
+            {hiddenUtteranceCount > 0
+              ? t('speaker.filteringHidden', {
+                name: speakerFilterLabel ?? '',
+                count: hiddenUtteranceCount,
+                defaultValue: '只看 {{name}} 的回复，已隐藏 {{count}} 条其他发言',
+              })
+              : t('speaker.filtering', {
+                name: speakerFilterLabel ?? '',
+                defaultValue: '只看 {{name}} 的回复',
+              })}
+          </span>
+          <button
+            type="button"
+            data-testid="speaker-filter-clear"
+            onClick={() => onSelectSpeaker?.(null)}
+            className="shrink-0 rounded-full border border-neutral-200 px-2.5 py-0.5 text-xs text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            {t('speaker.clearFilter', { defaultValue: '显示全部' })}
+          </button>
+        </div>
       ) : null}
       <div
         ref={scrollContainerRef}

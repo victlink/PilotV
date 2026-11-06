@@ -14,7 +14,12 @@ import MessagesPaneV2, {
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { defaultValue?: string }) => options?.defaultValue || key,
+    t: (key: string, options?: { defaultValue?: string; name?: string; count?: number }) => {
+      const template = options?.defaultValue || key;
+      return template
+        .replace(/\{\{name\}\}/g, String(options?.name ?? ''))
+        .replace(/\{\{count\}\}/g, String(options?.count ?? ''));
+    },
   }),
 }));
 
@@ -101,13 +106,15 @@ function item(
 type PaneProps = {
   messages: ChatMessage[];
   speakerFilterKey?: string | null;
-  onSelectSpeaker?: (speakerKey: string) => void;
+  speakerFilterLabel?: string | null;
+  onSelectSpeaker?: (speakerKey: string | null) => void;
   isAssistantWorking?: boolean;
 };
 
 function Pane({
   messages,
   speakerFilterKey = null,
+  speakerFilterLabel = null,
   onSelectSpeaker,
   isAssistantWorking = false,
   scrollContainerRef,
@@ -142,6 +149,7 @@ function Pane({
         showThinking
         inlineThinking={false}
         speakerFilterKey={speakerFilterKey}
+        speakerFilterLabel={speakerFilterLabel}
         onSelectSpeaker={onSelectSpeaker}
       />
     </FindShortcutProvider>
@@ -263,6 +271,45 @@ describe('final result detection helpers', () => {
       ]),
     ).toEqual([0, 1]);
   });
+
+  it('only keeps the current task result expanded and folds earlier turns', () => {
+    const firstQuestion = userMessage('u-1', '第一个问题');
+    const firstAnswer = assistantMessage('a-1', '第一个结论。');
+    const secondQuestion = userMessage('u-2', '第二个问题');
+    const secondAnswer = assistantMessage('a-2', '第二个结论。');
+
+    const finals = collectFinalResultMessages(
+      [item(firstQuestion, 0), item(firstAnswer, 1), item(secondQuestion, 2), item(secondAnswer, 3)],
+      getTurnStartIndices([firstQuestion, firstAnswer, secondQuestion, secondAnswer]),
+    );
+
+    expect(finals.has(secondAnswer)).toBe(true);
+    expect(finals.has(firstAnswer)).toBe(false);
+  });
+
+  it('does not expand the result of an earlier turn that had a process trace', () => {
+    const firstQuestion = userMessage('u-1', '第一个问题');
+    const firstResult = assistantMessage('a-1', '第一个结论。');
+    const secondQuestion = userMessage('u-2', '第二个问题');
+    const secondResult = assistantMessage('a-2', '第二个结论。');
+    const firstTrace = item(assistantMessage('trace-1', ''), 0.01, {
+      turnTrace: { id: 'turn-trace-1', durationMs: 1000, items: [] },
+    });
+
+    const finals = collectFinalResultMessages(
+      [
+        item(firstQuestion, 0),
+        firstTrace,
+        item(firstResult, 1),
+        item(secondQuestion, 2),
+        item(secondResult, 3),
+      ],
+      getTurnStartIndices([firstQuestion, firstResult, secondQuestion, secondResult]),
+    );
+
+    expect(finals.has(secondResult)).toBe(true);
+    expect(finals.has(firstResult)).toBe(false);
+  });
 });
 
 describe('reply expansion defaults', () => {
@@ -369,6 +416,24 @@ describe('MessagesPaneV2 speaker filter and reply expansion', () => {
     expect(screen.getAllByTestId('assistant-message-expand')).toHaveLength(1);
   });
 
+  it('collapses the replies of earlier turns and keeps the current task result expanded', () => {
+    renderPane({
+      messages: [
+        userMessage('u-1', '第一个问题'),
+        assistantMessage('a-1', '第一个结论。'),
+        userMessage('u-2', '第二个问题'),
+        assistantMessage('a-2', '第二个结论。'),
+      ],
+    });
+
+    // 上一轮的回复是「已完成的回复」，默认折叠。
+    const expandButtons = screen.getAllByTestId('assistant-message-expand');
+    expect(expandButtons).toHaveLength(1);
+    expect(expandButtons[0].textContent).toContain('第一个结论。');
+    // 当前任务的结果默认展开。
+    expect(screen.getByText('第二个结论。')).toBeTruthy();
+  });
+
   it('keeps the manual expansion override across a rerender', () => {
     const messages = turnMessages();
     const view = renderPane({ messages });
@@ -396,5 +461,64 @@ describe('MessagesPaneV2 speaker filter and reply expansion', () => {
     fireEvent.click(screen.getByTestId('assistant-message-speaker'));
 
     expect(onSelectSpeaker).toHaveBeenCalledWith('name:小林');
+  });
+});
+
+describe('speaker filter banner', () => {
+  afterEach(cleanup);
+
+  it('says who is being shown and how many replies are hidden', () => {
+    renderPane({
+      messages: [
+        userMessage('u-1', '请帮我看看代码'),
+        assistantMessage('a-lin', '小林：我先看看。', { agentName: '小林' }),
+        userMessage('u-2', '那测试呢'),
+        assistantMessage('a-qiang', '阿强：我看看测试。', { agentName: '阿强' }),
+        userMessage('u-3', '再补一句'),
+        assistantMessage('a-qiang-2', '阿强：再补一句。', { agentName: '阿强' }),
+      ],
+      speakerFilterKey: 'name:阿强',
+      speakerFilterLabel: '阿强',
+      onSelectSpeaker: vi.fn(),
+    });
+
+    const banner = screen.getByTestId('speaker-filter-banner');
+    expect(banner.textContent).toContain('阿强');
+    // 小林那条被藏起来了，数量要说得出来。
+    expect(banner.textContent).toContain('1');
+    // 被筛掉的说话人不该再出现在正文里。
+    expect(screen.queryByText('小林：我先看看。')).toBeNull();
+    expect(screen.getByText('阿强：我看看测试。')).toBeTruthy();
+    expect(screen.getByText('阿强：再补一句。')).toBeTruthy();
+    // 发言人也还在，而且只剩阿强一个。
+    const speakers = screen.getAllByTestId('assistant-message-speaker');
+    expect(speakers.map((node) => node.textContent)).toEqual(['阿强', '阿强']);
+  });
+
+  it('shows a clear action that resets the filter', () => {
+    const onSelectSpeaker = vi.fn();
+    renderPane({
+      messages: [
+        userMessage('u-1', '请帮我看看代码'),
+        assistantMessage('a-lin', '小林：我先看看。', { agentName: '小林' }),
+      ],
+      speakerFilterKey: 'name:小林',
+      speakerFilterLabel: '小林',
+      onSelectSpeaker,
+    });
+
+    fireEvent.click(screen.getByTestId('speaker-filter-clear'));
+
+    expect(onSelectSpeaker).toHaveBeenCalledWith(null);
+  });
+
+  it('keeps the banner away when no filter is active', () => {
+    renderPane({
+      messages: [userMessage('u-1', '请帮我看看代码')],
+      speakerFilterKey: null,
+      onSelectSpeaker: vi.fn(),
+    });
+
+    expect(screen.queryByTestId('speaker-filter-banner')).toBeNull();
   });
 });

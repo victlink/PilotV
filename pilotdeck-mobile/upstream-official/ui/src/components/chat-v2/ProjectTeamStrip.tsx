@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { TEAM_ICON, type SpeakerEntry } from './agentIdentity';
+import { TEAM_ICON, speakerDisplayLabel, type SpeakerEntry } from './agentIdentity';
 
 /**
  * 对话栏上方的发言人条。
@@ -25,14 +25,8 @@ export default function ProjectTeamStrip({
   const showAllLabel = t('speaker.showAll', { defaultValue: '显示全部发言人' });
   const filterLabel = t('speaker.onlyThis', { defaultValue: '只看 {{name}}' });
 
-  const labelFor = (speaker: SpeakerEntry): string => {
-    if (speaker.identity.roleLabelKey) {
-      const roleLabel = String(t(speaker.identity.roleLabelKey, { defaultValue: '' }));
-      if (roleLabel && roleLabel !== speaker.identity.roleLabelKey) return roleLabel;
-    }
-    if (!speaker.name) return mainAgentLabel;
-    return speaker.name;
-  };
+  const labelFor = (speaker: SpeakerEntry): string =>
+    speakerDisplayLabel(speaker, (key) => String(t(key, { defaultValue: '' })), mainAgentLabel);
 
   const TeamIcon = TEAM_ICON;
   const teamActive = !activeSpeakerKey;
