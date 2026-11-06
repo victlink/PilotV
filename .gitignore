@@ -15,6 +15,9 @@ __pycache__/
 # 根级遗留 sqlite：现役库是 .artifacts-data/artifacts.db（artifacts_store.py:155），
 # 代码里已无任何地方引用根级这个，留着只当历史文件。
 /artifacts.db
+# sqlite 的 WAL / SHM 副产物：运行时随库自动生成，属于机器状态。
+/artifacts.db-shm
+/artifacts.db-wal
 
 # ── 服务端按需创建的目录（空目录 git 本来就不跟踪）──────────────────
 /files/
@@ -62,6 +65,11 @@ service/data/
 # vite build 前手动改名留下的旧产物目录，dist/ 规则匹配不到。
 # ** 覆盖 ui/ 与 upstream-official/ 两处：备份脚本落在哪一层都算。
 pilotdeck-mobile/upstream-official/**/dist.previous-*/
+# 部署脚本用 dist.prev-<时间戳> 命名的旧产物目录，几十 MB，同样不入库。
+pilotdeck-mobile/upstream-official/**/dist.prev-*/
+
+# 手工留的配置文件快照（devices.json.bak.<时间戳> 之类），可随时重建。
+*.json.bak.*
 
 # 验收/探查截图：跑一次 .qa 或 review 下的脚本就能重新生成，逐次几十 MB。
 /review/
