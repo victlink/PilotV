@@ -71,6 +71,7 @@ import { createProjectUpdateScheduler } from './projectUpdateScheduler.js';
 import { getProjectsSnapshot, getProjectCronJobsOverview, getSessions, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache, searchConversations } from './projects.js';
 import {
     runChatViaGateway,
+    requestProjectReview,
     replaceLastTurnViaGateway,
     finalizeLastTurnReplacementViaGateway,
     abortViaGateway,
@@ -2460,6 +2461,15 @@ function handleChatConnection(ws, request) {
                 }
                 const providerHint = data.options?.providerHint || data.type.replace('-command', '');
                 await runChatViaGateway(data.command, data.options, streamWriter, providerHint);
+            } else if (data.type === 'project-review-request') {
+                // 显式请求审查员审查上一轮：审查员以独立项目成员身份跑一轮，
+                // 回复仍然落在当前会话里（manual 协作模式下自动审查是关闭的）。
+                const reviewSessionId = normalizeSessionId(data.options?.sessionId || data.options?.sessionKey);
+                if (reviewSessionId) {
+                    sessionWatchRegistry.watch(reviewSessionId, ws);
+                }
+                const providerHint = data.options?.providerHint || 'pilotdeck';
+                await requestProjectReview(data.options || {}, streamWriter, providerHint);
             } else if (data.type === 'get-input-queue') {
                 const queueState = await getInputQueueStateViaGateway(requestSessionId, data.options || {});
                 if (queueState) writer.send(queueState);

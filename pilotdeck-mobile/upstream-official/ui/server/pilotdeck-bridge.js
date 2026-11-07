@@ -72,6 +72,7 @@ import { readPermissionSettings } from './services/permissionSettings.js';
 import { createGatewayConnectionCache } from './services/gatewayConnectionCache.js';
 import { ensureGeneralWorkspaceDirectory } from './utils/generalWorkspace.js';
 import { resolveProjectTeamRuntime } from './services/projectTeamRuntime.js';
+import { readProjectTeamConfig } from './services/projectTeamConfig.js';
 import { buildProjectReviewRequest, selectProjectReviewer } from './services/projectTeamCollaboration.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1984,6 +1985,99 @@ export async function runChatViaGateway(
         }
     }
     return { sessionKey, runId, inputAccepted, sawTurnCompleted, sawGatewayError };
+}
+
+/**
+ * Ask a project reviewer to review the latest turn of an existing session.
+ *
+ * `manual` collaboration mode turns the *automatic* review turn off; this is
+ * the explicit user trigger for the very same review. The reviewer runs as an
+ * ordinary project agent turn, so it keeps its own model, tool policy and
+ * speaker identity, and its reply lands in the same conversation as an
+ * independent assistant message.
+ *
+ * @param {{sessionId?: string, sessionKey?: string, projectPath?: string, cwd?: string, agentId?: string}} options
+ * @param {{send: (msg: object) => void}} writer
+ * @param {string} provider
+ * @param {object} hooks
+ */
+export async function requestProjectReview(options = {}, writer, provider = 'pilotdeck', hooks = {}) {
+    const projectKey = options.projectPath || options.cwd || GENERAL_HOME;
+    const incoming = options.sessionId || options.sessionKey;
+    if (!isPilotDeckSessionKey(incoming)) {
+        const sessionKey = newSessionKey();
+        const message = 'A review request needs an existing conversation.';
+        writer.send(createNormalizedMessage({
+            provider,
+            sessionId: sessionKey,
+            kind: 'error',
+            code: 'review_session_missing',
+            terminal: false,
+            content: message,
+            userHint: message,
+        }));
+        return { sessionKey, dispatched: false };
+    }
+    const sessionKey = incoming;
+    const state = ensureSessionState(sessionKey, projectKey, 'web');
+    if (state.active) {
+        const message = 'This session already has an active turn. Wait for it to finish before asking for a review.';
+        writer.send(createNormalizedMessage({
+            provider,
+            sessionId: sessionKey,
+            kind: 'error',
+            code: 'session_busy',
+            terminal: false,
+            content: message,
+            userHint: message,
+        }));
+        return { sessionKey, dispatched: false };
+    }
+    let config = null;
+    try {
+        config = await readProjectTeamConfig({ projectRoot: projectKey });
+    } catch (error) {
+        console.error('[pilotdeck-bridge] project team config unreadable:', error);
+        config = null;
+    }
+    const reviewer = selectProjectReviewer(config, { agentId: options.agentId, explicit: true });
+    if (!reviewer) {
+        const message = 'This project has no enabled reviewer. Add one in the project team settings first.';
+        writer.send(createNormalizedMessage({
+            provider,
+            sessionId: sessionKey,
+            kind: 'error',
+            code: 'review_reviewer_missing',
+            terminal: false,
+            content: message,
+            userHint: message,
+        }));
+        return { sessionKey, dispatched: false };
+    }
+    // The reviewed turn is the last project agent run of this session; the
+    // request text names it so the reviewer knows what it is looking at.
+    const runIds = Object.keys(state.projectAgentRuns ?? {});
+    const lastRunId = runIds.length ? runIds[runIds.length - 1] : undefined;
+    const lastRun = lastRunId ? state.projectAgentRuns[lastRunId] : null;
+    const result = await runChatViaGateway('', {
+        ...options,
+        sessionId: sessionKey,
+        agentId: reviewer.id,
+        // The review turn must not trigger another review turn.
+        internalReview: true,
+        reviewDepth: 1,
+        // 审查员有自己的专属模型时用它的；没有就沿用本会话上一次接受的模型，
+        // 而不是让审查员静默地跑在另一个默认模型上。
+        modelSelection: options.modelSelection ?? state.lastAcceptedModelSelection?.selection,
+        syntheticMessages: [{
+            text: buildProjectReviewRequest({
+                agentName: lastRun?.name || reviewer.name,
+                runId: lastRunId || 'the latest turn',
+            }),
+            purpose: 'project_agent_review_request',
+        }],
+    }, writer, provider, { ...hooks, fromQueue: true });
+    return { sessionKey, dispatched: true, reviewerId: reviewer.id, runId: result?.runId };
 }
 
 export function queuedInputDispositionAfterTurn(finishReason, queuePaused) {

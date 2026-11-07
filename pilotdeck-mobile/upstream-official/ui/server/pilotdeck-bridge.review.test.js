@@ -18,7 +18,11 @@ vi.mock('./services/projectTeamRuntime.js', () => ({
     },
 }));
 vi.mock('./services/gatewayConnectionCache.js', () => ({ createGatewayConnectionCache: () => ({ get: async () => mock.gateway, invalidate: () => {} }) }));
-import { enqueueInputViaGateway, runChatViaGateway } from './pilotdeck-bridge.js';
+// 显式审查要直读团队配置：manual 模式下 `resolveProjectTeamRuntime` 不返回配置。
+vi.mock('./services/projectTeamConfig.js', () => ({
+    readProjectTeamConfig: async () => mock.config,
+}));
+import { enqueueInputViaGateway, requestProjectReview, runChatViaGateway } from './pilotdeck-bridge.js';
 import { rm } from 'node:fs/promises';
 beforeEach(() => { mock.config = { collaboration: { mode: 'automated' }, agents: [
     { id: 'worker', name: '执行员', role: 'implementer', enabled: true },
@@ -97,4 +101,76 @@ it('disabled reviewer does not launch review', async () => {
 it('reviewer selected directly does not trigger another reviewer', async () => {
     mock.config.agents.push({ id: 'reviewer2', name: '另一个审查员', role: 'reviewer', enabled: true, reportsTo: null });
     expect((await run('reviewer')).calls).toHaveLength(1);
+});
+
+/**
+ * manual 协作模式下自动审查不会跑，用户必须能显式把这一轮交给审查员。
+ */
+it('explicit review request runs one reviewer turn in manual mode', async () => {
+    mock.config.collaboration.mode = 'manual';
+    const calls = [], frames = [];
+    const gateway = { async *submitTurn(input) {
+        calls.push(input);
+        yield { type: 'input_accepted', runId: input.runId };
+        yield { type: 'assistant_text_delta', text: '手动审查内容', runId: input.runId };
+        yield { type: 'turn_completed', runId: input.runId, finishReason: 'completed', usage: {} };
+    } };
+    const writer = { send: frame => frames.push(frame) };
+    await runChatViaGateway('用户请求', { projectPath: '/fixture/project', agentId: 'worker' },
+        writer, 'pilotdeck', { getGateway: async () => gateway, fromQueue: true });
+    // manual 模式下没有自动审查。
+    expect(calls).toHaveLength(1);
+
+    const result = await requestProjectReview(
+        { sessionId: calls[0].sessionKey, projectPath: '/fixture/project', agentId: 'reviewer' },
+        writer, 'pilotdeck', { getGateway: async () => gateway });
+
+    expect(result.dispatched).toBe(true);
+    expect(result.reviewerId).toBe('reviewer');
+    expect(calls).toHaveLength(2);
+    expect(calls[1].sessionKey).toBe(calls[0].sessionKey);
+    expect(calls[1].message).toBe('');
+    expect(calls[1].syntheticMessages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ purpose: 'project_agent_review_request' }),
+    ]));
+    // 审查员用自己的模型和工具权限。
+    expect(calls[1].modelSelection).toEqual(mock.config.agents[1].model);
+    expect(calls[1].toolPolicy).toEqual({ allow: ['read_file'] });
+    // 回复挂在同一个会话里，并带上审查员的身份。
+    expect(frames.some(f => f.kind === 'stream_delta' && f.agentName === '审查员')).toBe(true);
+    expect(frames.some(f => f.role === 'user')).toBe(false);
+    // 显式审查不会再自己触发一轮审查。
+    expect(calls).toHaveLength(2);
+});
+
+it('explicit review request reports a missing reviewer instead of doing nothing', async () => {
+    mock.config.collaboration.mode = 'manual';
+    mock.config.agents = mock.config.agents.filter(agent => agent.role !== 'reviewer');
+    const calls = [], frames = [];
+    const gateway = { async *submitTurn(input) {
+        calls.push(input);
+        yield { type: 'input_accepted', runId: input.runId };
+        yield { type: 'turn_completed', runId: input.runId, finishReason: 'completed', usage: {} };
+    } };
+    const writer = { send: frame => frames.push(frame) };
+    await runChatViaGateway('用户请求', { projectPath: '/fixture/project' },
+        writer, 'pilotdeck', { getGateway: async () => gateway, fromQueue: true });
+
+    const result = await requestProjectReview(
+        { sessionId: calls[0].sessionKey, projectPath: '/fixture/project' },
+        writer, 'pilotdeck', { getGateway: async () => gateway });
+
+    expect(result.dispatched).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(frames.some(f => f.code === 'review_reviewer_missing')).toBe(true);
+});
+
+it('explicit review request needs an existing session', async () => {
+    const frames = [];
+    const result = await requestProjectReview(
+        { sessionId: 'not-a-session-key', projectPath: '/fixture/project' },
+        { send: frame => frames.push(frame) }, 'pilotdeck', { getGateway: async () => ({}) });
+
+    expect(result.dispatched).toBe(false);
+    expect(frames.some(f => f.code === 'review_session_missing')).toBe(true);
 });
