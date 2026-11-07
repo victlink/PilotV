@@ -49,6 +49,11 @@ jobs:
         run: |
           python -m compileall -q -x "(node_modules|\\.venv|\\.git|__pycache__|dist)" .
 
+      # cli/ 下的判定函数是这个仓库里最容易「安静骗人」的一层：采集出错会立刻
+      # 连不上，判定出错却会给出一个看起来很合理的错误结论。它零依赖，
+      # 所以挂在最便宜的 hygiene job 里跑，不必等 pnpm 装完。
+      - name: CLI decision logic (node:test, zero deps)
+        run: node --test --test-timeout 60000 cli/*.test.mjs
       - name: Git worktree is clean after checkout
         run: |
           git add -A
