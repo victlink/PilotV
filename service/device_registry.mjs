@@ -44,9 +44,17 @@ function parseIPv4(host) {
  * 只放行内网地址。169.254.0.0/16 是 link-local，云厂商的元数据服务就在里面，
  * 必须显式排除——它是这类「浏览器指定代理目标」最经典的滥用目标。
  */
+const MAGIC_DNS_HOST = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.tail[0-9a-f]+\.ts\.net$/;
+
 export function isPrivateHost(host) {
   const bare = String(host || '').replace(/^\[|\]$/g, '').toLowerCase();
   if (bare === 'localhost') return true;
+  // Tailscale MagicDNS 名称：<host>.tail<网络后缀>.ts.net。它只在 tailnet 内解析
+  // （公网 8.8.8.8 对它是 NXDOMAIN），所以和 100.64/10 一样属于「出不了内网」的地址。
+  // 残留风险：本机 DNS 若被人控制，任何「看着像内网」的判定都可以被指到公网，
+  // 这不是 MagicDNS 独有的问题；因此这里只认这个确切形状，不接受别的域名。
+  // 只认这个形状，不放宽到整个 .ts.net：否则别人注册一个 evil.ts.net 就被放行了。
+  if (MAGIC_DNS_HOST.test(bare)) return true;
   if (bare === '::1' || bare === '0:0:0:0:0:0:0:1') return true;
   // Tailscale 用的 100.64.0.0/10，和 192.168/10 同为 RFC1918/CGNAT 的内网段。
   if (/^f[cd][0-9a-f]{2}:/.test(bare)) return true;

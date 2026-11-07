@@ -16,6 +16,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { decideUnknownDevice, syncDeviceManifestSync } from './deviceManifest.mjs';
 import {
   DeviceRegistry,
   isSameOrigin,
@@ -186,8 +187,15 @@ export function buildAllowlist(devices, config) {
  */
 export function resolveBackend(request, config, devices) {
   const query = new URL(request.url, 'http://pilotv.local').searchParams;
-  const fromQuery = resolveDeviceParam(query.get('d'), devices || config.devices);
+  const rawQuery = query.get('d');
+  const fromQuery = resolveDeviceParam(rawQuery, devices || config.devices);
   if (fromQuery.origin) return { origin: fromQuery.origin, device: fromQuery.device, source: 'query' };
+  // 用户明确点名了一台设备而清单里没有 —— 这是「配置漂移」的现场，必须当场说清楚。
+  // 之前这里只是 unknownDevice: true，前端虽然拿到了标记，但 API 请求照样发给本机，
+  // 于是「点了没反应」和「网络慢」在用户眼里长得一模一样。
+  const unknown = rawQuery && fromQuery.reason === 'unknown'
+    ? decideUnknownDevice(rawQuery, devices || config.devices, { source: 'query' })
+    : null;
 
   const allowlist = buildAllowlist(devices, config);
   const rawHeader = request.headers?.[DEVICE_HEADER];
@@ -202,11 +210,21 @@ export function resolveBackend(request, config, devices) {
     const device = (devices || config.devices).find(item => item.origin === fromCookie) || null;
     return { origin: fromCookie, device, source: 'cookie' };
   }
+  // 头/Cookie 里的陌生地址多半是改名或下线后的残留：回落本机是对的，
+  // 否则人会被自己的 Cookie 锁死在「哪里也去不了」上。但原因同样要留下。
+  const stale = fromHeader || fromCookie
+    ? decideUnknownDevice(fromHeader || fromCookie, devices || config.devices, {
+      source: fromHeader ? 'header' : 'cookie',
+      defaultOrigin: config.defaultBackend,
+    })
+    : null;
   return {
     origin: config.defaultBackend,
     device: null,
     source: 'default',
-    unknownDevice: fromQuery.reason === 'unknown',
+    unknownDevice: Boolean(unknown) || Boolean(stale?.problem),
+    unknownProblem: unknown?.mode === 'error' ? unknown.problem : undefined,
+    staleDevice: unknown ? undefined : stale?.problem,
   };
 }
 
@@ -226,7 +244,9 @@ export function resolveArtifactsOrigin(backendOrigin, config, devices) {
   if (!Number.isInteger(port) || port <= 0 || port > 65535) return null;
   try {
     const url = new URL(backendOrigin);
-    return `http://${url.hostname}:${port}`;
+    // 协议跟着设备走：设备后端是 https 时，成果台大概率也在同一套证书下。
+    // 写死 http 会让「设备用 https」这条路上成果台全军覆没，且错误信息很难看。
+    return `${url.protocol}//${url.hostname}:${port}`;
   } catch { return null; }
 }
 
@@ -368,6 +388,12 @@ const WS_TUNNEL_CONNECT_TIMEOUT_MS = 30_000;
  */
 const UPSTREAM_IDLE_MS = Number(process.env.PILOTV_UPSTREAM_IDLE_MS || 600_000);
 
+/** 网关自己的小 JSON 响应。no-store：设备状态变了一秒都不能被缓存。 */
+function sendJson(response, status, body) {
+  response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+  response.end(JSON.stringify(body));
+}
+
 function forward(request, response, targetOrigin, pathname, token, stripCallerAuth = false) {
   let target;
   try { target = new URL(targetOrigin); } catch { response.writeHead(502); response.end('bad upstream'); return; }
@@ -375,7 +401,11 @@ function forward(request, response, targetOrigin, pathname, token, stripCallerAu
   // Host 改写成上游之后，后端就不知道用户是从哪个入口来的。成果台要把评审链接
   // 指回 PilotV 前端，只能靠这两个头。客户端自带的要覆盖掉，不能让人伪造公网地址。
   headers['x-forwarded-host'] = request.headers.host || request.socket.localAddress;
-  headers['x-forwarded-proto'] = 'http';
+  // 上游协议决定这个头该怎么填。写死 'http' 在纯 http 后端下是对的，但成果台
+  // 会用 X-Forwarded-Proto 拼评审链接（artifacts_console.py），一旦某台设备的
+  // 后端上了 https，评审链接就会生成成 http://...，点进去直接连不上。
+  const upstreamIsTls = target.protocol === 'https:';
+  headers['x-forwarded-proto'] = upstreamIsTls ? 'https' : 'http';
   // 这个头是网关自己的路由标记，后端不需要也不该看到。
   delete headers[DEVICE_HEADER];
   // 远端成果台用令牌鉴权。浏览器带的 Authorization 要换成网关自己持有的那个，
@@ -391,12 +421,19 @@ function forward(request, response, targetOrigin, pathname, token, stripCallerAu
     delete headers.cookie;
     if (token) headers.authorization = `Bearer ${token}`;
   }
-  const upstream = http.request({
+  // 按清单里的协议转发。 devices.json 允许写 https://<MagicDNS>:3001，
+  // 而这里如果恒用 http.request，等于把明文 HTTP 打到一个 TLS 端口上 ——
+  // 表现是「上游无响应」这种完全看不出根因的错误。
+  const upstream = (upstreamIsTls ? https : http).request({
     hostname: target.hostname,
-    port: target.port || (target.protocol === 'https:' ? 443 : 80),
+    port: target.port || (upstreamIsTls ? 443 : 80),
     method: request.method,
     path: pathname,
     headers,
+    // 上游是内网自签/Tailscale 证书。这里必须显式写下来而不是留空：
+    // 内网设备用 Tailscale 签发的证书时 SAN 是 MagicDNS 域名，
+    // 拿 IP 连必然校验失败；要真正做证书校验得先解决「用什么名字连」。
+    rejectUnauthorized: false,
   }, upstreamResponse => {
     response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);
     upstreamResponse.pipe(response);
@@ -634,7 +671,12 @@ export function createGateway(config) {
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', ...headers });
       response.end(injectRuntime(html, {
         backend: backend.origin, device: backend.device, source: backend.source,
-        unknownDevice: Boolean(backend.unknownDevice), artifactsPerDevice: config.artifactsPerDevice,
+        unknownDevice: Boolean(backend.unknownDevice),
+        // 原因要能一路走到界面上。「切不过去」这件事本身用户看得见，
+        // 看不见的是为什么 —— 那才是需要反复排障的部分。
+        unknownDeviceProblem: backend.unknownProblem || backend.staleDevice || null,
+        knownDevices: (devices || []).map(device => device.origin),
+        artifactsPerDevice: config.artifactsPerDevice,
         defaultBackend: config.defaultBackend,
         defaultName: devices.find(item => item.origin === config.defaultBackend)?.name || '当前设备',
         weknoraUrl: resolveWeknoraUrl(request, config),
@@ -660,12 +702,19 @@ export function createGateway(config) {
 
     if (route === 'artifacts' || route === 'backend') {
       const backend = resolveBackend(request, config, devices);
+      // 未知设备不再「照样发给本机」。发出去的话前端会拿到一份**别的机器**的数据
+      // 却以为是刚点的那台 —— 那比报错危险得多，而且正是当年「切不过去」查不出
+      // 原因的形态。409 表示「你点的资源和当前路由不一致」，前端可以直接显示原因。
+      if (backend.unknownProblem) {
+        return sendJson(response, 409, {
+          error: 'unknown-device',
+          message: backend.unknownProblem,
+          fallback: backend.origin,
+        });
+      }
       const upstream = route === 'artifacts' ? resolveArtifactsOrigin(backend.origin, config, devices) : backend.origin;
       if (upstream === null) {
-        const body = JSON.stringify({ error: 'device-has-no-artifacts', device: backend.origin });
-        response.writeHead(503, { 'content-type': 'application/json; charset=utf-8' });
-        response.end(body);
-        return;
+        return sendJson(response, 503, { error: 'device-has-no-artifacts', device: backend.origin });
       }
       const token = route === 'artifacts' ? config.artifactsToken : null;
       return forward(request, response, upstream, url.pathname + url.search, token,
@@ -721,6 +770,20 @@ export function loadConfigFromEnv(env = process.env) {
   let devicesText = '';
   try { devicesText = fs.readFileSync(devicesFile, 'utf-8'); } catch { devicesText = ''; }
   const devices = readDevices(devicesText, defaultBackend);
+  // devices.json 有两份：这一份是网关用来决定「允许转发到哪」的，
+  // dist/devices.json 是**浏览器**读的那一份（设备切换器的预置列表）。
+  // 过去要人手工拷，漏拷的后果不是报错，而是「网关不认识这台设备」-> 静默回落本机
+  // -> 用户只看到「切不过去」。verify_windows.ps1 比对过两份的哈希，但没人自动跑它。
+  // 现在启动时同步一次，把「记得拷」这个隐性要求直接消掉。
+  const distDevicesFile = path.join(distDir, 'devices.json');
+  const manifestSync = syncDeviceManifestSync(devicesFile, distDevicesFile);
+  if (manifestSync.synced) console.log(`[pilotv] devices.json 已同步到 ${distDevicesFile}`);
+  else if (manifestSync.reason === 'source-invalid') {
+    // 只报不拦：带着坏条目启动（能用的那几条仍然可用）比拒绝启动更可用，
+    // 但问题必须显眼，不能等用户发现「少了一台设备」再回来查。
+    console.error(`[pilotv] devices.json 有问题，未同步到 dist：
+  ${(manifestSync.problems || []).join('\n  ')}`);
+  }
   for (const extra of (env.PILOTV_EXTRA_BACKENDS || '').split(',').map(item => item.trim()).filter(Boolean)) {
     const origin = normalizeOrigin(extra);
     if (origin && !devices.some(device => device.origin === origin)) devices.push({ name: origin, origin, backend: origin });
@@ -733,6 +796,8 @@ export function loadConfigFromEnv(env = process.env) {
   return {
     distDir,
     devices,
+    // 暴露给 doctor/测试：启动同步到底做了什么，不能只留在 console 里。
+    manifestSync,
     registry: new DeviceRegistry(registryFile, devices),
     registryFile,
     adminSecret,

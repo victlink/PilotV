@@ -12,7 +12,7 @@ import https from 'node:https';
 import { spawn, execFileSync } from 'node:child_process';
 import {
   DEVICE_COOKIE, DEVICE_HEADER, ADMIN_COOKIE, adminTokenFor, claimRegistryLock, classifyPath, createGateway,
-  injectRuntime, normalizeOrigin, readTlsOptions,
+  injectRuntime, loadConfigFromEnv, normalizeOrigin, readTlsOptions,
   readCookie, readDevices, resolveArtifactsOrigin, resolveBackend, resolveDeviceParam, resolveWeknoraUrl,
   slugify, verifyAdmin,
 } from './pilotv_gateway.mjs';
@@ -20,6 +20,7 @@ import {
   DeviceRegistry, isPrivateHost, mergeRegistry, normalizeDeviceName, pruneDeadRenames, readRegistryFile,
   validateDeviceTarget,
 } from './device_registry.mjs';
+import { createSelfSignedCert, tlsCapability } from './selfSignedCert.mjs';
 
 /** 端到端用例里的固定会话密钥，配合 send() 默认带的令牌使用。 */
 const TEST_ADMIN_SECRET = 'test-admin-secret-do-not-use-in-prod';
@@ -747,30 +748,14 @@ test('端到端：非 socket 路径的升级请求拿不到隧道', async () => 
 // 不给安装入口 —— manifest 写得再对都没用。所以网关必须真的能起 https。
 
 /**
- * 自签证书要靠 openssl 生成。Windows 开发机上通常没有这个命令（Linux runner 有），
- * 缺了就该跳过而不是失败 —— 和 ui/server/testing/symlinkCapability.js 同一个约定：
- * 环境能力缺失是「不适用」，不是「代码错了」。之前这两个用例在本机稳定红，
- * 红灯一多就没人看了，那才是真正的风险。
+ * 自签证书由 selfSignedCert.mjs 生成：openssl 优先，退到 python cryptography。
+ * 之前只认 openssl，于是这些 TLS 用例在 Windows 开发机上长期 skip ——
+ * 也就是「网关真的会用 https 应答」这件事在本地从来没有被验证过。
  */
-const OPENSSL_AVAILABLE = (() => {
-  try {
-    execFileSync('openssl', ['version'], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-/** 生成一份临时自签证书（测试用，不做任何信任设置）。 */
+const TLS_CAPABILITY = tlsCapability();
+const SKIP_TLS = TLS_CAPABILITY.ok ? false : TLS_CAPABILITY.reason;
 function makeSelfSigned(dir) {
-  const key = path.join(dir, 'k.pem');
-  const cert = path.join(dir, 'c.pem');
-  execFileSync('openssl', [
-    'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2',
-    '-keyout', key, '-out', cert, '-subj', '/CN=127.0.0.1',
-    '-addext', 'subjectAltName=IP:127.0.0.1',
-  ], { stdio: 'ignore' });
-  return { key, cert };
+  return createSelfSignedCert(dir);
 }
 
 test('readTlsOptions: 两项齐全才启用 HTTPS，只给一半直接报错', () => {
@@ -783,7 +768,7 @@ test('readTlsOptions: 两项齐全才启用 HTTPS，只给一半直接报错', (
   assert.throws(() => readTlsOptions({ PILOTV_TLS_CERT: '/no/such.pem', PILOTV_TLS_KEY: '/no/such.pem' }), /PILOTV_TLS_CERT 不存在/);
 });
 
-test('readTlsOptions: 证书齐全时把内容读出来', { skip: OPENSSL_AVAILABLE ? false : '需要 openssl' }, () => {
+test('readTlsOptions: 证书齐全时把内容读出来', { skip: SKIP_TLS }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pilotv-tls-'));
   try {
     const paths = makeSelfSigned(dir);
@@ -793,7 +778,7 @@ test('readTlsOptions: 证书齐全时把内容读出来', { skip: OPENSSL_AVAILA
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('端到端：配了证书的网关真的用 https 应答，并带上 HSTS', { skip: OPENSSL_AVAILABLE ? false : '需要 openssl' }, async () => {
+test('端到端：配了证书的网关真的用 https 应答，并带上 HSTS', { skip: SKIP_TLS }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pilotv-tls-'));
   const distDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'pilotv-dist-'));
   try {
@@ -871,4 +856,211 @@ test('没配证书时网关仍然是 http（不因为新增 TLS 支持就改默�
     assert.equal(res.headers['strict-transport-security'], undefined);
     await new Promise(resolve => { gateway.closeAllConnections(); gateway.close(resolve); });
   } finally { await fsp.rm(distDir, { recursive: true, force: true }); }
+});
+
+// --- 协议感知转发（计划 P1.6 的前置：清单允许 https，转发就得真的会走 https） ---
+
+test('resolveArtifactsOrigin：成果台端口跟着设备协议走', () => {
+  const config = { artifactsPerDevice: true, defaultBackend: 'http://127.0.0.1:3001', artifactsTarget: 'http://127.0.0.1:8799' };
+  const httpsDevice = [{ origin: 'https://marc.tail.ts.net:3001', artifactsPort: 8799 }];
+  assert.equal(
+    resolveArtifactsOrigin('https://marc.tail.ts.net:3001', config, httpsDevice),
+    'https://marc.tail.ts.net:8799',
+    '设备是 https 时成果台也必须 https，写死 http 会把这条路上所有成果台打死');
+
+  const httpDevice = [{ origin: 'http://100.108.86.109:3001', artifactsPort: 8799 }];
+  assert.equal(resolveArtifactsOrigin('http://100.108.86.109:3001', config, httpDevice),
+    'http://100.108.86.109:8799', '纯 http 设备的行为不能被这次改动带偏');
+});
+
+test('转发到 https 后端：真的用 TLS 建连，并如实上报 x-forwarded-proto=https', { skip: SKIP_TLS }, async () => {
+  // 这个用例钉的是一个「看起来完全不像 bug」的故障：devices.json 里写 https:// 之后，
+  // 如果 forward() 恒用 http.request，就是拿明文 HTTP 去打 TLS 端口，
+  // 用户只会看到「上游无响应：ERR_HTTP_PARSER_TRACE / socket hang up」。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pilotv-tls-fwd-'));
+  const distDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'pilotv-dist-'));
+  const registryDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'pilotv-reg-'));
+  try {
+    await fsp.writeFile(path.join(distDir, 'index.html'), '<html><body>ok</body></html>');
+    const paths = makeSelfSigned(dir);
+
+    let seen = null;
+    const secure = https.createServer({ cert: fs.readFileSync(paths.cert), key: fs.readFileSync(paths.key) }, (req, res) => {
+      seen = { proto: req.headers['x-forwarded-proto'] || null, host: req.headers.host };
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ backend: 'TLS-BACKEND', forwardedProto: seen.proto }));
+    });
+    await new Promise(resolve => secure.listen(0, '127.0.0.1', resolve));
+    const secureOrigin = `https://127.0.0.1:${secure.address().port}`;
+    const plain = await listen(fakeBackend('PLAIN-A'));
+    const plainOrigin = `http://127.0.0.1:${plain.server.address().port}`;
+
+    const devices = [
+      { name: '明文机', origin: plainOrigin, backend: plainOrigin },
+      { name: 'TLS机', origin: secureOrigin, backend: secureOrigin },
+    ];
+    const gateway = createGateway({
+      distDir,
+      devices,
+      registry: new DeviceRegistry(path.join(registryDir, 'devices.local.json'), devices),
+      allowRegistryWrites: false,
+      adminSecret: TEST_ADMIN_SECRET,
+      defaultBackend: plainOrigin,
+      artifactsTarget: plainOrigin,
+      artifactsPerDevice: false,
+    });
+    await new Promise(resolve => gateway.listen(0, '127.0.0.1', resolve));
+    const port = gateway.address().port;
+
+    const body = await new Promise(resolve => {
+      http.get({
+        host: '127.0.0.1', port, path: '/api/projects',
+        headers: { [DEVICE_HEADER]: secureOrigin },
+        // 网关用 rejectUnauthorized:false 连内网自签上游；这里客户端只管网关。
+      }, res => {
+        let text = '';
+        res.on('data', chunk => { text += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode, text }));
+      }).on('error', error => resolve({ status: 0, text: error.message }));
+    });
+
+    assert.equal(body.status, 200, `转发到 https 后端必须成功，实际：${body.text}`);
+    assert.equal(JSON.parse(body.text).backend, 'TLS-BACKEND');
+    assert.equal(seen.proto, 'https',
+      '成果台用 X-Forwarded-Proto 拼评审链接（artifacts_console.py），报成 http 就会生成连不上的链接');
+
+    // 反向确认：纯 http 后端仍然报 http，这次改动没有把老行为带偏。
+    const plainBody = await new Promise(resolve => {
+      http.get({ host: '127.0.0.1', port, path: '/api/projects', headers: { [DEVICE_HEADER]: plainOrigin } },
+        res => { let text = ''; res.on('data', c => { text += c; }); res.on('end', () => resolve(text)); })
+        .on('error', error => resolve(error.message));
+    });
+    assert.equal(JSON.parse(plainBody).forwardedProto, 'http');
+
+    await new Promise(resolve => { gateway.closeAllConnections(); gateway.close(resolve); });
+    await new Promise(resolve => { secure.closeAllConnections(); secure.close(resolve); });
+    await new Promise(resolve => { plain.server.close(resolve); });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    await fsp.rm(distDir, { recursive: true, force: true });
+    await fsp.rm(registryDir, { recursive: true, force: true });
+  }
+});
+// --- 未知设备：从「静默回落」改成「如实报错」（计划 P1.6） ---------------------
+
+test('未知设备的 API 请求显式失败，不再把本机数据冒充成目标机', async () => {
+  await withGateway(async ({ get, originA }) => {
+    // 点名一台清单里没有的机器。
+    const hit = await get('/api/projects?d=' + encodeURIComponent('http://10.9.9.9:3001'));
+    assert.equal(hit.status, 409, 'API 请求不能静默打到本机');
+    const body = JSON.parse(hit.body);
+    assert.equal(body.error, 'unknown-device');
+    assert.match(body.message, /清单里没有这台设备/);
+    assert.match(body.message, /http:\/\/10\.9\.9\.9:3001/, '要把用户点的那个地址原样说回去');
+    assert.match(body.message, new RegExp(originA.replace(/[/.]/g, '\\$&')), '要顺手列出当前可用的设备');
+    assert.equal(body.backend, undefined, '绝不能带 backend 字段骗过前端');
+  });
+});
+
+test('未知设备的文档请求仍然回落到本机，但把原因注入运行时', async () => {
+  await withGateway(async ({ get }) => {
+    const page = await get('/?d=' + encodeURIComponent('http://10.9.9.9:3001'));
+    assert.equal(page.status, 200, '文档请求要能打开，否则用户连报错都看不到');
+    assert.match(page.body, /"unknownDevice":true/);
+    assert.match(page.body, /unknownDeviceProblem/, '原因必须一路走到界面上');
+    assert.match(page.body, /knownDevices/, '顺手给出可用清单，前端才能直接提示');
+    // 仍然不能变成开放代理：不写设备 Cookie。
+    const cookies = [].concat(page.headers['set-cookie'] || []);
+    assert.equal(cookies.some(value => value.startsWith(`${DEVICE_COOKIE}=`)), false);
+  });
+});
+
+test('Cookie 里的陈旧设备：回落本机但留下原因，不把人锁死', async () => {
+  await withGateway(async ({ get }) => {
+    const page = await get('/', { cookie: `${DEVICE_COOKIE}=http://renamed-away:3001` });
+    assert.equal(page.status, 200);
+    // 陈旧选择同样如实标记，并且原因里带上是哪个地址留下的残留 ——
+    // 排障时「谁的 Cookie 把我锁在本机」正是最难自己发现的一环。
+    assert.match(page.body, /"unknownDevice":true/);
+    assert.match(page.body, /stale-selection:http:\/\/renamed-away:3001/);
+    // 数据照常来自默认后端：设备改名不该让页面变成 409。
+    const api = await get('/api/projects', { cookie: `${DEVICE_COOKIE}=http://renamed-away:3001` });
+    assert.equal(api.status, 200, '陈旧 Cookie 走回落而不是 409，否则用户会被自己的 Cookie 锁死');
+  });
+});
+
+test('陌生地址永远不会因为报错而变成转发目标（安全边界）', async () => {
+  await withGateway(async ({ get }) => {
+    for (const raw of ['http://169.254.169.254:80', 'http://evil.example:9999']) {
+      const hit = await get('/api/projects?d=' + encodeURIComponent(raw));
+      assert.equal(hit.status, 409, `${raw} 必须被拒绝`);
+      assert.notEqual(hit.body.includes('metadata'), true);
+    }
+  });
+});
+
+// ---- 启动即同步：把「记得手工拷 devices.json」这个隐性要求消掉 ----
+
+test('启动时自动把 public/devices.json 同步进 dist（漏拷曾是切不过去的根因）', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'pilotv-boot-'));
+  try {
+    const publicDir = path.join(dir, 'public');
+    const distDir = path.join(dir, 'dist');
+    await fsp.mkdir(publicDir, { recursive: true });
+    await fsp.mkdir(distDir, { recursive: true });
+    await fsp.writeFile(path.join(publicDir, 'devices.json'), JSON.stringify({
+      devices: [{ name: 'pc', origin: 'http://pc.tailnet.ts.net:3001', artifactsPort: 8799 }],
+    }));
+    await fsp.writeFile(path.join(distDir, 'devices.json'), '{"devices":[{"name":"stale","origin":"http://old:3001"}]}');
+    const config = loadConfigFromEnv({
+      PILOTV_DIST: distDir,
+      PILOTV_DEVICES: path.join(publicDir, 'devices.json'),
+      PILOTV_REGISTRY: path.join(dir, 'devices.local.json'),
+    });
+    assert.equal(config.manifestSync.synced, true);
+    assert.deepEqual(JSON.parse(await fsp.readFile(path.join(distDir, 'devices.json'), 'utf-8')).devices,
+      [{ name: 'pc', origin: 'http://pc.tailnet.ts.net:3001', artifactsPort: 8799 }]);
+    assert.ok(config.devices.some(device => device.origin === 'http://pc.tailnet.ts.net:3001'));
+  } finally { await fsp.rm(dir, { recursive: true, force: true }); }
+});
+
+test('启动同步：源清单有占位符时报出来但不拦启动，且不把坏清单扩散给浏览器', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'pilotv-boot-bad-'));
+  try {
+    const publicDir = path.join(dir, 'public');
+    const distDir = path.join(dir, 'dist');
+    await fsp.mkdir(publicDir, { recursive: true });
+    await fsp.mkdir(distDir, { recursive: true });
+    await fsp.writeFile(path.join(publicDir, 'devices.json'), JSON.stringify({
+      devices: [
+        { name: 'good', origin: 'http://good.example:3001' },
+        { name: 'placeholder', origin: 'http://REPLACE_ME:3001' },
+      ],
+    }));
+    await fsp.writeFile(path.join(distDir, 'devices.json'), '{"devices":[{"name":"last-known-good","origin":"http://good.example:3001"}]}');
+    const config = loadConfigFromEnv({
+      PILOTV_DIST: distDir,
+      PILOTV_DEVICES: path.join(publicDir, 'devices.json'),
+      PILOTV_REGISTRY: path.join(dir, 'devices.local.json'),
+    });
+    assert.equal(config.manifestSync.synced, false);
+    assert.equal(config.manifestSync.reason, 'source-invalid');
+    assert.ok(config.devices.some(device => device.origin === 'http://good.example:3001'));
+    const browser = JSON.parse(await fsp.readFile(path.join(distDir, 'devices.json'), 'utf-8'));
+    assert.equal(browser.devices[0].name, 'last-known-good');
+  } finally { await fsp.rm(dir, { recursive: true, force: true }); }
+});
+
+test('MagicDNS 名称（*.tail<hex>.ts.net）算内网：清单改用域名后不能把它挡在门外', () => {
+  assert.equal(isPrivateHost('marc-pc.tail2b98e5.ts.net'), true);
+  assert.equal(isPrivateHost('Leo-s-Mac-Studio.TAIL2B98E5.TS.NET'), true); // 大小写不敏感
+  assert.equal(validateDeviceTarget('http://marc-pc.tail2b98e5.ts.net:3001').ok, true);
+});
+
+test('但 .ts.net 不等于「整个后缀都放行」：形状不对一律拒绝', () => {
+  assert.equal(isPrivateHost('evil.ts.net'), false);                 // 少了 tail<hex> 这一段
+  assert.equal(isPrivateHost('tail2b98e5.ts.net'), false);           // 少了主机名
+  assert.equal(isPrivateHost('marc-pc.tail2b98e5.ts.net.evil.com'), false); // 后缀伪装
+  assert.equal(isPrivateHost('marc-pc.tailxyz.ts.net'), false);      // 网络后缀不是十六进制
+  assert.equal(validateDeviceTarget('http://evil.ts.net:3001').ok, false);
 });
