@@ -366,7 +366,10 @@
     },
     "agents": {
       "select": "Select agent",
-      "default": "Default agent"
+      "default": "Default agent",
+      "review": {
+        "request": "Ask {{name}} to review"
+      }
     },
     "models": {
       "select": "Select model",
@@ -375,6 +378,15 @@
       "search": "Search models",
       "empty": "No matching models",
       "advanced": "Advanced settings",
+      "agentScope": "Choose a model for {{name}}",
+      "agentScopeBadge": "Model scope: {{name}}",
+      "agentOwnModel": "Own",
+      "agentFollowsSession": "Follows session",
+      "followSession": "Follow session",
+      "agentModelSaved": "Set a dedicated model for {{name}}",
+      "agentModelCleared": "{{name}} now follows the session model",
+      "agentModelConflict": "The project team config changed elsewhere. Please retry.",
+      "agentModelSaveFailed": "Failed to save the dedicated model for {{name}}",
       "reasoning": "Reasoning",
       "speed": "Speed",
       "reasoningLevels": {

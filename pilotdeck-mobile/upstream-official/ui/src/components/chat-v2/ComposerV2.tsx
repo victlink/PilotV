@@ -28,6 +28,7 @@ import {
   Play,
   Search,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Square,
   type LucideIcon,
@@ -63,8 +64,9 @@ import ReplyQuoteChip from "./ReplyQuoteChip";
 import WorkspacePickerBar from "./WorkspacePickerBar";
 import { getComposerPrimaryAction } from "./composerPrimaryAction";
 import type { Project } from "../../types/app";
-import type { ProjectTeamAgent } from "../../lib/projectTeam";
+import type { ProjectAgentModel, ProjectTeamAgent } from "../../lib/projectTeam";
 import { agentRoleLabelKey } from "./agentRoleLabel";
+import { resolveAgentModelScope, toAgentModel } from "./agentModelScope";
 
 interface MentionableFile {
   id?: string;
@@ -175,6 +177,22 @@ export type ComposerV2Props = {
   agents?: ProjectTeamAgent[];
   selectedAgentId?: string | null;
   onAgentSelectionChange?: (agentId: string | null) => void;
+  /**
+   * 修改某个项目成员的专属模型。
+   *
+   * 传 null 表示让该成员重新「跟随会话模型」。这个回调只在选中了某个成员时
+   * 才会被调用——否则模型菜单改的是会话默认模型，不经过这里。
+   */
+  onAgentModelChange?: (agentId: string, model: ProjectAgentModel | null) => void;
+  /**
+   * 显式「请求审查」的目标成员。
+   *
+   * 只有存在启用的审查员时才非空；成员身份用稳定的 `agentId` 传给后端，
+   * 前端不自己决定谁来审。传 null 时不渲染这个按钮。
+   */
+  reviewRequestTarget?: { reviewerId: string; reviewerName: string } | null;
+  onRequestReview?: () => void;
+  isReviewPending?: boolean;
   onModelSelectionChange: (selection: ChatModelSelection) => void;
 
   pendingPermissionRequests: PendingPermissionRequest[];
@@ -534,6 +552,10 @@ export default function ComposerV2({
   agents = [],
   selectedAgentId = null,
   onAgentSelectionChange,
+  onAgentModelChange,
+  reviewRequestTarget = null,
+  onRequestReview,
+  isReviewPending = false,
   onModelSelectionChange,
   pendingPermissionRequests,
   handlePermissionDecision,
@@ -740,16 +762,22 @@ export default function ComposerV2({
         id: null as string | null,
         name: t("input.agents.default", { defaultValue: "Default agent" }) as string,
         roleLabel: "",
+        modelLabel: "",
       },
       ...agents.map((agent) => ({
         id: agent.id as string | null,
         name: agent.name,
         roleLabel: agentRoleLabels.get(agent.id) || "",
+        // 成员自己的模型显示在名字旁边，避免「所有成员看起来共用一个模型」。
+        modelLabel: agent.model
+          ? (modelCatalog.find((item) => item.provider === agent.model?.provider && item.model === agent.model?.model)?.displayName
+            ?? agent.model.model)
+          : "",
       })),
     ],
-    [agents, agentRoleLabels, t],
+    [agents, agentRoleLabels, modelCatalog, t],
   );
-  const selectedModelLabel =
+  const sessionModelLabel =
     modelSelection?.mode === "auto"
       ? (t("input.models.auto", { defaultValue: "Auto" }) as string)
       : selectedModel?.displayName ||
@@ -757,6 +785,25 @@ export default function ComposerV2({
         (t("input.models.select", {
           defaultValue: "Select model",
         }) as string);
+  /**
+   * 模型作用域：选中项目成员时，模型菜单改的是「该成员的专属模型」，
+   * 没选中成员时改的才是会话默认模型。这样每个成员可以配各自的模型，
+   * 不会因为在某个成员下改了模型而把其它成员一起串改。
+   */
+  const modelScope = resolveAgentModelScope(agents, selectedAgentId);
+  const agentOwnModelLabel = modelScope.scope === "agent" && modelScope.model
+    ? (modelCatalog.find((item) => item.provider === modelScope.model?.provider && item.model === modelScope.model?.model)?.displayName
+      ?? modelScope.model?.model
+      ?? "")
+    : "";
+  const selectedModelLabel = modelScope.scope === "agent"
+    ? (agentOwnModelLabel || sessionModelLabel)
+    : sessionModelLabel;
+  const modelScopeLabel = modelScope.scope === "agent"
+    ? (modelScope.followsSession
+      ? (t("input.models.agentFollowsSession", { defaultValue: "跟随会话" }) as string)
+      : (t("input.models.agentOwnModel", { defaultValue: "专属" }) as string))
+    : "";
   const normalizedModelQuery = modelQuery.trim().toLocaleLowerCase();
   const filteredModels = useMemo(
     () =>
@@ -786,6 +833,16 @@ export default function ComposerV2({
       ...Array.from(groups, ([provider, models]) => ({ provider, models })),
     ];
   }, [filteredModels]);
+  /**
+   * 项目成员的专属模型必须是一个具体的 provider/model，没有「自动」这一档，
+   * 所以选中成员时把自动分组藏掉，避免用户以为自己在给成员选「自动」。
+   */
+  const visibleModelGroups = useMemo(
+    () => (modelScope.scope === "agent"
+      ? modelGroups.filter((group) => group.provider !== null)
+      : modelGroups),
+    [modelGroups, modelScope.scope],
+  );
   const advancedModel =
     modelCatalog.find((item) => item.id === advancedModelId) || null;
   const modelMenuVisible = isModelMenuOpen && Boolean(isModelCatalogLoading || modelCatalog.length > 0 || modelCatalogError);
@@ -1590,6 +1647,14 @@ export default function ComposerV2({
                                     {item.roleLabel}
                                   </span>
                                 ) : null}
+                                {item.modelLabel ? (
+                                  <span
+                                    className="shrink-0 truncate text-[11px] font-normal text-neutral-400 dark:text-neutral-500"
+                                    title={item.modelLabel}
+                                  >
+                                    {item.modelLabel}
+                                  </span>
+                                ) : null}
                                 {isSelected ? (
                                   <Check className="ml-auto h-3.5 w-3.5 shrink-0" strokeWidth={2.2} />
                                 ) : null}
@@ -1601,6 +1666,30 @@ export default function ComposerV2({
                       document.body,
                     ) : null}
                   </div>
+                ) : null}
+                {reviewRequestTarget && onRequestReview ? (
+                  <button
+                    type="button"
+                    onClick={() => onRequestReview()}
+                    disabled={isReviewPending}
+                    className={cn(
+                      "pd-composer-icon-button pd-composer-review-button inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-neutral-500 transition-colors hover:border-[var(--pd-border,#ddd9f2)] hover:bg-[var(--pd-accent-soft,#f7f6ff)] hover:text-[var(--pd-accent-strong,#4440a8)] disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-400 dark:hover:border-violet-800 dark:hover:bg-violet-950/40 dark:hover:text-violet-200",
+                    )}
+                    title={t("input.agents.review.request", {
+                      defaultValue: "Ask {{name}} to review",
+                      name: reviewRequestTarget.reviewerName,
+                    }) as string}
+                    aria-label={t("input.agents.review.request", {
+                      defaultValue: "Ask {{name}} to review",
+                      name: reviewRequestTarget.reviewerName,
+                    }) as string}
+                  >
+                    {isReviewPending ? (
+                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" strokeWidth={1.8} />
+                    ) : (
+                      <ShieldCheck className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+                    )}
+                  </button>
                 ) : null}
                 <div className="pd-composer-model-control min-w-0">
                     <button
@@ -1615,15 +1704,33 @@ export default function ComposerV2({
                           "border-[var(--pd-border,#ddd9f2)] bg-[var(--pd-accent-soft,#f7f6ff)] text-[var(--pd-accent-strong,#4440a8)] dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200",
                       )}
                       title={
-                        t("input.models.change", {
-                          defaultValue: "Select model",
-                        }) as string
+                        modelScope.scope === "agent"
+                          ? (t("input.models.agentScope", {
+                              defaultValue: "Choose a model for {{name}}",
+                              name: modelScope.agentName ?? "",
+                            }) as string)
+                          : (t("input.models.change", {
+                              defaultValue: "Select model",
+                            }) as string)
                       }
                       aria-haspopup="dialog"
                       aria-expanded={isModelMenuOpen}
                     >
                       <Sparkles className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
                       <span className="min-w-0 truncate">{selectedModelLabel}</span>
+                      {modelScope.scope === "agent" ? (
+                        <span
+                          className="pd-composer-model-scope shrink-0 rounded px-1 text-[10px] font-normal text-neutral-400 dark:text-neutral-500"
+                          title={
+                            t("input.models.agentScopeBadge", {
+                              defaultValue: "Model scope: {{name}}",
+                              name: modelScope.agentName ?? "",
+                            }) as string
+                          }
+                        >
+                          {modelScopeLabel}
+                        </span>
+                      ) : null}
                       {selectedReasoningLabel && (
                         <span className="pd-composer-thinking-label shrink-0 font-normal text-neutral-400 dark:text-neutral-500">
                           {selectedReasoningLabel}
@@ -1668,6 +1775,33 @@ export default function ComposerV2({
                               autoFocus
                             />
                           </div>
+                          {modelScope.scope === "agent" ? (
+                            <div
+                              className="mb-1.5 flex shrink-0 items-center justify-between gap-2 rounded-lg bg-[var(--pd-accent-soft,#f7f6ff)] px-2 py-1.5 text-[11px] text-[var(--pd-accent-strong,#4440a8)] dark:bg-violet-950/40 dark:text-violet-200"
+                              data-model-scope="agent"
+                            >
+                              <span className="min-w-0 truncate">
+                                {t("input.models.agentScope", {
+                                  defaultValue: "Choose a model for {{name}}",
+                                  name: modelScope.agentName ?? "",
+                                })}
+                              </span>
+                              <button
+                                type="button"
+                                className="shrink-0 rounded px-1 font-medium hover:underline"
+                                onClick={() => {
+                                  if (!modelScope.agentId) return;
+                                  onAgentModelChange?.(modelScope.agentId, null);
+                                  setIsModelMenuOpen(false);
+                                  setAdvancedModelId(null);
+                                }}
+                              >
+                                {t("input.models.followSession", {
+                                  defaultValue: "Follow session",
+                                })}
+                              </button>
+                            </div>
+                          ) : null}
                           <div data-model-list className="min-h-0 max-h-64 overflow-y-auto [scrollbar-color:#c1c1c1_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-button]:h-0 [&::-webkit-scrollbar-button]:w-0 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#c1c1c1] [&::-webkit-scrollbar-track]:bg-transparent">
                             {modelCatalogError ? (
                               <div className="px-3 py-3 text-[12px] text-red-500" role="alert">{modelCatalogError}</div>
@@ -1683,14 +1817,14 @@ export default function ComposerV2({
                                 })}
                               </div>
                             ) : (
-                              modelGroups.map(({ provider, models }) => (
+                              visibleModelGroups.map(({ provider, models }) => (
                                 <div
                                   key={provider === null ? "auto" : `provider:${provider}`}
                                   role="group"
                                   aria-label={provider ?? (t("input.models.auto", { defaultValue: "Auto" }) as string)}
                                   className={cn(
                                     "mb-1 last:mb-0",
-                                    provider === null && modelGroups.length > 1 &&
+                                    provider === null && visibleModelGroups.length > 1 &&
                                       "border-b border-neutral-200 pb-2 dark:border-neutral-700",
                                   )}
                                 >
@@ -1701,8 +1835,23 @@ export default function ComposerV2({
                                   ) : null}
                                   {models.map((item) => {
                                     const isAuto = item.id === "router/auto";
-                                    const isSelected = item.id === selectedModelId;
-                                    const hasAdvanced = Boolean(
+                                    const isAgentScope = modelScope.scope === "agent";
+                                    /**
+                                     * 成员作用域里高亮的是「该成员自己的模型」，不是会话模型——
+                                     * 否则看上去就像所有成员共用一个模型。
+                                     */
+                                    const isSelected = isAgentScope
+                                      ? Boolean(
+                                          modelScope.model &&
+                                            modelScope.model.provider === item.provider &&
+                                            modelScope.model.model === item.model,
+                                        )
+                                      : item.id === selectedModelId;
+                                    /**
+                                     * 成员的专属模型只存 provider/model，没有 reasoning/speed，
+                                     * 所以成员作用域里不展开「高级设置」，避免改了却没生效。
+                                     */
+                                    const hasAdvanced = !isAgentScope && Boolean(
                                       item.capabilities.reasoning ||
                                       item.capabilities.speed,
                                     );
@@ -1723,17 +1872,28 @@ export default function ComposerV2({
                                           type="button"
                                           disabled={!item.available}
                                           onClick={() => {
-                                            onModelSelectionChange(
-                                              isAuto
-                                                ? { mode: "auto" }
-                                                : buildExplicitSelection(
-                                                    item,
-                                                    preserveParamsForModel(
+                                            if (isAgentScope) {
+                                              // 成员作用域：改的是这个成员自己的模型，不动会话默认模型。
+                                              if (!modelScope.agentId) return;
+                                              const agentModel = toAgentModel(item);
+                                              if (!agentModel) return;
+                                              onAgentModelChange?.(
+                                                modelScope.agentId,
+                                                agentModel,
+                                              );
+                                            } else {
+                                              onModelSelectionChange(
+                                                isAuto
+                                                  ? { mode: "auto" }
+                                                  : buildExplicitSelection(
                                                       item,
-                                                      modelSelection,
+                                                      preserveParamsForModel(
+                                                        item,
+                                                        modelSelection,
+                                                      ),
                                                     ),
-                                                  ),
-                                            );
+                                              );
+                                            }
                                             setIsModelMenuOpen(false);
                                             setAdvancedModelId(null);
                                           }}

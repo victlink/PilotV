@@ -145,14 +145,19 @@ vi.mock('./ComposerV2', () => ({
     onAgentSelectionChange,
     selectedAgentId,
     agents,
+    reviewRequestTarget,
+    onRequestReview,
   }: {
     onAgentSelectionChange?: (agentId: string | null) => void;
     selectedAgentId?: string | null;
     agents?: Array<{ id: string }>;
+    reviewRequestTarget?: { reviewerId: string; reviewerName: string } | null;
+    onRequestReview?: () => void;
   }) => (
     <div data-testid="composer">
       <span data-testid="selected-agent">{selectedAgentId ?? 'none'}</span>
       <span data-testid="agent-ids">{(agents ?? []).map((agent) => agent.id).join(',')}</span>
+      <span data-testid="review-target">{reviewRequestTarget?.reviewerId ?? 'none'}</span>
       <button
         type="button"
         data-testid="select-agent-b"
@@ -160,6 +165,11 @@ vi.mock('./ComposerV2', () => ({
       >
         select agent b
       </button>
+      {reviewRequestTarget ? (
+        <button type="button" data-testid="request-review" onClick={() => onRequestReview?.()}>
+          request review
+        </button>
+      ) : null}
     </div>
   ),
 }));
@@ -383,6 +393,48 @@ describe('ChatInterfaceV2 project agents', () => {
     await waitFor(() => expect(sendMessage).toHaveBeenCalled());
     const [frame] = sendMessage.mock.calls[0] as [{ type: string; options: Record<string, unknown> }];
     expect(frame.options).not.toHaveProperty('agentId');
+  });
+});
+
+describe('ChatInterfaceV2 explicit project review', () => {
+  it('asks the workspace reviewer to review the current turn', async () => {
+    const sendMessage = vi.fn();
+    renderChat(sendMessage);
+
+    await waitFor(() => expect(chatMocks.fetchProjectTeam).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('review-target').textContent).toBe('agent-b'));
+
+    fireEvent.click(screen.getByTestId('request-review'));
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    const [frame] = sendMessage.mock.calls[0] as [{ type: string; options: Record<string, unknown> }];
+    expect(frame.type).toBe('project-review-request');
+    // The stable agent id is what the backend resolves the reviewer from.
+    expect(frame.options.agentId).toBe('agent-b');
+    expect(frame.options.sessionId).toBe('web:s_agent');
+    expect(frame.options.projectPath).toBe(DEMO_PROJECT.fullPath);
+  });
+
+  it('offers no review target when the workspace has no reviewer', async () => {
+    renderChat(vi.fn(), OTHER_PROJECT);
+
+    await waitFor(() => expect(chatMocks.fetchProjectTeam).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('composer')).toBeTruthy());
+    expect(screen.getByTestId('review-target').textContent).toBe('none');
+    expect(screen.queryByTestId('request-review')).toBeNull();
+  });
+
+  it('sends a single review request while one is pending', async () => {
+    const sendMessage = vi.fn();
+    renderChat(sendMessage);
+
+    await waitFor(() => expect(chatMocks.fetchProjectTeam).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('review-target').textContent).toBe('agent-b'));
+
+    fireEvent.click(screen.getByTestId('request-review'));
+    fireEvent.click(screen.getByTestId('request-review'));
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
   });
 });
 

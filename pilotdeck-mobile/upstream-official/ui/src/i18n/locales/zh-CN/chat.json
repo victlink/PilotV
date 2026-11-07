@@ -349,7 +349,10 @@
     },
     "agents": {
       "select": "选择 Agent",
-      "default": "默认 Agent"
+      "default": "默认 Agent",
+      "review": {
+        "request": "请 {{name}} 审查本轮结果"
+      }
     },
     "models": {
       "select": "选择模型",
@@ -358,6 +361,15 @@
       "search": "搜索模型",
       "empty": "没有匹配的模型",
       "advanced": "高级设置",
+      "agentScope": "为 {{name}} 选择模型",
+      "agentScopeBadge": "模型范围：{{name}}",
+      "agentOwnModel": "专属",
+      "agentFollowsSession": "跟随会话",
+      "followSession": "跟随会话",
+      "agentModelSaved": "已为 {{name}} 设置专属模型",
+      "agentModelCleared": "{{name}} 已恢复跟随会话模型",
+      "agentModelConflict": "项目团队配置已被其它改动更新，请重试",
+      "agentModelSaveFailed": "保存 {{name}} 的专属模型失败",
       "reasoning": "推理强度",
       "speed": "速度",
       "reasoningLevels": {

@@ -9,8 +9,9 @@ import { MessageSquare } from 'lucide-react';
 import { useTasksSettings } from '../../contexts/TasksSettingsContext';
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../utils/api';
-import { fetchProjectTeam } from '../../lib/projectTeamApi';
-import type { ProjectTeamAgent } from '../../lib/projectTeam';
+import { fetchProjectTeam, ProjectTeamConflictError, saveProjectTeam } from '../../lib/projectTeamApi';
+import type { ProjectAgentModel, ProjectTeamAgent, ProjectTeamConfig } from '../../lib/projectTeam';
+import { withAgentModel } from './agentModelScope';
 import type { ChatInterfaceProps, ChatMessage, ChatRunMode, PermissionMode, Provider } from '../chat/types/types';
 import {
   getSessionRequestParams,
@@ -116,9 +117,15 @@ function ChatInterfaceV2({
     ? selectedProjectFromShell
     : (workspaceBinding ?? selectedProjectFromShell ?? defaultProject);
   const { t } = useTranslation('chat');
-  const [teamState, setTeamState] = useState<{ root: string; agents: ProjectTeamAgent[] }>({
+  /**
+   * 项目团队配置的整体状态。
+   *
+   * 除了成员列表，还要留着 `revision` 与协作模式：改某个成员的专属模型要走
+   * `PUT /api/project-team` 的乐观锁，缺少 revision 会被后端判成冲突。
+   */
+  const [teamState, setTeamState] = useState<{ root: string; config: ProjectTeamConfig | null }>({
     root: '',
-    agents: [],
+    config: null,
   });
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   /**
@@ -137,7 +144,9 @@ function ChatInterfaceV2({
    * in the very render that switches workspaces, instead of only clearing them
    * in a later effect.
    */
-  const teamAgents = teamState.root === projectRoot ? teamState.agents : EMPTY_TEAM_AGENTS;
+  const teamAgents = teamState.root === projectRoot
+    ? (teamState.config?.agents ?? EMPTY_TEAM_AGENTS).filter((agent) => agent.enabled)
+    : EMPTY_TEAM_AGENTS;
   /**
    * The selection only counts while the loaded team still contains it, so a
    * stale agent id can never reach the turn payload after a workspace switch.
@@ -149,15 +158,15 @@ function ChatInterfaceV2({
     const controller = new AbortController();
     setSelectedAgentId(null);
     if (!projectRoot) {
-      setTeamState({ root: '', agents: [] });
+      setTeamState({ root: '', config: null });
       return () => controller.abort();
     }
     void fetchProjectTeam(projectRoot, { signal: controller.signal }).then((config) => {
       if (!controller.signal.aborted) {
-        setTeamState({ root: projectRoot, agents: config.agents.filter((agent) => agent.enabled) });
+        setTeamState({ root: projectRoot, config });
       }
     }).catch(() => {
-      if (!controller.signal.aborted) setTeamState({ root: projectRoot, agents: [] });
+      if (!controller.signal.aborted) setTeamState({ root: projectRoot, config: null });
     });
     return () => controller.abort();
   }, [projectRoot]);
@@ -190,6 +199,66 @@ function ChatInterfaceV2({
     timeoutId: number;
   }>());
   const { addToast } = useToast();
+
+  /**
+   * 改某个项目成员的专属模型。
+   *
+   * 走 `PUT /api/project-team`，带上当前 revision 做乐观锁；成功后用后端返回的
+   * 配置覆盖本地状态（revision 会随之改变）。返回 409 说明配置在别处被改过，
+   * 这里重新拉一次最新配置，不静默覆盖别人的修改。
+   */
+  const handleAgentModelChange = useCallback(
+    async (agentId: string, model: ProjectAgentModel | null) => {
+      const config = teamState.root === projectRoot ? teamState.config : null;
+      if (!config || !projectRoot) return;
+      const agentName = config.agents.find((agent) => agent.id === agentId)?.name ?? agentId;
+      const nextAgents = withAgentModel(config.agents, agentId, model);
+      try {
+        const saved = await saveProjectTeam({
+          projectRoot,
+          revision: config.revision,
+          agents: nextAgents,
+          collaboration: config.collaboration,
+        });
+        setTeamState({ root: projectRoot, config: saved });
+        addToast(
+          'success',
+          model
+            ? t('input.models.agentModelSaved', {
+                defaultValue: '已为 {{name}} 设置专属模型',
+                name: agentName,
+              })
+            : t('input.models.agentModelCleared', {
+                defaultValue: '{{name}} 已恢复跟随会话模型',
+                name: agentName,
+              }),
+        );
+      } catch (error) {
+        if (error instanceof ProjectTeamConflictError) {
+          addToast(
+            'error',
+            t('input.models.agentModelConflict', {
+              defaultValue: '项目团队配置已被其它改动更新，请重试',
+            }),
+          );
+          void fetchProjectTeam(projectRoot)
+            .then((fresh) => {
+              setTeamState({ root: projectRoot, config: fresh });
+            })
+            .catch(() => undefined);
+          return;
+        }
+        addToast(
+          'error',
+          t('input.models.agentModelSaveFailed', {
+            defaultValue: '保存 {{name}} 的专属模型失败',
+            name: agentName,
+          }),
+        );
+      }
+    },
+    [teamState, projectRoot, addToast, t],
+  );
 
   const resetStreamingState = useCallback(() => {
     if (streamTimerRef.current) {
@@ -317,6 +386,43 @@ function ChatInterfaceV2({
 
   const watchedSessionId = selectedSession?.id || currentSessionId || null;
   useSessionWatch({ sessionId: watchedSessionId, ws, sendMessage });
+  /**
+   * 显式请求审查员审查上一轮。
+   *
+   * `manual` 协作模式下「自动」审查是关闭的，但用户可以主动点名让审查员看一遍。
+   * 前端只负责发出请求并带上有稳定 `agentId` 的审查员身份；真正挑人、跑一轮、
+   * 给回复挂上发言人身份的都是后端（`pilotdeck-bridge.js` 的
+   * `requestProjectReview`），前端不自己推导执行结果。
+   */
+  const [isReviewRequestPending, setIsReviewRequestPending] = useState(false);
+  const reviewRequestTimerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (reviewRequestTimerRef.current) {
+      window.clearTimeout(reviewRequestTimerRef.current);
+      reviewRequestTimerRef.current = null;
+    }
+  }, []);
+  const handleRequestProjectReview = useCallback(() => {
+    const reviewer = teamAgents.find((agent) => agent.role === 'reviewer');
+    const sessionId = selectedSession?.id || currentSessionId;
+    if (!reviewer || !sessionId || isReviewRequestPending) return;
+    setIsReviewRequestPending(true);
+    if (reviewRequestTimerRef.current) window.clearTimeout(reviewRequestTimerRef.current);
+    // 后端在会话忙碌时会直接拒绝第二次请求，这里只是避免连点把错误消息刷出来。
+    reviewRequestTimerRef.current = window.setTimeout(() => {
+      reviewRequestTimerRef.current = null;
+      setIsReviewRequestPending(false);
+    }, 15_000);
+    sendMessage({
+      type: 'project-review-request',
+      options: {
+        sessionId,
+        sessionKey: sessionId,
+        projectPath: projectRoot,
+        agentId: reviewer.id,
+      },
+    });
+  }, [teamAgents, selectedSession?.id, currentSessionId, projectRoot, sendMessage, isReviewRequestPending]);
   const inputQueue = useSessionInputQueue({
     sessionId: watchedSessionId,
     projectPath: selectedProject?.fullPath || selectedProject?.path,
@@ -801,6 +907,13 @@ function ChatInterfaceV2({
 
   // The composer is identical in welcome / normal mode — just rendered in a
   // different parent container. Pulled out so we don't drift between the two.
+  /**
+   * The reviewer the explicit "request review" action would dispatch to.
+   * `teamAgents` only contains enabled members, so a disabled reviewer never
+   * shows up as a button. The backend resolves the same agent again from the
+   * stable `agentId` we send; the front-end never decides who reviews.
+   */
+  const teamReviewer = teamAgents.find((agent) => agent.role === 'reviewer') ?? null;
   const composer = sessionIsReadOnly ? (
     <div className="mx-auto w-full max-w-[860px] px-6 pb-6 pt-3">
       <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-[13px] text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
@@ -893,6 +1006,10 @@ function ChatInterfaceV2({
       agents={teamAgents}
       selectedAgentId={activeAgentId}
       onAgentSelectionChange={setSelectedAgentId}
+      onAgentModelChange={handleAgentModelChange}
+      reviewRequestTarget={teamReviewer ? { reviewerId: teamReviewer.id, reviewerName: teamReviewer.name } : null}
+      onRequestReview={handleRequestProjectReview}
+      isReviewPending={isReviewRequestPending || isLoading}
       onModelSelectionChange={setModelSelection}
       pendingPermissionRequests={pendingPermissionRequests}
       handlePermissionDecision={handlePermissionDecision}
