@@ -49,6 +49,16 @@ export type AgentRuntimeConfig = {
   };
   /** Optional timeout budget for forked subagents spawned by the `agent` tool. */
   subagentTimeoutMs?: number;
+  /**
+   * How many subagents may run at once inside this agent tree. Defaults to
+   * `DEFAULT_SUBAGENT_CONCURRENCY`; 0 disables the cap.
+   *
+   * The `agent` tool is concurrency-safe, so without a cap one model turn can
+   * fork a dozen subagents at once — a dozen model streams and tool registries
+   * all writing the same workspace, which shows up as a provider rate limit
+   * that reads like "the model is broken".
+   */
+  maxConcurrentSubagents?: number;
   /** Enable automatic JSON self-correction retry on invalid_tool_arguments. Default false. */
   jsonSelfCorrect?: boolean;
   /**

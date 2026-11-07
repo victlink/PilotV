@@ -1649,6 +1649,7 @@ class ProjectRuntimeRegistry {
       jsonSelfCorrect: true,
       ...(subagentRuntimeModel ? { subagentModel: subagentRuntimeModel } : {}),
       subagentTimeoutMs: agent.subagents?.timeoutMs,
+      maxConcurrentSubagents: agent.subagents?.maxConcurrent,
       maxContextTokens,
       maxOutputTokens,
       thinking: agent.thinking,

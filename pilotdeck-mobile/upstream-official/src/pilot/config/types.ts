@@ -77,6 +77,15 @@ export type PilotAgentConfig = {
   subagents?: {
     default?: PilotAgentModelSelection;
     timeoutMs?: number;
+    /**
+     * How many subagents may run at once in one agent tree. Omitted means
+     * the built-in default (3); 0 means unlimited.
+     *
+     * The `agent` tool is concurrency-safe, so without a cap a single model
+     * turn can fork a dozen subagents into the same workspace and the resulting
+     * provider rate limit reads like a broken model.
+     */
+    maxConcurrent?: number;
   };
 };
 

@@ -1,4 +1,10 @@
 import { TurnTimeline } from "../stream/TurnTimeline.js";
+import {
+  acquireSubagentSlot,
+  createSubagentGate,
+  resolveSubagentConcurrency,
+  type SubagentGate,
+} from "../sub/subagentConcurrency.js";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -161,6 +167,15 @@ export type AgentLoopSeedState = {
 };
 
 export class AgentLoop {
+  /**
+   * Session-wide subagent pool, built on first fork and reused after that.
+   * Kept on the loop (not the dependencies) so a host that never wired a gate
+   * still gets the default cap instead of silently unlimited forking.
+   */
+  private sharedSubagentGate?: SubagentGate;
+  /** Set when the host opted out with `maxConcurrentSubagents: 0`, so the
+   * decision is made once instead of re-interpreted on every fork. */
+  private subagentGateDisabled = false;
   private readonly readFileState: PilotDeckReadFileStateMap;
   private readonly writeSnapshots: PilotDeckWriteSnapshotMap;
   private readonly allowedReadFiles: Set<string>;
@@ -2419,7 +2434,37 @@ export class AgentLoop {
           timeoutMs,
         });
 
+        // Concurrency gate. Acquired BEFORE any transcript/lifecycle bookkeeping
+        // so a queued subagent never looks like it started: emitting
+        // `subagent_started` and then sitting in a queue is precisely how you
+        // get a UI showing a running subagent that is doing nothing.
+        //
+        // tryAcquire first so the queued case is distinguishable from the
+        // immediate one — with a single `acquire()` call, queueing is invisible.
+        let slot;
+        try {
+          slot = await acquireSubagentSlot(this.resolveSubagentGate(), {
+            signal: composedAbort.signal,
+            onQueued: (queue) => this.dependencies.eventEmitter?.({
+              type: "subagent_queued",
+              sessionId: input.sessionId,
+              turnId: input.turnId,
+              subagentId,
+              subagentType: def.id,
+              toolCallId,
+              ...queue,
+            }),
+          });
+        } catch (error) {
+          // Cancelled while waiting. The subagent never ran, so nothing was
+          // written to the transcript and no lifecycle hook fired — this must
+          // stay that way, or a cancelled fork looks like a completed one.
+          composedAbort.cleanup();
+          throw error;
+        }
+        try {
         const subagentSessionId = `${this.config.cwd}::sub::${subagentId}`;
+
         const transcriptHooks = this.dependencies.subagentTranscript;
         const sidechain = transcriptHooks?.subagentTranscriptResolver?.(subagentId);
         const transcriptRelativePath = sidechain?.transcriptRelativePath ?? "";
@@ -2550,8 +2595,40 @@ export class AgentLoop {
           durationMs: report.durationMs,
           parsed: report.parsed as unknown as Record<string, string> | undefined,
         };
+        } finally {
+          // Every path above that obtained a slot must hand it back, including
+          // the throw paths: a slot leaked on failure shrinks the pool until
+          // the session can no longer fork anything, and nothing says so.
+          slot?.release();
+        }
       },
     };
+  }
+
+  /**
+   * The session-wide subagent gate.
+   *
+   * Created lazily and cached on the instance so every fork in this agent
+   * tree contends for the same pool. A host that already built a gate (a
+   * gateway fanning several sessions out of one budget, or a test that wants
+   * deterministic ordering) wins; otherwise we build one from config.
+   *
+   * `maxConcurrentSubagents: 0` means unlimited — an explicit opt-out, not an
+   * accident. Absent means DEFAULT_SUBAGENT_CONCURRENCY.
+   */
+  private resolveSubagentGate(): SubagentGate | undefined {
+    if (this.dependencies.subagentGate) return this.dependencies.subagentGate;
+    if (this.sharedSubagentGate) return this.sharedSubagentGate;
+    if (this.subagentGateDisabled) return undefined;
+    const configured = this.config.maxConcurrentSubagents;
+    if (configured === 0) {
+      this.subagentGateDisabled = true;
+      return undefined;
+    }
+    this.sharedSubagentGate = createSubagentGate(
+      resolveSubagentConcurrency(configured),
+    );
+    return this.sharedSubagentGate;
   }
 
   private async dispatchLifecycle(

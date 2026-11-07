@@ -80,6 +80,23 @@ export type AgentEvent = { timeline?: TimelinePosition; streamBoundary?: StreamB
     }
   | { type: "model_recovery_failed"; sessionId: string; turnId: string; provider: string; model: string; error: CanonicalModelError }
   | { type: "subagent_started"; sessionId: string; turnId: string; subagentId: string; subagentType: string; toolCallId?: string }
+  /**
+   * A fork is waiting for a concurrency slot. Emitted before `subagent_started`
+   * so a queued subagent is never shown as running: "waiting for a slot" and
+   * "running but slow" look identical in a UI otherwise, and only one of them
+   * means the pool is too small.
+   */
+  | {
+      type: "subagent_queued";
+      sessionId: string;
+      turnId: string;
+      subagentId: string;
+      subagentType: string;
+      toolCallId?: string;
+      running: number;
+      pending: number;
+      limit: number;
+    }
   | {
       type: "subagent_completed";
       sessionId: string;

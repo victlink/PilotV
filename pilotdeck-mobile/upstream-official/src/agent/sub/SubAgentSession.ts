@@ -36,6 +36,7 @@ import { PermissionRuntime } from "../../permission/index.js";
 import {
   buildForkedMessages,
 } from "./buildForkedMessages.js";
+import { isToolAllowedForSubagent } from "./subagentToolScope.js";
 import {
   buildSubagentSystemPrompt,
   type SubagentDefinition,
@@ -194,23 +195,10 @@ export class SubAgentSession {
 
   private buildScopedRegistry(): ToolRegistry {
     const scoped = new ToolRegistry();
-    const allowedSet = new Set(this.options.definition.allowedTools);
-    const wildcard = allowedSet.has("*");
+    const hasElicitationChannel = Boolean(this.options.parentDependencies.elicitation);
     for (const tool of this.options.parentDependencies.tools.registry.list()) {
-      if (!wildcard && !allowedSet.has(tool.name)) {
+      if (!isToolAllowedForSubagent(tool.name, this.options.definition, { hasElicitationChannel })) {
         continue;
-      }
-      if (tool.name === "enter_plan_mode" || tool.name === "exit_plan_mode") {
-        continue; // Subagents must not participate in the plan-mode workflow.
-      }
-      if (tool.name === "agent") {
-        continue; // Subagents must never nest-fork.
-      }
-      if (tool.name.startsWith("always_on_")) {
-        continue; // Always-On tools require a RunContext unavailable in subagents.
-      }
-      if (tool.name === "ask_user_question") {
-        continue; // Subagents have no elicitation channel.
       }
       scoped.register(tool as PilotDeckToolDefinition);
     }
@@ -293,6 +281,17 @@ export class SubAgentSession {
       getModelProtocol: this.options.parentDependencies.getModelProtocol,
       getModelSupportsPromptCache: this.options.parentDependencies.getModelSupportsPromptCache,
       subagentTranscript: this.options.parentDependencies.subagentTranscript,
+      // The parent's gate is inherited rather than a fresh one: with a raised
+      // maxSubagentDepth, a nested fork that builds its own pool would double
+      // the budget it was configured to respect.
+      ...(this.options.parentDependencies.subagentGate
+        ? { subagentGate: this.options.parentDependencies.subagentGate }
+        : {}),
+      // The parent's elicitation channel is inherited so a subagent can ask
+      // the human a question and wait (see buildScopedRegistry).
+      ...(this.options.parentDependencies.elicitation
+        ? { elicitation: this.options.parentDependencies.elicitation }
+        : {}),
       // Child tools contribute to the parent's active checkpoint and lease;
       // only the parent TurnRunner opens and closes that turn boundary.
       fileHistory: this.options.parentDependencies.fileHistory,

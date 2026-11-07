@@ -89,7 +89,9 @@ export const SUBAGENT_DEFINITIONS: Record<SubagentDefinitionId, SubagentDefiniti
     id: "explore",
     description:
       "Read-only exploration subagent. Inspects files, runs grep/glob, and may run safe shell commands. Cannot edit files.",
-    allowedTools: ["read_file", "grep", "glob", "bash"],
+    // `ask_user_question` is read-only and keeps a blocked subagent from
+    // guessing: see subagentToolScope.ts.
+    allowedTools: ["read_file", "grep", "glob", "bash", "ask_user_question"],
     omitProjectInstructions: true,
     omitGitStatus: true,
     isReadOnly: true,
@@ -100,7 +102,7 @@ export const SUBAGENT_DEFINITIONS: Record<SubagentDefinitionId, SubagentDefiniti
     id: "plan",
     description:
       "Read-only planning subagent. Inspects code via read/grep/glob and produces a step-by-step plan.",
-    allowedTools: ["read_file", "grep", "glob"],
+    allowedTools: ["read_file", "grep", "glob", "ask_user_question"],
     omitProjectInstructions: true,
     omitGitStatus: true,
     isReadOnly: true,
@@ -111,7 +113,7 @@ export const SUBAGENT_DEFINITIONS: Record<SubagentDefinitionId, SubagentDefiniti
     id: "verify",
     description:
       "Verification subagent. Inspects generated artifacts (images, HTML, PDFs) for correctness. Can read files, run shell commands, and search code, but cannot modify files.",
-    allowedTools: ["read_file", "grep", "glob", "bash"],
+    allowedTools: ["read_file", "grep", "glob", "bash", "ask_user_question"],
     omitProjectInstructions: true,
     omitGitStatus: true,
     isReadOnly: true,

@@ -14,6 +14,7 @@ import type { AgentContextRuntime } from "../../context/ContextRuntime.js";
 import type { TokenAccountingRuntime } from "../../context/index.js";
 import type { RouterRuntime } from "../../router/index.js";
 import type { AgentEvent, AgentEventEmitter } from "../protocol/events.js";
+import type { SubagentGate } from "../sub/subagentConcurrency.js";
 import type { ModelProtocol } from "../../model/index.js";
 
 /**
@@ -115,6 +116,13 @@ export type AgentRuntimeDependencies = {
   lifecycle?: LifecycleRuntime;
   /** C3 sidechain transcript hooks (optional). */
   subagentTranscript?: AgentSubagentTranscriptHooks;
+  /**
+   * Shared concurrency gate for forked subagents. One gate per top-level
+   * session, so the bound is on the total number of live subagents rather than
+   * per call site. Absent means the loop builds one from config; a host that
+   * wants one budget across several sessions passes its own.
+   */
+  subagentGate?: SubagentGate;
   /**
    * Elicitation channel — wired into the per-tool `PilotDeckToolRuntimeContext`
    * so `ask_user_question` (B1) can drive the gateway. When omitted, the

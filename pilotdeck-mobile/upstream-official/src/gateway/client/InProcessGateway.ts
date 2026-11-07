@@ -2243,6 +2243,19 @@ function mapAgentEventForTurn(event: AgentEvent, runId: string): GatewayEvent[] 
         event: "turn_continued",
         detail: { reason: event.reason },
       }];
+    case "subagent_queued":
+      return [{
+        type: "agent_status",
+        event: "subagent_queued",
+        detail: {
+          subagentId: event.subagentId,
+          subagentType: event.subagentType,
+          toolCallId: event.toolCallId,
+          running: event.running,
+          pending: event.pending,
+          limit: event.limit,
+        },
+      }];
     case "subagent_started":
       return [{
         type: "agent_status",
