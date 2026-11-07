@@ -746,6 +746,21 @@ test('端到端：非 socket 路径的升级请求拿不到隧道', async () => 
 // 局域网 http://192.168.x.x:5186 不是安全上下文，SW 注册直接失败，浏览器永远
 // 不给安装入口 —— manifest 写得再对都没用。所以网关必须真的能起 https。
 
+/**
+ * 自签证书要靠 openssl 生成。Windows 开发机上通常没有这个命令（Linux runner 有），
+ * 缺了就该跳过而不是失败 —— 和 ui/server/testing/symlinkCapability.js 同一个约定：
+ * 环境能力缺失是「不适用」，不是「代码错了」。之前这两个用例在本机稳定红，
+ * 红灯一多就没人看了，那才是真正的风险。
+ */
+const OPENSSL_AVAILABLE = (() => {
+  try {
+    execFileSync('openssl', ['version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
 /** 生成一份临时自签证书（测试用，不做任何信任设置）。 */
 function makeSelfSigned(dir) {
   const key = path.join(dir, 'k.pem');
@@ -768,7 +783,7 @@ test('readTlsOptions: 两项齐全才启用 HTTPS，只给一半直接报错', (
   assert.throws(() => readTlsOptions({ PILOTV_TLS_CERT: '/no/such.pem', PILOTV_TLS_KEY: '/no/such.pem' }), /PILOTV_TLS_CERT 不存在/);
 });
 
-test('readTlsOptions: 证书齐全时把内容读出来', () => {
+test('readTlsOptions: 证书齐全时把内容读出来', { skip: OPENSSL_AVAILABLE ? false : '需要 openssl' }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pilotv-tls-'));
   try {
     const paths = makeSelfSigned(dir);
@@ -778,7 +793,7 @@ test('readTlsOptions: 证书齐全时把内容读出来', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('端到端：配了证书的网关真的用 https 应答，并带上 HSTS', async () => {
+test('端到端：配了证书的网关真的用 https 应答，并带上 HSTS', { skip: OPENSSL_AVAILABLE ? false : '需要 openssl' }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pilotv-tls-'));
   const distDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'pilotv-dist-'));
   try {
