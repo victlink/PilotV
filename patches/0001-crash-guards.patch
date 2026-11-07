@@ -1,0 +1,86 @@
+# 0001-crash-guards.patch —— gateway 不再被 unhandledRejection 拖垮
+#
+# 相对上游 vendor 的本地修复，可重放。
+# 生成方式：git diff ccb44d1^ HEAD -- <下面列出的文件>
+# 重放：git apply -p1 patches/0001-crash-guards.patch
+# 校验：node scripts/ci/check-upstream-patches.mjs
+#
+diff --git a/pilotdeck-mobile/upstream-official/src/cli/pilotdeck.ts b/pilotdeck-mobile/upstream-official/src/cli/pilotdeck.ts
+index 823db31..b68b8d0 100644
+--- a/pilotdeck-mobile/upstream-official/src/cli/pilotdeck.ts
++++ b/pilotdeck-mobile/upstream-official/src/cli/pilotdeck.ts
+@@ -20,6 +20,7 @@ import { createLocalGateway } from "./createLocalGateway.js";
+ import { startPilotDeckServer } from "./pilotdeckServer.js";
+ import { installGlobalProxy, reinstallGlobalProxy } from "./proxy.js";
+ import { createShutdownAndExit } from "./shutdownCoordinator.js";
++import { installRuntimeCrashGuards } from "./runtimeCrashGuards.js";
+ import { createTelemetryCollector } from "../telemetry/index.js";
+ 
+ await installGlobalProxy();
+@@ -427,14 +428,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
+       }
+     };
+     const shutdownAndExit = createShutdownAndExit(stop, (exitCode) => process.exit(exitCode));
+-    process.on("uncaughtException", (error) => {
+-      telemetry.trackError(error, { module: "runtime", metadata: { source: "uncaughtException" } });
+-      void shutdownAndExit(1);
+-    });
+-    process.on("unhandledRejection", (reason) => {
+-      telemetry.trackError(reason, { module: "runtime", metadata: { source: "unhandledRejection" } });
+-      void shutdownAndExit(1);
+-    });
++    installRuntimeCrashGuards({ telemetry, shutdownAndExit });
+     process.on("SIGINT", () => {
+       void shutdownAndExit(0);
+     });
+diff --git a/pilotdeck-mobile/upstream-official/src/cli/runtimeCrashGuards.ts b/pilotdeck-mobile/upstream-official/src/cli/runtimeCrashGuards.ts
+new file mode 100644
+index 0000000..0d8c1cc
+--- /dev/null
++++ b/pilotdeck-mobile/upstream-official/src/cli/runtimeCrashGuards.ts
+@@ -0,0 +1,44 @@
++type TelemetryLike = {
++  trackError(error: unknown, context: Record<string, unknown>): void;
++};
++
++export type RuntimeCrashGuardOptions = {
++  telemetry: TelemetryLike;
++  /** Called for an uncaughtException only; an unhandled rejection must not exit. */
++  shutdownAndExit: (exitCode: number) => void | Promise<void>;
++  /** Injectable for tests; defaults to the real process. */
++  target?: { on(event: string, listener: (error: unknown) => void): unknown };
++  error?: (message: string, error?: unknown) => void;
++};
++
++/**
++ * Keeps a long-lived multi-session gateway alive when one session misbehaves.
++ *
++ * The gateway hosts many concurrent sessions and then parks forever, so the
++ * CLI's original fail-fast policy was wrong for it: an unhandledRejection from
++ * one turn's secondary promise (a compaction summary, a telemetry write) used
++ * to call shutdownAndExit(1) and drop every live WebSocket, which the UI
++ * reported as "PilotDeck gateway is unavailable." A rejection is now logged
++ * with its full cause and the process keeps serving.
++ *
++ * The stack must reach the logs. During the 2026-11-05 investigation the
++ * telemetry call swallowed it, leaving only "[telemetry] shutdown snapshot"
++ * behind, which caused two rounds of misdiagnosis as a "clean exit".
++ *
++ * uncaughtException still exits: synchronous corruption is not survivable.
++ */
++export function installRuntimeCrashGuards(options: RuntimeCrashGuardOptions): void {
++  const target = options.target ?? (process as unknown as RuntimeCrashGuardOptions["target"]);
++  const error = options.error ?? ((message: string, cause?: unknown) => console.error(message, cause));
++
++  target?.on("unhandledRejection", (reason) => {
++    error("[pilotdeck] unhandledRejection (gateway stays alive):", reason);
++    options.telemetry.trackError(reason, { module: "runtime", metadata: { source: "unhandledRejection" } });
++  });
++
++  target?.on("uncaughtException", (caught) => {
++    error("[pilotdeck] uncaughtException (full stack):", caught);
++    options.telemetry.trackError(caught, { module: "runtime", metadata: { source: "uncaughtException" } });
++    void options.shutdownAndExit(1);
++  });
++}
+\ No newline at end of file

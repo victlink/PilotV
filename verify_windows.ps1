@@ -25,17 +25,16 @@ foreach ($p in ($ports.Keys | Sort-Object)) {
 }
 
 # 2. 三处 upstream 补丁是否落地
-$up = Join-Path $Root 'pilotdeck-mobile/upstream-official/src'
-$checks = @(
-    @{ n='patch 1/3 unhandledRejection'; f=(Join-Path $up 'cli/pilotdeck.ts');                    s='unhandledRejection (gateway stays alive)' },
-    @{ n='patch 2/3 partial summary';    f=(Join-Path $up 'context/compaction/CompactionEngine.ts'); s='using partial summary' },
-    @{ n='patch 3/3 non-fatal decoder';  f=(Join-Path $up 'tool/builtin/bash/commandRunner.ts'); s='Replacement characters are far better' }
-)
-foreach ($c in $checks) {
-    $hit = $false
-    if (Test-Path $c.f) { $hit = [bool](Select-String -LiteralPath $c.f -Pattern $c.s -SimpleMatch -Quiet) }
-    Check $c.n $hit $c.f
+# 不再在这里搜源码注释：守卫早就从 pilotdeck.ts 抽到了 runtimeCrashGuards.ts，
+# 旧的搜法一直在报一个假 FAIL，而没人能判断 FAIL 是真的还是脚本自己过期了。
+# 现在统一委托给 patch 门禁（CI 里也是同一条命令），保证只有一套口径。
+$patchOut = & node (Join-Path $Root 'scripts/ci/check-upstream-patches.mjs') 2>&1
+$patchCode = $LASTEXITCODE
+foreach ($rel in @('0001-crash-guards','0002-partial-summary','0003-tolerant-decoder')) {
+    $line = $patchOut | Select-String -SimpleMatch $rel | Select-Object -First 1
+    Check ("patch {0}" -f $rel) ($line -and ($line.Line -notmatch 'FAIL')) ([string]$line)
 }
+if ($patchCode -ne 0) { Check 'upstream patch gate' $false ("exit=" + $patchCode) }
 
 # 3. 所有 .cmd 必须是 CRLF + 纯 ASCII（LF 会让 cmd.exe 逐行读取偏移错乱并陷入死循环）
 $cmds = @('start-windows.cmd','scripts/pilotv-boot.cmd','.run/agent-supervisor.cmd')

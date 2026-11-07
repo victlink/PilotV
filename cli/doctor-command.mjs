@@ -12,6 +12,7 @@ import {
   evaluateManifestSync, evaluatePorts, evaluateUpstreamPatches, formatText, summarize,
 } from './doctor.mjs';
 import { certExpiry, compareManifestPair, listListeners, logSizes, probeHttp, probeTcp } from './probes.mjs';
+import { classifyPatch, patchKey } from '../scripts/ci/check-upstream-patches.mjs';
 import { readDeviceManifest, syncDeviceManifestSync } from '../service/deviceManifest.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -27,10 +28,14 @@ export const EXPECTED_PORTS = [
   { port: 18790, name: 'supervisor 单实例锁', required: false },
 ];
 
-const UPSTREAM_PATCHES = [
-  { key: 'crash-guards', file: 'pilotdeck-mobile/upstream-official/src/cli/runtimeCrashGuards.ts', marker: 'gateway stays alive' },
-  { key: 'partial-summary', file: 'pilotdeck-mobile/upstream-official/src/context/compaction/CompactionEngine.ts', marker: 'using partial summary' },
-  { key: 'tolerant-decoder', file: 'pilotdeck-mobile/upstream-official/src/tool/builtin/bash/commandRunner.ts', marker: 'Replacement characters are far better' },
+// 补丁是否在位，改由 patches/ 里的 patch 本身判定（git apply --check），不再
+// 在源码里搜注释。搜注释这件事上过一次当：守卫从 pilotdeck.ts 抽到
+// runtimeCrashGuards.ts 之后，verify_windows.ps1 还在按旧文件搜旧字符串，
+// 于是一直报一个假 FAIL —— 而没人能判断那次 FAIL 是真的还是脚本自己过期了。
+export const UPSTREAM_PATCHES = [
+  '0001-crash-guards.patch',
+  '0002-partial-summary.patch',
+  '0003-tolerant-decoder.patch',
 ];
 
 /**
@@ -93,7 +98,7 @@ export async function runDoctor(options = {}) {
   findings.push(evaluateManifestSync(compareManifestPair(publicFile, distFile)));
 
   // 三处上游补丁
-  findings.push(evaluateUpstreamPatches(await readPatches(root, UPSTREAM_PATCHES)));
+  findings.push(evaluateUpstreamPatches(readPatches(root, UPSTREAM_PATCHES)));
 
   // 证书
   const certFile = process.env.PILOTV_TLS_CERT
@@ -135,16 +140,12 @@ export async function runDoctor(options = {}) {
   return summarize(findings);
 }
 
-async function readPatches(root, patches) {
-  const fs = await import('node:fs/promises');
-  return Promise.all(patches.map(async (patch) => {
-    try {
-      const text = await fs.readFile(path.join(root, patch.file), 'utf8');
-      return { ...patch, present: text.includes(patch.marker) };
-    } catch {
-      return { ...patch, present: false };
-    }
-  }));
+function readPatches(root, patches) {
+  // 同步即可：git apply --check 本身是同步的，三张 patch 也花不了多少时间。
+  return patches.map((file) => {
+    const state = classifyPatch(root, file);
+    return { key: patchKey(file), file, state, present: state === 'applied' };
+  });
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));

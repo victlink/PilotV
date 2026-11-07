@@ -46,6 +46,10 @@ jobs:
       # 在 CI 里跑。P2 归档了 97 个并把入口收进 pilotv CLI；这道门防止它长回去。
       - name: Script sprawl (no new top-level one-offs, no dangling refs)
         run: node scripts/ci/check-script-sprawl.mjs
+      # 三处修复是手工改 vendor 的，上游更新不会提醒任何人。
+      # 历史上被覆盖过一次，表现是「gateway 偶尔整体退出」，查了两天。
+      - name: Upstream patches still apply (and are still applied)
+        run: node scripts/ci/check-upstream-patches.mjs
       - name: Unquoted heredoc variables in deploy script
         run: bash scripts/check_deploy_script_escaping.sh scripts/deploy_pilotv_device.sh
 

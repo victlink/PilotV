@@ -144,6 +144,23 @@ test('evaluateUpstreamPatches：三处补丁缺一处就 fail，并点名缺哪�
   assert.match(lost.fix, /patches/);
 });
 
+test('evaluateUpstreamPatches：被覆盖与漂移给的修法不同', () => {
+  const ok = { key: 'a', present: true, state: 'applied' };
+  const lost = evaluateUpstreamPatches([ok, { key: 'b', present: false, state: 'missing' }]);
+  assert.equal(lost.severity, 'fail');
+  assert.match(lost.fix, /git apply/, '被覆盖就该直接重放');
+  const drift = evaluateUpstreamPatches([ok, { key: 'b', present: false, state: 'drifted' }]);
+  assert.equal(drift.severity, 'fail');
+  assert.match(drift.fix, /重新生成/);
+  assert.ok(!drift.fix.includes('patches/<'), '漂移时叫人 git apply 是错误指导');
+  const mixed = evaluateUpstreamPatches([{ key: 'b', present: false, state: 'missing' }, { key: 'c', present: false, state: 'drifted' }]);
+  assert.match(mixed.fix, /混合状态/);
+});
+
+test('evaluateUpstreamPatches：没有 state 字段的旧输入仍然 fail（不能靠 state 漏过）', () => {
+  const result = evaluateUpstreamPatches([{ key: 'x', present: false }]);
+  assert.equal(result.severity, 'fail');
+});
 test('summarize：退出码只看 fail —— warn 让 CI 红就没人再看它', () => {
   const warnOnly = summarize([
     { id: 'a', title: 'a', severity: 'warn', detail: 'x' },

@@ -188,14 +188,22 @@ export function evaluateHealthz(body, httpStatus, { rawText = "" } = {}) {
 
 /** 上游那三处补丁有没有被 vendor 更新覆盖回去。 */
 export function evaluateUpstreamPatches(patches) {
-  const missing = patches.filter(p => !p.present);
-  if (missing.length === 0) {
-    return { id: "upstream:patches", title: "三处上游补丁在位", severity: "pass", detail: patches.map(p => p.key).join(", ") };
+  const lost = patches.filter(p => !p.present);
+  if (lost.length === 0) {
+    return { id: "upstream:patches", title: "上游补丁全部在位", severity: "pass", detail: patches.map(p => p.key).join(", ") };
   }
+  // 被覆盖和漂移的修法不同：一个 git apply 就好，一个必须重新生成。
+  // 只报「缺了」的话，人会去 apply，然后发现根本 apply 不上。
+  const drifted = lost.filter(p => p.state === "drifted");
+  const fix = drifted.length === lost.length
+    ? "上游改动了这几处代码，patch 已对不上：按新代码重新生成 patches/（别硬改 patch 文本）"
+    : drifted.length > 0
+      ? "混合状态：缺失的 git apply -p1 patches/<patch>，drifted 的重新生成"
+      : "被 vendor 覆盖了：git apply -p1 patches/<对应 patch>，然后跑 UP 回归测试";
   return {
-    id: "upstream:patches", title: "三处上游补丁", severity: "fail",
-    detail: `缺 ${missing.map(p => p.key).join(", ")}`,
-    fix: "vendor 更新把它们覆盖回去了；重放 patches/ 里的系列（见 P3.4）",
+    id: "upstream:patches", title: "上游补丁", severity: "fail",
+    detail: `缺 ${lost.map(p => p.key).join(", ")}`,
+    fix,
   };
 }
 
