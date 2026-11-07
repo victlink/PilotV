@@ -6,6 +6,8 @@
 
 用法: python3 scripts/probe_token_lifecycle.py [地址]
 """
+TOKEN_JS = '()=>localStorage.getItem("auth-token")'
+
 import sys
 
 from playwright.sync_api import sync_playwright
@@ -53,5 +55,5 @@ with sync_playwright() as p:
     page.fill("input[name=password]", "qwertyuiop")
     page.click("button[type=submit]")
     page.wait_for_timeout(7000)
-    print(f"\n最终 auth-token: {page.evaluate(chr(40)+')=>localStorage.getItem(\"auth-token\")'+chr(41))}")
+    print(f"\n最终 auth-token: {page.evaluate(TOKEN_JS)!r}")
     browser.close()

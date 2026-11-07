@@ -6,6 +6,8 @@
 
 用法: python3 scripts/probe_token_watch.py [地址]
 """
+TOKEN_JS = '()=>localStorage.getItem("auth-token")'
+
 import sys
 import time
 
@@ -56,7 +58,7 @@ with sync_playwright() as p:
             lambda f: print(f"  >> 页面导航 -> {f.url}") if f == page.main_frame else None)
 
     page.goto(URL, wait_until="networkidle", timeout=45000)
-    print(f"加载后 token: {page.evaluate('()=>localStorage.getItem(\"auth-token\")')!r}")
+    print(f"加载后 token: {page.evaluate(TOKEN_JS)!r}")
 
     page.fill("input[name=username]", "Marc")
     page.fill("input[name=password]", "qwertyuiop")
@@ -79,5 +81,5 @@ with sync_playwright() as p:
     for e in page.evaluate("()=>window.__tokenLog || []"):
         print(f"  {e['op']:7} {e['extra']}")
 
-    print(f"\n最终 token: {page.evaluate('()=>localStorage.getItem(\"auth-token\")')!r}")
+    print(f"\n最终 token: {page.evaluate(TOKEN_JS)!r}")
     browser.close()
