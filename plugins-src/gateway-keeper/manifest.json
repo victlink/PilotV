@@ -1,0 +1,13 @@
+{
+  "name": "gateway-keeper",
+  "displayName": "Gateway Keeper",
+  "version": "1.0.0",
+  "description": "Keeps exactly one agent-gateway supervisor alive. Read-only status panel; the restart policy itself lives in agent-supervisor.mjs.",
+  "author": "PilotV",
+  "icon": "Activity",
+  "type": "module",
+  "slot": "tab",
+  "entry": "index.js",
+  "server": "server.mjs",
+  "permissions": []
+}
