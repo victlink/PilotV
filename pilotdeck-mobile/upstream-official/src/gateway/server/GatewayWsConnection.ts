@@ -4,6 +4,7 @@ import { PILOTDECK_GATEWAY_PROTOCOL_VERSION } from "../protocol/version.js";
 import { TextWebSocketConnection } from "./websocket.js";
 import { SkillManagerError, SkillValidationError } from "../../extension/skills/index.js";
 import { DialogGatewayError } from "../dialog/errors.js";
+import { getSessionHealthTracker } from "../health/gatewayHealth.js";
 
 export type GatewayWsConnectionOptions = {
   gateway: Gateway;
@@ -98,6 +99,9 @@ export class GatewayWsConnection {
             if (event.type === "turn_completed") {
               lastCompleted = event;
             }
+            // 会话级熔断的写入点。tracker 内部保证不抛，所以这里不需要 try，
+            // 也就不可能因为观测逻辑把一轮对话打断（那是缺陷 B 的复发形式）。
+            if (sessionKey) getSessionHealthTracker().observe(event, { sessionKey });
             this.ws.sendText(JSON.stringify({ type: "event", id: frame.id, seq: seq++, final: false, event }));
           }
         } finally {
@@ -120,6 +124,9 @@ export class GatewayWsConnection {
       const result = await this.dispatchRequest(frame);
       this.ws.sendText(JSON.stringify({ type: "response", id: frame.id, ok: true, result }));
     } catch (error) {
+      // 故障归属到会话，而不是只回一个错误帧就走。之前所有失败都只变成
+      // 「一条红色响应」，进程之外没人知道是哪条会话在反复出问题。
+      this.recordRequestFailure(frame, error);
       // SkillManagerError carries a structured `code` we want to round-
       // trip to the client (so the UI can surface "conflict", "not_found",
       // "invalid_slug", etc. as actionable messages instead of a generic
@@ -181,6 +188,29 @@ export class GatewayWsConnection {
         }),
       );
     }
+  }
+
+  /**
+   * 把一次请求失败记到对应会话的健康账上。
+   *
+   * sessionKey 的来源不止 params.sessionKey：resume/close/read 等一组方法用的是
+   * 别的入参名。这里只认 submit_turn 那一族的字段，其余留空就不记账 ——
+   * 宁可不记，也不要把失败算到随便猜出来的会话头上。
+   */
+  private recordRequestFailure(frame: WsRequestFrame, error: unknown): void {
+    const params = frame.params as { sessionKey?: string } | undefined;
+    const sessionKey = typeof params?.sessionKey === "string" ? params.sessionKey : "";
+    if (!sessionKey) return;
+    const recoverable = frame.method !== "submit_turn";
+    getSessionHealthTracker().observe(
+      {
+        type: "error",
+        message: error instanceof Error ? error.message : String(error),
+        code: hasStructuredErrorCode(error) ? error.code : "gateway_request_failed",
+        recoverable,
+      },
+      { sessionKey },
+    );
   }
 
   private dispatchRequest(frame: WsRequestFrame): Promise<unknown> {

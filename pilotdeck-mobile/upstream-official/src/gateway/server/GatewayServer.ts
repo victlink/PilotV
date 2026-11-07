@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import type { Duplex } from "node:stream";
@@ -8,6 +9,7 @@ import { GatewayWsConnection } from "./GatewayWsConnection.js";
 import { ensureGatewayAuthToken } from "./authToken.js";
 import { serveStaticAsset } from "./staticAssets.js";
 import { handleWebApiRequest } from "../../adapters/web/httpRouter.js";
+import { buildGatewayHealthPayload } from "../health/gatewayHealth.js";
 
 export type GatewayServerOptions = {
   gateway: Gateway;
@@ -45,7 +47,7 @@ export async function startGatewayServer(options: GatewayServerOptions): Promise
   const connections = new Set<GatewayWsConnection>();
 
   const server = createServer((request, response) => {
-    void handleHttpRequest(request, response, options, auth.token);
+    void handleHttpRequest(request, response, options, auth.token, connections);
   });
   server.on("upgrade", (request, socket) =>
     handleUpgrade(request, socket, options, auth.token, connections),
@@ -73,11 +75,27 @@ async function handleHttpRequest(
   response: ServerResponse,
   options: GatewayServerOptions,
   token: string,
+  connections: Set<GatewayWsConnection>,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
   if (url.pathname === "/health") {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ ok: true }));
+    return;
+  }
+  // /healthz 与 /health 的区别：/health 只回答「端口有人应」，
+  // /healthz 回答「这个进程还干活吗」——会话是不是在批量失败、ws 掉了几个、
+  // 压缩成功率多少。supervisor 靠它决定要不要重启，doctor 靠它点名。
+  // 保持永不 5xx：健康检查返回非 200 时，多数探活工具会把整个进程判死，
+  // 而局部会话降级并不值得重启网关（重启也治不好）。
+  if (url.pathname === "/healthz") {
+    const payload = buildGatewayHealthPayload({
+      wsConnections: connections.size,
+      staticAssetsReady: options.staticAssetsPath ? existsSync(options.staticAssetsPath) : undefined,
+      serverVersion: options.serverVersion,
+    });
+    response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+    response.end(JSON.stringify(payload));
     return;
   }
   if (url.pathname === "/auth/local-token") {
