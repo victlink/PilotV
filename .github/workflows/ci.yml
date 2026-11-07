@@ -42,6 +42,10 @@ jobs:
       - name: Errors must be logged, not only reported
         run: node scripts/ci/check-error-observability.mjs
 
+      # scripts/ 攒到 130+ 个是这轮审计的成因之一：同一个检查四个版本、没有一个
+      # 在 CI 里跑。P2 归档了 97 个并把入口收进 pilotv CLI；这道门防止它长回去。
+      - name: Script sprawl (no new top-level one-offs, no dangling refs)
+        run: node scripts/ci/check-script-sprawl.mjs
       - name: Unquoted heredoc variables in deploy script
         run: bash scripts/check_deploy_script_escaping.sh scripts/deploy_pilotv_device.sh
 
@@ -53,7 +57,7 @@ jobs:
       # 连不上，判定出错却会给出一个看起来很合理的错误结论。它零依赖，
       # 所以挂在最便宜的 hygiene job 里跑，不必等 pnpm 装完。
       - name: CLI decision logic (node:test, zero deps)
-        run: node --test --test-timeout 60000 cli/*.test.mjs
+        run: node --test --test-timeout 60000 cli/*.test.mjs scripts/ci/*.test.mjs
       - name: Git worktree is clean after checkout
         run: |
           git add -A
