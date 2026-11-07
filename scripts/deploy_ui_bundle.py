@@ -31,8 +31,6 @@ from pathlib import Path
 MARKERS = [
     ("pd-composer-agent-control", "项目团队 Agent 选择控件"),
     ("project-team-strip", "会话上方项目团队 strip"),
-    ("assistant-message-speaker", "助手回复发言人标签"),
-    ("assistant-message-time", "回复时间戳"),
 ]
 
 
