@@ -10,6 +10,7 @@ import { ensureGatewayAuthToken } from "./authToken.js";
 import { serveStaticAsset } from "./staticAssets.js";
 import { handleWebApiRequest } from "../../adapters/web/httpRouter.js";
 import { buildGatewayHealthPayload } from "../health/gatewayHealth.js";
+import { CORRELATION_ID_HEADER, correlationIdFromHeaders } from "../../observability/correlation.js";
 
 export type GatewayServerOptions = {
   gateway: Gateway;
@@ -24,6 +25,11 @@ export type GatewayServerOptions = {
    * project root. If unset, the projectKey is used verbatim as the root.
    */
   resolveProject?: (projectKey: string) => string;
+  /**
+   * 连接的日志出口。默认真 console.error；可注入是为了让测试能断言
+   * 「失败确实留下了一行带关联 id 的日志」，而不是只在注释里承诺。
+   */
+  log?: (message: string, error?: unknown) => void;
 };
 
 export type GatewayServer = {
@@ -78,6 +84,7 @@ async function handleHttpRequest(
   connections: Set<GatewayWsConnection>,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  response.setHeader(CORRELATION_ID_HEADER, correlationIdFromHeaders(request.headers));
   if (url.pathname === "/health") {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ ok: true }));
@@ -159,6 +166,10 @@ function handleUpgrade(
     gateway: options.gateway,
     token,
     serverVersion: options.serverVersion ?? "0.1.0",
+    // 浏览器建 ws 时带不上自定义头，所以这里多半是自动生成；
+    // 网关自己发起的连接（CLI/TUI）会带，于是两条链路能并进同一份日志里查。
+    connectionId: correlationIdFromHeaders(request.headers),
+    log: options.log ?? ((message, error) => (error === undefined ? console.error(message) : console.error(message, error))),
   });
   connections.add(conn);
   conn.onClose(() => connections.delete(conn));

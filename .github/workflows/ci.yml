@@ -37,6 +37,11 @@ jobs:
       - name: Line endings / batch ASCII / committed junk
         run: node scripts/ci/check-repo-hygiene.mjs
 
+      # An error that is only reported is an error that leaves no trace. See
+      # docs/DEGRADATION.md section 4 and docs/HANDOFF-Windows-20261105.md section 2.1.
+      - name: Errors must be logged, not only reported
+        run: node scripts/ci/check-error-observability.mjs
+
       - name: Unquoted heredoc variables in deploy script
         run: bash scripts/check_deploy_script_escaping.sh scripts/deploy_pilotv_device.sh
 

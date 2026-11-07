@@ -711,6 +711,9 @@ export class InProcessGateway implements Gateway {
           }
         }
       } catch (error) {
+        // 这条链路的失败以前只变成「一条红色响应」。日志里必须留下同一个会话的现场，
+        // 否则下次再出「某条会话一直失败」，还是只能靠时间戳肉眼猜。
+        console.error(`[pilotdeck] turn failed session=${input.sessionKey ?? "-"} run=${runId ?? "-"}:`, error);
         this.options.telemetry?.trackError(error, {
           module: "session",
           ownerModule: telemetryContext.ownerModule,
@@ -1719,7 +1722,12 @@ function emitSessionTelemetry(
     case "tool_result":
       if (event.result.type === "error") {
         const code = event.result.error.code;
-        telemetry.trackError(event.result.error.message, {
+        // 工具失败以前只变成一个 code 上报，排障时既看不到是哪次调用，也看不到原因。
+        console.error(
+          `[pilotdeck] tool ${event.result.toolName ?? "?"} failed session=${context.sessionId ?? "-"} code=${code ?? "-"}:`,
+          event.result.error,
+        );
+        telemetry.trackError(event.result.error, {
           module: "session",
           ownerModule: context.ownerModule,
           executionKind: context.executionKind,
@@ -1891,7 +1899,11 @@ function emitSessionTelemetry(
       return;
     case "subagent_tool_result":
       if (event.result.type === "error") {
-        telemetry.trackError(event.result.error.message, {
+        console.error(
+          `[pilotdeck] subagent tool ${event.result.toolName ?? "?"} failed session=${context.sessionId ?? "-"} code=${event.result.error.code ?? "-"}:`,
+          event.result.error,
+        );
+        telemetry.trackError(event.result.error, {
           module: "session",
           ownerModule: context.ownerModule,
           executionKind: "subagent",

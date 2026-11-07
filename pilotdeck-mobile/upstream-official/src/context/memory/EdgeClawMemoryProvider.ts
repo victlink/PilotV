@@ -141,6 +141,9 @@ export class EdgeClawMemoryProvider implements MemoryResolver {
         metadata: { trace: result.trace, debug: result.debug },
       };
     } catch (error) {
+      // 这里确实做了降级（返回一条诊断而不是抛），但降级不等于可以不记账：
+      // 检索长期坏掉的表现只是「回答变笨」，没人会为此去看 telemetry。
+      console.warn(`[memory] retrieve failed session=${input.sessionId ?? "-"}:`, error);
       this.options.telemetry?.trackError(error, {
         module: "memory",
         ownerModule: "memory",

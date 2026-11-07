@@ -194,7 +194,12 @@ export class DiscoveryFire {
       },
     });
     if (extra?.error) {
-      this.deps.telemetry?.trackError(extra.error.message, {
+      // 上报和日志是两件事：trackError 只留一个 code，堆栈/上下文就地消失。
+      console.error(
+        `[always-on] discovery run failed run=${runId} plan=${extra.planId ?? "-"} phase=${phase}:`,
+        extra.error,
+      );
+      this.deps.telemetry?.trackError(extra.error, {
         module: "always_on",
         ownerModule: "always_on",
         executionKind: "always_on",

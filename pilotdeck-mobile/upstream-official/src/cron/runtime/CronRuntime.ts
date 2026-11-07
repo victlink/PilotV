@@ -141,7 +141,12 @@ export class CronRuntime {
           },
         });
         if (event.error) {
-          this.telemetry?.trackError(event.error.message, {
+          // 定时任务的失败最容易「没人看见就一直坏」：它不在任何人的对话里。
+          console.error(
+            `[cron] task ${event.taskId ?? "-"} run ${event.runId ?? "-"} failed at ${event.phase ?? "-"}:`,
+            event.error,
+          );
+          this.telemetry?.trackError(event.error, {
             module: "cron_job",
             loopStage: "loop_end",
             errorCategory: "loop_error",

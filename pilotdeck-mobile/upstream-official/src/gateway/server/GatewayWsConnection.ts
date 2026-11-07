@@ -5,21 +5,38 @@ import { TextWebSocketConnection } from "./websocket.js";
 import { SkillManagerError, SkillValidationError } from "../../extension/skills/index.js";
 import { DialogGatewayError } from "../dialog/errors.js";
 import { getSessionHealthTracker } from "../health/gatewayHealth.js";
+import {
+  correlationPrefix,
+  currentCorrelation,
+  newCorrelationId,
+  resolveCorrelationId,
+  runWithCorrelation,
+} from "../../observability/correlation.js";
 
 export type GatewayWsConnectionOptions = {
   gateway: Gateway;
   token: string;
   serverVersion: string;
+  /** 这条 ws 连接自带的关联 id（来自 upgrade 请求头）；没有就自己生成一个。 */
+  connectionId?: string;
+  /** 可注入的日志出口。默认 console.error；测试据此断言「失败确实留下了痕迹」。 */
+  log?: (message: string, error?: unknown) => void;
 };
 
 export class GatewayWsConnection {
   private authed = false;
   private readonly inFlightSessions = new Set<string>();
+  /**
+   * 这条连接的身份。日志里只出现 `ws=<8位>`，不写完整 id：
+   * 完整 id 有被当凭据转出去的风险，而 8 位在单台机器的日志量里足够唯一。
+   */
+  private readonly connectionId: string;
 
   constructor(
     private readonly ws: TextWebSocketConnection,
     private readonly options: GatewayWsConnectionOptions,
   ) {
+    this.connectionId = (this.options.connectionId || newCorrelationId()).slice(0, 8);
     ws.onMessage((message) => void this.handleMessage(message));
     ws.onClose(() => this.abortInFlightTurns());
   }
@@ -87,11 +104,41 @@ export class GatewayWsConnection {
     );
   }
 
+  /**
+   * 一次请求一个关联 id，贯穿 ws -> turn -> 工具调用 -> 健康记账。
+   *
+   * 客户端可以用 `X-PilotV-Correlation-Id` 自带（便于和网关、成果台对齐），
+   * 但只接受安全形状，不接受就自己生成：日志里出现的东西不能是任意输入。
+   *
+   * id 随响应/事件帧回传，所以「前端看到一次失败」和「服务端那一行日志」
+   * 从此能对上 —— 缺陷 B 那两轮误判，缺的就是这个对应关系。
+   */
+  private openRequestScope(frame: WsRequestFrame): { correlationId: string; sessionKey: string } {
+    const params = frame.params as { sessionKey?: string; correlationId?: unknown } | undefined;
+    const sessionKey = typeof params?.sessionKey === "string" ? params.sessionKey : "";
+    const correlationId = resolveCorrelationId(params?.correlationId);
+    return { correlationId, sessionKey };
+  }
+
   private async handleRequest(frame: WsRequestFrame): Promise<void> {
+    const { correlationId, sessionKey } = this.openRequestScope(frame);
+    // id 在这里绑定，往下每一层（turn、工具调用、健康记账、日志）
+    // 都不用把参数一路透传就能读到同一个 id。
+    return runWithCorrelation(
+      { correlationId, ...(sessionKey ? { sessionKey } : {}) },
+      () => this.serveRequest(frame, { correlationId, sessionKey }),
+    );
+  }
+
+  private async serveRequest(
+    frame: WsRequestFrame,
+    scope: { correlationId: string; sessionKey: string },
+  ): Promise<void> {
+    const { correlationId, sessionKey } = scope;
     try {
       if (frame.method === "submit_turn") {
-        const sessionKey = (frame.params as { sessionKey?: string } | undefined)?.sessionKey;
-        if (sessionKey) this.inFlightSessions.add(sessionKey);
+        const turnSessionKey = sessionKey || undefined;
+        if (turnSessionKey) this.inFlightSessions.add(turnSessionKey);
         let seq = 0;
         let lastCompleted: GatewayEvent | undefined;
         try {
@@ -101,8 +148,8 @@ export class GatewayWsConnection {
             }
             // 会话级熔断的写入点。tracker 内部保证不抛，所以这里不需要 try，
             // 也就不可能因为观测逻辑把一轮对话打断（那是缺陷 B 的复发形式）。
-            if (sessionKey) getSessionHealthTracker().observe(event, { sessionKey });
-            this.ws.sendText(JSON.stringify({ type: "event", id: frame.id, seq: seq++, final: false, event }));
+            if (turnSessionKey) getSessionHealthTracker().observe(event, { sessionKey: turnSessionKey });
+            this.ws.sendText(JSON.stringify({ type: "event", id: frame.id, seq: seq++, final: false, correlationId, event }));
           }
         } finally {
           if (sessionKey) this.inFlightSessions.delete(sessionKey);
@@ -114,6 +161,7 @@ export class GatewayWsConnection {
             type: "event",
             id: frame.id,
             seq,
+            correlationId,
             final: true,
             event: { type: "turn_completed", usage, finishReason },
           }),
@@ -122,7 +170,7 @@ export class GatewayWsConnection {
       }
 
       const result = await this.dispatchRequest(frame);
-      this.ws.sendText(JSON.stringify({ type: "response", id: frame.id, ok: true, result }));
+      this.ws.sendText(JSON.stringify({ type: "response", id: frame.id, correlationId, ok: true, result }));
     } catch (error) {
       // 故障归属到会话，而不是只回一个错误帧就走。之前所有失败都只变成
       // 「一条红色响应」，进程之外没人知道是哪条会话在反复出问题。
@@ -180,6 +228,7 @@ export class GatewayWsConnection {
         JSON.stringify({
           type: "response",
           id: frame.id,
+          correlationId,
           ok: false,
           error: {
             code: "gateway_request_failed",
@@ -187,6 +236,23 @@ export class GatewayWsConnection {
           },
         }),
       );
+    }
+  }
+
+  /**
+   * 日志出口自己坏了不能把请求带下去。
+   *
+   * 它站在 catch 块里：日志器一抛，原始错误就永远发不出去，前端只看到超时，
+   * 而那条我们最想留下的错误反而消失了 —— 这正是 docs/DEGRADATION.md 第 4 节
+   * 禁止的「观测代码具备杀伤力」。回落时把原始错误和日志器的错误都带上，
+   * 宁可日志吵一点，也不能少掉任何一层的现场。
+   */
+  private safeLog(message: string, error?: unknown): void {
+    try {
+      (this.options.log ?? ((text: string, cause?: unknown) =>
+        (cause === undefined ? console.error(text) : console.error(text, cause))))(message, error);
+    } catch (loggingError) {
+      console.error(`${message}（日志出口自身抛错，已回落 console.error）`, { error, loggingError });
     }
   }
 
@@ -200,6 +266,13 @@ export class GatewayWsConnection {
   private recordRequestFailure(frame: WsRequestFrame, error: unknown): void {
     const params = frame.params as { sessionKey?: string } | undefined;
     const sessionKey = typeof params?.sessionKey === "string" ? params.sessionKey : "";
+    // 先留日志再记账：telemetry 会把错误压成一个 code，堆栈只在这里还完整。
+    // 缺陷 B 前两轮误判成「无异常优雅退出」，就是因为只剩 [telemetry] 那行。
+    this.safeLog(
+      `${correlationPrefix({ ...(currentCorrelation() || {}), ...(sessionKey ? { sessionKey } : {}) })}` +
+        `ws=${this.connectionId} method=${frame.method} 请求失败`,
+      error,
+    );
     if (!sessionKey) return;
     const recoverable = frame.method !== "submit_turn";
     getSessionHealthTracker().observe(

@@ -261,6 +261,12 @@ export async function classifyAndRoute(
         continue;
       }
       const didTimeout = failure instanceof TokenSaverTimeoutError;
+      // 降级到默认档位是合理的，但它悄悄改变了模型选择：不打日志就没人知道
+      // 「今天所有回复为什么都用了另一个模型」。
+      console.warn(
+        `[token-saver] judge ${didTimeout ? "timed out" : "failed"} after ${attempt} attempt(s), using default tier:`,
+        failure,
+      );
       input.telemetry?.trackError(error, {
         module: "router",
         ownerModule: "router",
