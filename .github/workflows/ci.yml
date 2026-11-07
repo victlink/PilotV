@@ -1,0 +1,96 @@
+name: CI
+
+# Why this file exists: docs/HANDOFF-Windows-20261105.md section 3.1 records an
+# autostart loop that grew .run/autostart.log to 1.82 GB, and the plan audit found
+# 1011 uncommitted worktree changes plus a red UI suite. Both are "nobody ran the
+# check" failures. verify_windows.ps1 and check_deploy_script_escaping.sh already
+# existed; nothing invoked them. This workflow is the invoker.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    name: Repo hygiene (line endings, ASCII batch, heredoc escaping)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          # Matches the repo .venv. Before 3.12 (PEP 701) an f-string whose
+          # expression contains a backslash is a SyntaxError, so the gate's verdict
+          # would depend on the runner image rather than on the code.
+          python-version: "3.13"
+
+      - name: Line endings / batch ASCII / committed junk
+        run: node scripts/ci/check-repo-hygiene.mjs
+
+      - name: Unquoted heredoc variables in deploy script
+        run: bash scripts/check_deploy_script_escaping.sh scripts/deploy_pilotv_device.sh
+
+      - name: Python syntax (whole repo)
+        run: |
+          python -m compileall -q -x "(node_modules|\\.venv|\\.git|__pycache__|dist)" .
+
+      - name: Git worktree is clean after checkout
+        run: |
+          git add -A
+          git diff --cached --quiet || {
+            echo "::error::checkout produced working tree changes; normalization is inconsistent"
+            git status --short
+            exit 1
+          }
+
+  web:
+    name: Gateway + UI (build, typecheck, tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: pilotdeck-mobile/upstream-official
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pilotdeck-mobile/upstream-official/pnpm-lock.yaml
+
+      # Same recipe as the Dockerfile builder stage, minus the desktop workspace
+      # (Electron is not needed to prove the gateway and the web UI are sound).
+      - name: Install workspace
+        env:
+          HUSKY: 0
+        run: pnpm install --frozen-lockfile --filter pilotdeck --filter pilotdeck-ui
+
+      - name: Build gateway (tsc -> dist)
+        run: npm run build
+
+      - name: Gateway tests (src, node:test)
+        run: npm run test:src
+
+      - name: Gateway typecheck
+        run: node_modules/.bin/tsc --noEmit -p tsconfig.json
+
+      - name: UI typecheck
+        run: pnpm --dir ui run typecheck
+
+      - name: UI tests (vitest)
+        run: pnpm --dir ui run test
