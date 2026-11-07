@@ -12,7 +12,7 @@ import {
   evaluateManifestSync, evaluatePorts, evaluateUpstreamPatches, formatText, summarize,
 } from './doctor.mjs';
 import { certExpiry, compareManifestPair, listListeners, logSizes, probeHttp, probeTcp } from './probes.mjs';
-import { readDeviceManifest } from '../service/deviceManifest.mjs';
+import { readDeviceManifest, syncDeviceManifestSync } from '../service/deviceManifest.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(HERE, '..');
@@ -150,3 +150,30 @@ async function readPatches(root, patches) {
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 export { formatText };
+
+
+/**
+ * 把 ui/public/devices.json 同步到 ui/dist/devices.json。
+ *
+ * 为什么 doctor 自己不写盘、这件事要单独开一个 --fix：自检工具为了「让检查
+ * 通过」去改被检查的东西，检查就再也不能信了。所以 doctor 默认只读，写这个动作
+ * 必须显式要求。写本身复用网关启动时那份实现（内容一致就不动、临时文件 + rename
+ * 原子落盘、dist 目录不存在时不擅自替 vite 造一个）。
+ */
+export function fixManifest(options = {}) {
+  const root = options.root || REPO_ROOT;
+  const sourceFile = path.join(root, 'pilotdeck-mobile/upstream-official/ui/public/devices.json');
+  const targetFile = path.join(root, 'pilotdeck-mobile/upstream-official/ui/dist/devices.json');
+  const result = syncDeviceManifestSync(sourceFile, targetFile, { createTargetDir: options.createTargetDir === true });
+  const finding = evaluateManifestSync(result);
+  return {
+    ok: finding.severity === 'pass',
+    from: sourceFile,
+    to: targetFile,
+    finding,
+    exitCode: finding.severity === 'fail' ? 1 : 0,
+    summary: result.synced
+      ? `已同步：${sourceFile} -> ${targetFile}`
+      : `未写盘（${finding.detail}）\n       怎么办：${finding.fix || ''}`,
+  };
+}

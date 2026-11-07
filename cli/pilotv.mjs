@@ -19,9 +19,12 @@ const USAGE = `pilotv —— PilotV 统一入口
 
 用法：
   pilotv doctor [--json] [--no-color]     只读体检：端口/健康/证书/清单/日志/上游补丁
+                                          --fix-manifest 是唯一会写盘的开关（同步设备清单到 dist）
   pilotv verify --live [--base URL]       真 Chromium 走一遍登录→切设备→成果台，截图落 review/
   pilotv export --out FILE [--base URL]   成果清单导出为 xlsx（数字由代码算，不手抄）
-  pilotv --help                           
+  pilotv deploy <device> [--apply]        看这台设备还缺什么（默认只出计划，加 --apply 才下发）
+                                          --no-ssh 只按端口探测；--dev-dir 远端开发目录
+  pilotv --help                          
 
 退出码：0 = 没有失败项（提醒不算失败）；1 = 有失败项；2 = 命令用法不对。
 `;
@@ -33,6 +36,7 @@ function parseArgs(argv) {
     const token = rest[i];
     if (token === '--json') options.json = true;
     else if (token === '--no-color') options.color = false;
+    else if (token === '--fix-manifest') options.fixManifest = true;
     else if (token === '--live') options.live = true;
     else if (token === '--help' || token === '-h') options.help = true;
     else if (token.startsWith('--')) {
@@ -52,8 +56,14 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   if (command === 'doctor') {
-    const { runDoctor } = await import('./doctor-command.mjs');
+    const { runDoctor, fixManifest } = await import('./doctor-command.mjs');
     const { formatText } = await import('./doctor.mjs');
+    // doctor 本体只读：写盘只能由显式的 --fix-manifest 触发，
+    // 否则「自检通过」可能只是它自己把被检查的东西改过了。
+    if (options.fixManifest) {
+      const fixed = fixManifest({ root: options.root });
+      process.stdout.write(`${fixed.summary}\n\n`);
+    }
     const report = await runDoctor(options);
     if (options.json) {
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
@@ -77,6 +87,14 @@ export async function main(argv = process.argv.slice(2)) {
     if (options.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     else process.stdout.write(`${result.summary}\n`);
     // 用法错（格式不认识）和跑挂了不是一回事：前者 2、后者 1，脚本才能分流。
+    return result.exitCode ?? (result.ok ? 0 : 1);
+  }
+
+  if (command === 'deploy') {
+    const { runDeploy } = await import('./deploy-command.mjs');
+    const result = await runDeploy(options);
+    if (options.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    else process.stdout.write(`${result.summary}\n`);
     return result.exitCode ?? (result.ok ? 0 : 1);
   }
 
