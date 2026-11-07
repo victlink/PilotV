@@ -8,11 +8,12 @@
     .\start-windows.ps1 -Status    只看状态
     .\start-windows.ps1 -Stop      停掉本脚本起的进程
 
-  进程拓扑（四个进程，缺一不可）：
-    8799   成果台 API（service/serve_artifacts.py，用项目内 .venv）
+  进程拓扑（五个进程，缺一不可）：
+    8799   成果台 API（service/serve_artifacts.py，用项目内 .venv；房间编排器随它启动）
     18789  PilotDeck Agent 网关（upstream-official，tsx 跑 src/cli/pilotdeck.ts server）
     3001   Web/API 服务（upstream-official/ui/server/index.js）—— 页面上所有 /api/* 都由它提供
     5186   前端 + 反向代理（service/pilotv_gateway.mjs，把 /api、/ws 转发到 3001）
+    8801   成果台 MCP 侧车（artifacts-mcp.mjs，房间成员回写转录要用）
 
   易错点：3001 是 Express 的 Web/API 服务，不能把 Agent 网关开在 3001。
           Agent 网关开在 3001 时，页面能渲染，但所有 /api/* 会落到 SPA 兜底 HTML，
@@ -45,13 +46,14 @@ $ArtifactsPort = 8799
 $AgentPort = 18789
 $WebPort = 3001
 $UiPort = 5186
+$McpPort = 8801
 
 # 计划任务/开机启动不继承 WorkBuddy 注入的 PATH，这里自行解析 node
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     $nodeRoot = Join-Path $env:USERPROFILE '.workbuddy\binaries\node\versions'
     $nodeExe = Get-ChildItem -LiteralPath $nodeRoot -Directory -ErrorAction SilentlyContinue |
         Sort-Object Name -Descending |
-        ForEach-Object { Join-Path $_.FullName 'node.exe' } |
+        ForEach-Object -MemberName FullName | Where-Object { $null -ne $_ } | ForEach-Object { [System.IO.Path]::Combine($_, 'node.exe') } |
         Where-Object { Test-Path -LiteralPath $_ } |
         Select-Object -First 1
     if ($nodeExe) {
@@ -149,7 +151,8 @@ function Show-Status {
         @{ Name = '成果台';      Port = $ArtifactsPort; Url = "http://127.0.0.1:$ArtifactsPort/healthz" },
         @{ Name = 'Agent 网关';  Port = $AgentPort;     Url = "ws://127.0.0.1:$AgentPort/ws" },
         @{ Name = 'Web/API';     Port = $WebPort;       Url = "http://127.0.0.1:$WebPort/api/config" },
-        @{ Name = '前端网关';    Port = $UiPort;        Url = $front }
+        @{ Name = '前端网关';    Port = $UiPort;        Url = $front },
+        @{ Name = 'MCP 侧车';    Port = $McpPort;       Url = "http://127.0.0.1:$McpPort/api/artifacts-mcp" }
     )
     foreach ($r in $rows) {
         $mark = if (Test-Port $r.Port) { '[运行中]' } else { '[未启动]' }
@@ -164,7 +167,8 @@ function Stop-All {
         @{ Name = '成果台';    Port = $ArtifactsPort; Match = 'serve_artifacts.py' },
         @{ Name = 'Agent 网关'; Port = $AgentPort;     Match = 'pilotdeck.ts' },
         @{ Name = 'Web/API';   Port = $WebPort;       Match = 'server/index.js' },
-        @{ Name = '前端网关';  Port = $UiPort;        Match = 'pilotv_gateway.mjs' }
+        @{ Name = '前端网关';  Port = $UiPort;        Match = 'pilotv_gateway.mjs' },
+        @{ Name = 'MCP 侧车';  Port = $McpPort;       Match = 'artifacts-mcp.mjs' }
     )
     foreach ($t in $targets) {
         $owners = @()
@@ -198,6 +202,19 @@ if ($Stop) { Stop-All; return }
 if (-not (Test-Path $Python)) { throw "缺少虚拟环境：$Python`n先执行 python -m venv .venv 并 pip install -r requirements.txt" }
 if (-not (Test-Path (Join-Path $UiDist 'index.html'))) { throw "前端未构建：$UiDist 不存在，先 cd `"$UiDir`" 执行 npm run build" }
 if (-not (Test-Path $TsxPkg)) { throw "缺少 tsx：$TsxPkg（在 upstream-official 下执行 corepack pnpm install --no-frozen-lockfile 补齐）" }
+# 统一机器令牌：必须与 NAS 网关的 PILOTV_ARTIFACTS_TOKEN 是同一把。
+# 网关转发 /api/artifacts 时会把浏览器凭据换成自己持有的令牌，两边不一致就会 401。
+# 放在分支外，保证网关无论本次是否补启都拿得到令牌。
+$ArtifactsTokenFile = Join-Path $env:USERPROFILE '.pilotdeck\artifacts-token'
+if (-not (Test-Path $ArtifactsTokenFile)) { throw "缺少成果台令牌文件：$ArtifactsTokenFile" }
+$env:PILOTV_ARTIFACTS_TOKEN = (Get-Content $ArtifactsTokenFile -Raw).Trim()
+
+# 房间编排器：与 NAS 的 pilotv-artifacts.service 对齐。Start-Svc 起的子进程继承
+# 这里的环境；不开的话房间只存明文，@成员时不会自动唤起 worker / reviewer 会话。
+# 20 次是房间终身投递预算（防互相 @ 死循环），用完要新建房间。
+$env:PILOTV_ROOM_ORCHESTRATOR = '1'
+$env:PILOTV_ROOM_GATEWAY_WS = "ws://127.0.0.1:$AgentPort/ws"
+$env:PILOTV_ROOM_DELIVERY_BUDGET = '20'
 
 New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
 $pids = @{}
@@ -206,7 +223,9 @@ $pids = @{}
 if (Test-Port $ArtifactsPort) {
     Write-Host "成果台已在 $ArtifactsPort 运行，沿用现有实例"
 } else {
-    $p = Start-Svc $Python "service/serve_artifacts.py --host 127.0.0.1 --port $ArtifactsPort" $Root 'artifacts.log'
+    # 对 Tailscale 网络开放：NAS 网关切到本机设备时直连 <TailscaleIP>:8799。
+    # serve_artifacts.py 会拒绝「非回环绑定 + 无令牌」，令牌走文件而不是命令行/脚本。
+    $p = Start-Svc $Python "service/serve_artifacts.py --host 0.0.0.0 --port $ArtifactsPort --token-file `"$ArtifactsTokenFile`"" $Root 'artifacts.log'
     $pids.artifacts = $p.Id
     if (Wait-Port $ArtifactsPort 15000) { Write-Host "成果台已启动    http://127.0.0.1:$ArtifactsPort/" }
     else { Write-Warning "成果台启动超时，见 .run\artifacts.log" }
@@ -243,7 +262,10 @@ if (Test-Port $WebPort) {
     Write-Host "Web/API 已在 $WebPort 运行，沿用现有实例"
 } else {
     $env:SERVER_PORT = "$WebPort"
-    $env:HOST = '127.0.0.1'
+    # 对 Tailscale 网络开放：NAS 的 PilotV 网关按 IP:3001 转发，绑回环会直接连不上。
+    # 必须同时开启密码鉴权，否则等于把免登录后端暴露给整个 Tailscale 网络。
+    $env:HOST = '0.0.0.0'
+    $env:PILOTDECK_DISABLE_LOCAL_AUTH = '0'
     $env:PILOTDECK_GATEWAY_URL = "ws://127.0.0.1:$AgentPort/ws"
     $p = Start-Svc 'node' '--import tsx server/index.js' $UiDir 'web.log'
     $pids.web = $p.Id
@@ -297,6 +319,22 @@ if (Test-Port $UiPort) {
     $pids.gateway = $p.Id
     if (Wait-Port $UiPort 20000) { Write-Host "前端已启动      $(Get-FrontendUrl)" }
     else { Write-Warning "前端启动超时，见 .run\gateway.log" }
+}
+
+# --- 5. 成果台 MCP 侧车（8801）-------------------------------------------
+# 房间成员靠 post_room_message / read_room_messages 回写转录，工具由这个侧车提供。
+# SDK 在 vendored upstream-official 的 node_modules 里，显式指过去，免得去找
+# Linux 默认的 ~/PilotDeck-src（本机不存在）。
+if (Test-Port $McpPort) {
+    Write-Host "MCP 侧车已在 $McpPort 运行，沿用现有实例"
+} else {
+    $env:PILOTDECK_SRC = $Upstream
+    $env:ARTIFACTS_API = "http://127.0.0.1:$ArtifactsPort"
+    $env:ARTIFACTS_PORT = "$McpPort"
+    $p = Start-Svc 'node' 'artifacts-mcp.mjs' $Root 'mcp.log'
+    $pids.mcp = $p.Id
+    if (Wait-Port $McpPort 20000) { Write-Host "MCP 侧车已启动  http://127.0.0.1:$McpPort/api/artifacts-mcp" }
+    else { Write-Warning "MCP 侧车启动超时，见 .run\mcp.log" }
 }
 
 # 本轮可能只补启了部分服务（其余沿用现有实例），合并旧记录，
