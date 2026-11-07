@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ALERT_AFTER_RESTARTS, BASE_BACKOFF_MS, MAX_BACKOFF_MS,
-  backoffDelay, createRestartTracker, isBackoffCapped, judgeHealth,
+  backoffDelay, createRestartTracker, decideGatewayAction, isBackoffCapped, judgeHealth,
 } from './supervisorPolicy.mjs';
 
 test('退避从 3s 起指数增长，并封顶在 30s', () => {
@@ -89,4 +89,87 @@ test('healthz 快照超过 60 秒未更新视为不健康（进程活着但不�
   const verdict = judgeHealth({ ok: true, pid: 7, at: '2026-11-07T09:58:00.000Z' }, { now });
   assert.equal(verdict.healthy, false);
   assert.equal(verdict.reason, 'stale-120s');
+});
+
+// --- 重启决策表：把「该不该重启」从 ensureGateway 里搬出来逐条钉住 -------------
+
+const NOW = Date.parse('2026-11-07T10:00:00.000Z');
+const freshHealth = (overrides = {}) => ({
+  ok: true, status: 'healthy', pid: 4242,
+  at: new Date(NOW - 5000).toISOString(),
+  sessions: 3, degradedSessions: 0,
+  compaction: { total: 4, succeeded: 4, failed: 0, successRate: 1 },
+  ...overrides,
+});
+
+test('健康就 keep：哪怕会话里有局部降级，也不该重启', () => {
+  const decision = decideGatewayAction({
+    ownsProcess: true, portUp: true, health: freshHealth(), nowMs: NOW,
+  }, { now: NOW });
+  assert.equal(decision.action, 'keep');
+  assert.equal(decision.reason, 'healthy');
+});
+
+test('进程活着、端口通、但网关自报 ok:false -> restart（这正是当年四轮排障的形态）', () => {
+  const decision = decideGatewayAction({
+    ownsProcess: true, portUp: true,
+    health: freshHealth({ ok: false, status: 'degraded', sessions: 2, degradedSessions: 2 }),
+    nowMs: NOW,
+  }, { now: NOW });
+  assert.equal(decision.action, 'restart');
+  assert.match(decision.reason, /reported-unhealthy/);
+  assert.equal(decision.degraded, 2);
+});
+
+test('healthz 超过新鲜窗口 -> restart（进程在但已经不更新状态了）', () => {
+  const decision = decideGatewayAction({
+    ownsProcess: true, portUp: true,
+    health: freshHealth({ at: new Date(NOW - 5 * 60 * 1000).toISOString() }),
+    nowMs: NOW,
+  }, { now: NOW, staleMs: 60000 });
+  assert.equal(decision.action, 'restart');
+  assert.match(decision.reason, /^stale-healthz:stale-/);
+});
+
+test('端口通但没有 /healthz：老版本或别人手工起的网关，只看不杀', () => {
+  const ours = decideGatewayAction({ ownsProcess: true, portUp: true, health: null, nowMs: NOW }, { now: NOW });
+  assert.equal(ours.action, 'keep');
+  assert.equal(ours.reason, 'no-healthz');
+
+  const theirs = decideGatewayAction({ ownsProcess: false, portUp: true, health: null, nowMs: NOW }, { now: NOW });
+  assert.equal(theirs.action, 'watch', '不是我们起的进程就不能动手，否则会跟手工调试打架');
+});
+
+test('端口空着且退避未到期 -> backoff（这一条就是防 2.8 万次/天刷屏的地方）', () => {
+  const decision = decideGatewayAction({
+    ownsProcess: false, portUp: false, health: null,
+    nowMs: NOW, nextSpawnAt: NOW + 20000,
+  }, { now: NOW });
+  assert.equal(decision.action, 'backoff');
+  assert.equal(decision.reason, 'backoff-20s');
+});
+
+test('退避到期 -> spawn', () => {
+  const decision = decideGatewayAction({
+    ownsProcess: false, portUp: false, health: null,
+    nowMs: NOW, nextSpawnAt: NOW - 1,
+  }, { now: NOW });
+  assert.equal(decision.action, 'spawn');
+});
+
+test('我们起的进程还在但端口没了 -> 也要等退避，不能立刻补一个', () => {
+  const decision = decideGatewayAction({
+    ownsProcess: true, portUp: false, health: null,
+    nowMs: NOW, nextSpawnAt: NOW + 3000,
+  }, { now: NOW });
+  assert.equal(decision.action, 'backoff');
+  assert.equal(decision.reason, 'backoff-3s');
+});
+
+test('决策表在 health 为 null 时不会因为解引用而炸', () => {
+  for (const owns of [true, false]) {
+    for (const portUp of [true, false]) {
+      assert.doesNotThrow(() => decideGatewayAction({ ownsProcess: owns, portUp, health: null, nowMs: NOW }, { now: NOW }));
+    }
+  }
 });

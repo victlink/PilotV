@@ -104,7 +104,10 @@ export function createRestartTracker(options = {}) {
  */
 export function judgeHealth(snapshot, options = {}) {
   const maxAgeMs = options.maxAgeMs ?? 60000;
-  const now = options.now ?? Date.now();
+  // 允许传数字或函数：createRestartTracker 收的是函数，这里如果只收数字，
+  // 同一个 options.now 在两个函数之间传来传去就会静默算错（now - at 得 NaN）。
+  const clock = options.now ?? Date.now();
+  const now = typeof clock === 'function' ? clock() : clock;
   if (!snapshot || typeof snapshot !== 'object') return { healthy: false, reason: 'no-snapshot' };
   if (snapshot.ok !== true) return { healthy: false, reason: 'not-ok' };
   if (typeof snapshot.pid !== 'number' || snapshot.pid <= 0) return { healthy: false, reason: 'bad-pid' };
@@ -112,4 +115,56 @@ export function judgeHealth(snapshot, options = {}) {
   if (!Number.isFinite(at)) return { healthy: false, reason: 'no-timestamp' };
   if (now - at > maxAgeMs) return { healthy: false, reason: `stale-${Math.round((now - at) / 1000)}s` };
   return { healthy: true, reason: 'ok' };
+}
+
+/**
+ * 「现在该对这个网关做什么」的决策表。
+ *
+ * 单独成函数是因为 supervisor 原来的判断散在 ensureGateway 里，
+ * 「端口通」被当成「健康」——而 HANDOFF 那次最难的就是：端口通、进程在、
+ * 每个会话都在失败。这里把判据摊平，行为可以逐条钉住。
+ *
+ * @param {{ ownsProcess: boolean, portUp: boolean, health: object|null,
+ *            nowMs: number, nextSpawnAt?: number, staleMs?: number }} input
+ * @returns {{ action: "keep"|"watch"|"spawn"|"backoff"|"restart", reason: string, degraded?: number }}
+ */
+export function decideGatewayAction(input, options = {}) {
+  const staleMs = input.staleMs ?? options.staleMs ?? 60000;
+  const nowMs = input.nowMs ?? Date.now();
+  const nextSpawnAt = input.nextSpawnAt ?? 0;
+  const verdict = input.health ? judgeHealth(input.health, { now: nowMs, maxAgeMs: staleMs }) : null;
+
+  if (input.ownsProcess && input.health && verdict?.healthy) {
+    return { action: "keep", reason: "healthy" };
+  }
+  // 网关自己判定「已经不干活」：这才是值得重启的信号。
+  if (input.ownsProcess && input.health && input.health.ok === false) {
+    return {
+      action: "restart",
+      reason: `reported-unhealthy:${verdict ? verdict.reason : "unknown"}`,
+      degraded: Number(input.health.degradedSessions ?? 0),
+    };
+  }
+  // 进程在、端口通、但 /healthz 已经不新鲜：进程活着不干活，等同于卡死。
+  if (input.ownsProcess && input.portUp && input.health && !verdict?.healthy) {
+    return { action: "restart", reason: `stale-healthz:${verdict ? verdict.reason : "unknown"}`, degraded: 0 };
+  }
+  // 端口通但压根没有 /healthz（老版本网关 / 别人手工起的实例）：只观察不动手。
+  if (input.portUp && !input.health) {
+    return input.ownsProcess
+      ? { action: "keep", reason: "no-healthz" }
+      : { action: "watch", reason: "port-owned-by-others" };
+  }
+  if (!input.portUp && !input.ownsProcess) {
+    // 端口空着但不是我们起的进程 —— 可能是刚被外部杀掉，接管它。
+    return nowMs < nextSpawnAt
+      ? { action: "backoff", reason: `backoff-${Math.ceil((nextSpawnAt - nowMs) / 1000)}s` }
+      : { action: "spawn", reason: "port-down" };
+  }
+  if (!input.portUp) {
+    return nowMs < nextSpawnAt
+      ? { action: "backoff", reason: `backoff-${Math.ceil((nextSpawnAt - nowMs) / 1000)}s` }
+      : { action: "spawn", reason: "our-process-lost-port" };
+  }
+  return { action: "watch", reason: "port-up-healthy-enough" };
 }
