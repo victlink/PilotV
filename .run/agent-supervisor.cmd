@@ -11,4 +11,6 @@ for /f "delims=" %%D in ('dir /b /ad /o-n "%USERPROFILE%\.workbuddy\binaries\nod
 )
 if not defined NODE set "NODE=node"
 "%NODE%" "%~dp0agent-supervisor.mjs" >> "%~dp0supervisor.wrapper.log" 2>&1
-exit /b 0
+REM Pass through node's real exit code. The old "exit /b 0" disguised a crash
+REM as a clean exit, so keeper could not tell a healthy stop from a fatal error.
+exit /b %ERRORLEVEL%

@@ -117,6 +117,16 @@ async function ensureGateway() {
 function acquireLock() {
   if (active || stopping || lockServer) return;
   const server = net.createServer((socket) => {
+    // A health probe or port scanner often connects to 18790 and closes before
+    // reading the reply. That surfaces as ECONNRESET on the socket; with no
+    // 'error' listener it is an unhandled event and kills the whole supervisor.
+    // The keeper then restarts it, over and over. Swallow expected resets and
+    // only log anything else.
+    socket.on('error', (err) => {
+      if (err?.code && err.code !== 'ECONNRESET') {
+        log(`lock socket error: ${err.code} ${err.message}`);
+      }
+    });
     socket.end(JSON.stringify({
       ok: true,
       supervisorPid: process.pid,
@@ -125,7 +135,7 @@ function acquireLock() {
       detached: true,
     }) + '\n');
   });
-  server.once('error', (err) => {
+  server.on('error', (err) => {
     lockServer = null;
     if (err.code === 'EADDRINUSE') {
       log('another supervisor owns the lock; standby (will retry)');
