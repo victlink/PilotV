@@ -9,7 +9,7 @@
 
 | 要做的事 | 命令 / 地址 |
 |---|---|
-| 打开成果 | **在 PilotV 里**：顶部切到「成果」tab，列表只列当前会话的成果（`http://$(tailscale ip -4 \| head -1):5186/`，本机当前是 `100.90.196.104`，会变） |
+| 打开成果 | **在 PilotV 里**：顶部切到「成果」tab，列表只列当前会话的成果（`https://marc-pc.tail2b98e5.ts.net:5186/`，本机的 MagicDNS 域名；网关现在只跑 HTTPS，证书只对 MagicDNS 域名有效，用 Tailscale IP 会证书不匹配） |
 | 单个成果的直链 | 暂时没有 —— 成果视图是应用内状态，要先切到对应会话和成果。侧车 `8799` 只提供 API，不提供页面 |
 | 登录 | 页面自带登录框；改登录口令见 §0.3 |
 | 机器调 API | `Authorization: Bearer $ARTIFACTS_TOKEN`，token 在 `~/.config/pilotv-artifacts/token`（`chmod 600`） |
@@ -376,3 +376,15 @@ bash scripts/run_gestures_verify.sh       # 真 Chromium：手势/编辑/渲染/
 ---
 
 回复时间：2026-10-09 15:17:09 (Asia/Shanghai)
+## Windows 本机的 Tailscale 访问（2026-11-03 起）
+
+- **访问地址**：`https://marc-pc.tail2b98e5.ts.net:5186/`
+  网关已启用 Tailscale 签发的 Let's Encrypt 证书（TLS 1.3 / AES256），整个 tailnet 都能访问。
+  用 Tailscale IP（`100.120.169.61`）打开会证书不匹配；5186 也不再提供纯 HTTP。
+- **证书位置**：`%USERPROFILE%\.pilotdeck\tls\pilotv-fullchain.pem` + `pilotv-key.pem`（90 天有效期，当前到期 2027-02-01）。
+- **自动续期**：`scripts\renew_gateway_tls.ps1` —— 剩余有效期 > 720h 就跳过；否则重新签发、校验、替换证书，
+  只重启 5186 网关（其余三个服务不动），最后自检 HTTPS。计划任务 `PilotV-TlsRenew` 每天 03:30 跑一次。
+- **开机自启**：计划任务 `PilotV-Startup`，用户登录后延迟 45 秒执行 `start-windows.ps1`
+  （交互式运行当前用户，不存密码；只拉起 5186 之外已经在跑的服务不会重复启动）。
+- **注意**：`GET /` 会给任何访问者下发 `pdv_admin` cookie（HttpOnly / SameSite=Strict / 24h），
+  也就是 tailnet 内任何人都能进控制台；设备写操作默认关闭（`POST /api/pilotv/devices` → 403）。
