@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
+import AuthDevicePicker from './AuthDevicePicker';
 import AuthErrorAlert from './AuthErrorAlert';
 import AuthInputField from './AuthInputField';
 import AuthScreenLayout from './AuthScreenLayout';
@@ -60,6 +61,8 @@ export default function LoginForm() {
       description={t('login.description')}
       footerText="Enter your credentials to access PilotV"
     >
+      <AuthDevicePicker />
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <AuthInputField
           id="username"
