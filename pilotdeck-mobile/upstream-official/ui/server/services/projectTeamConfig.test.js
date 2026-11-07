@@ -9,6 +9,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { SYMLINKS_USABLE } from "../testing/symlinkCapability.js";
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -344,7 +345,7 @@ describe('project team configuration storage', () => {
         expect(readFileSync(configFile(root), 'utf8')).toBe('{ not json');
     });
 
-    it('refuses to write through a symlinked .pilotdeck directory', async () => {
+    it.skipIf(!SYMLINKS_USABLE)('refuses to write through a symlinked .pilotdeck directory', async () => {
         const workspace = createWorkspace();
         const root = workspace.registerProject('alpha');
         const outside = join(workspace.base, 'outside');
@@ -364,7 +365,7 @@ describe('project team configuration storage', () => {
         expect(existsSync(join(outside, 'project-team.json'))).toBe(false);
     });
 
-    it('refuses to write through a symlinked project-team.json file', async () => {
+    it.skipIf(!SYMLINKS_USABLE)('refuses to write through a symlinked project-team.json file', async () => {
         const workspace = createWorkspace();
         const root = workspace.registerProject('alpha');
         mkdirSync(join(root, '.pilotdeck'), { recursive: true });

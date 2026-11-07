@@ -1,8 +1,15 @@
 import express from 'express';
 import { request as httpRequest } from 'node:http';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const nativeFetch = globalThis.fetch;
+// The staging directory is built with path.join(), so its separators follow the
+// host. Build the expected prefix the same way: what is under test is 'a unique
+// .pilotdeck-clone- staging directory inside the resolved workspace', not that
+// POSIX separators appear on Windows.
+const stagingPrefix = (workspacePath, repoName) =>
+  path.join(workspacePath, '.' + repoName + '.pilotdeck-clone-');
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -396,11 +403,11 @@ describe('onboarding routes', () => {
     expect(response).toMatchObject({ status: 409, body: { code: 'GIT_CLONE_FAILED' } });
     expect(cloneGitHubRepository).toHaveBeenCalledWith(
       'https://github.com/openbmb/PilotDeck.git',
-      expect.stringMatching(/^\/tmp\/onboarding-workspace\/\.PilotDeck\.pilotdeck-clone-/),
+      expect.stringContaining(stagingPrefix('/tmp/onboarding-workspace', 'PilotDeck')),
       null,
       expect.objectContaining({ signal: expect.any(AbortSignal), timeoutMs: 300000 }),
     );
-    expect(rm).toHaveBeenCalledWith(expect.stringMatching(/^\/tmp\/onboarding-workspace\/\.PilotDeck\.pilotdeck-clone-/), { recursive: true, force: true });
+    expect(rm).toHaveBeenCalledWith(expect.stringContaining(stagingPrefix('/tmp/onboarding-workspace', 'PilotDeck')), { recursive: true, force: true });
     mkdir.mockRestore();
     access.mockRestore();
     rm.mockRestore();

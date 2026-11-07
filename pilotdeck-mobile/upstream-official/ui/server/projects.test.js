@@ -38,7 +38,11 @@ function deferred() {
 
 describe('getProjects', () => {
     beforeAll(async () => {
-        process.env.PILOT_HOME = '/tmp/pilotdeck-project-sort-test';
+        // path.resolve() would otherwise turn a POSIX-style literal into
+        // 'C:\tmp\...' on Windows, so the fixtures and the assertions below stop
+        // matching each other even though the behaviour is correct. Storing the
+        // resolved form keeps both sides identical on every platform.
+        process.env.PILOT_HOME = path.resolve('/tmp/pilotdeck-project-sort-test');
         testWorkspacesRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'pilotdeck-projects-test-'));
         process.env.WORKSPACES_ROOT = testWorkspacesRoot;
     });

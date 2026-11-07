@@ -23,7 +23,10 @@ describe('managed process identities', () => {
   });
   it('does not expand a reused descendant PID into an unrelated subtree', async () => {
     let living = [id(123), id(124, 'replacement', 999), id(125, 'unrelated', 999, 124)];
-    const options = simulation([{ state: 'active', identity: id(123), members: [id(124, 'old', 123, 123)] }], async () => living);
+    // Group-signal semantics are POSIX-only (win32 stops children through a Job
+    // object and never calls signal), so pin the platform instead of inheriting
+    // it from the runner: the assertion then holds on every OS.
+    const options = simulation([{ state: 'active', identity: id(123), members: [id(124, 'old', 123, 123)] }], async () => living, { platform: 'darwin' });
     options.signal.mockImplementation(() => { living = living.filter(row => row.pid !== 123); });
     await expect(stopProcessTree({}, options)).rejects.toMatchObject({ reason: 'processStopFailed' }); expect(options.signal.mock.calls).toEqual([[-123, 'SIGTERM']]);
   });

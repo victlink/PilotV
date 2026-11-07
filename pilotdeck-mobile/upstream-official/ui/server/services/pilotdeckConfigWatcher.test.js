@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { SYMLINKS_USABLE } from "../testing/symlinkCapability.js";
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -24,7 +25,7 @@ afterEach(() => {
 });
 
 describe('pilotdeck config watcher', () => {
-  it('reloads when a symlink target is atomically replaced', async () => {
+  it.skipIf(!SYMLINKS_USABLE)('reloads when a symlink target is atomically replaced', async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'pilotdeck-config-watcher-'));
     const linkDir = join(tempDir, 'link');
     const targetDir = join(tempDir, 'managed');

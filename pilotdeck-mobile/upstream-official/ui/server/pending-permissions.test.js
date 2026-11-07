@@ -109,6 +109,14 @@ describe('pending permissions registry', () => {
         const bridge = readFileSync(new URL('./pilotdeck-bridge.js', import.meta.url), 'utf8');
         expect(index).toContain('handlePendingPermissionsMessage(data, writer);');
         expect(bridge).toContain('return trackPermissionFrames(mapGatewayEventToFrames(event, sessionId, provider), sessionId);');
-        expect(bridge).toContain('snapshot.events.flatMap((event) => mapGatewayEventToFrames(event, sessionId, provider) || [])');
+        // Assert the intent instead of the exact source text: the replay path must
+        // exist and must NOT do permission tracking. Matching the whole expression
+        // broke as soon as the replay line gained a .map() wrapper, even though the
+        // guarantee being tested was unchanged.
+        const replayLine = bridge
+            .split("\n")
+            .find((line) => line.includes('snapshot.events.flatMap('));
+        expect(replayLine).toBeTruthy();
+        expect(replayLine).not.toContain('trackPermissionFrames');
     });
 });

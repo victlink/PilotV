@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
+import { SYMLINKS_USABLE } from "../testing/symlinkCapability.js";
 import path from 'node:path';
 import http from 'node:http';
 import { createWorkspaceFileUploadHandler, createWorkspaceUploadCheckHandler, publishWorkspaceFile } from './workspaceFileUpload.js';
@@ -84,7 +85,7 @@ describe('workspace uploads', () => {
     await f.cleanStaging();
   });
 
-  it('treats directories and dangling symlinks as name conflicts', async () => {
+  it.skipIf(!SYMLINKS_USABLE)('treats directories and dangling symlinks as name conflicts', async () => {
     const f = await fixture();
     await fs.mkdir(path.join(f.root, 'folder'));
     await fs.symlink(path.join(f.root, 'missing'), path.join(f.root, 'link'));
@@ -139,7 +140,7 @@ describe('workspace uploads', () => {
     await f.cleanStaging();
   });
 
-  it('rejects path traversal and symlink destinations before publishing any file', async () => {
+  it.skipIf(!SYMLINKS_USABLE)('rejects path traversal and symlink destinations before publishing any file', async () => {
     const f = await fixture();
     const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'pd-outside-test-'));
     cleanups.push(() => fs.rm(outside, { recursive: true, force: true }));

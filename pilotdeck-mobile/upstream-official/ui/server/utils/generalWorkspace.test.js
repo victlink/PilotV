@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
+import { SYMLINKS_USABLE } from "../testing/symlinkCapability.js";
 import path from 'node:path';
 
 import {
@@ -59,7 +60,7 @@ describe('General workspace isolation', () => {
         })).toThrow('separate from PILOT_HOME');
     });
 
-    it('rejects a symbolic-link General directory', async () => {
+    it.skipIf(!SYMLINKS_USABLE)('rejects a symbolic-link General directory', async () => {
         const root = await makeTemporaryRoot();
         const pilotHome = path.join(root, 'pilot-home');
         const workspacesRoot = path.join(root, 'workspaces');

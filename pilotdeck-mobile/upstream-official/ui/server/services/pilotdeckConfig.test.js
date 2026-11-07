@@ -9,6 +9,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { SYMLINKS_USABLE } from "../testing/symlinkCapability.js";
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parse as parseYaml } from 'yaml';
@@ -226,7 +227,7 @@ describe('readPilotDeckConfigFile fallback behavior', () => {
         expect(onWriteCommitted).not.toHaveBeenCalled();
     });
 
-    it('atomically updates a symlink target without replacing the symlink', async () => {
+    it.skipIf(!SYMLINKS_USABLE)('atomically updates a symlink target without replacing the symlink', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'pilotdeck-config-symlink-test-'));
         tempDirs.push(dir);
         const managedDir = join(dir, 'managed');

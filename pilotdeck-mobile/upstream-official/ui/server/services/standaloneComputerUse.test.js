@@ -39,8 +39,16 @@ function setup({ platform = 'darwin', running = true, grants = true, owner = 'co
   const descriptor = () => JSON.parse(fs.readFileSync(controller.mcpConfigPath, 'utf8')).mcpServers;
   return { home, binary, execute, child, spawn, controller, descriptor, loseDaemon: () => { running = false; controller.checkedAt = 0; } };
 }
+// The controller resolves its permission bundle with POSIX separators
+// ('.app/Contents/MacOS/') and reveals it through /usr/bin/open, so these
+// macOS-only behaviours cannot be exercised on another platform: a Windows
+// realpath never contains that POSIX substring and resolves to phase=error.
+// Guarded per test, because the Linux and platform-agnostic cases in this
+// suite are meaningful everywhere and keep running.
+const IS_MACOS = process.platform === 'darwin';
+
 describe('standalone web computer use', () => {
-  it('exposes and reveals its actual permission app without starting a Driver or requesting grants', async () => {
+  it.skipIf(!IS_MACOS)('exposes and reveals its actual permission app without starting a Driver or requesting grants', async () => {
     const { controller, execute, binary, descriptor } = setup({ managed: true, running: false, grants: false });
     const app = fs.realpathSync(binary).split('/Contents/')[0];
     expect(await controller.initialize()).toMatchObject({ permissionAppPath: app });
@@ -73,7 +81,7 @@ describe('standalone web computer use', () => {
     expect(fs.existsSync(path.dirname(endpoint))).toBe(false);
     await controller.stop(); expect(fs.existsSync(controller.instanceDirectory)).toBe(false);
   });
-  it('launches its bundled macOS app with a private socket and liveness FIFO, and closes only that daemon', async () => {
+  it.skipIf(!IS_MACOS)('launches its bundled macOS app with a private socket and liveness FIFO, and closes only that daemon', async () => {
     const { controller, execute, binary, descriptor } = setup({ managed: true, running: false, grants: false });
     expect(await controller.initialize()).toMatchObject({ enabled: false, available: true });
     expect(await controller.setEnabled(true)).toMatchObject({ phase: 'needs-permissions', permissionOwner: 'PilotDeck Computer Use' });
@@ -83,7 +91,7 @@ describe('standalone web computer use', () => {
     expect(descriptor()).toEqual({}); await controller.stop(); expect(controller.livenessFd).toBeNull();
     expect(execute.mock.calls.some(([, args]) => args[0] === 'stop' && !args.includes(controller.endpoint))).toBe(false);
   });
-  it('requests permissions from the exact bundled app rather than the public CLI’s hard-coded Applications path', async () => {
+  it.skipIf(!IS_MACOS)('requests permissions from the exact bundled app rather than the public CLI’s hard-coded Applications path', async () => {
     const { controller, execute, binary } = setup({ managed: true, running: false, grants: false });
     await controller.requestPermission('screenRecording');
     const request = execute.mock.calls.find(([command, args]) => command === 'open' && args.includes('permissions'));
@@ -104,7 +112,7 @@ describe('standalone web computer use', () => {
     expect(execute.mock.calls.some(([, args]) => args[0] === 'open' || args.includes('grant'))).toBe(false);
     await controller.stop();
   });
-  it('ends the permission owner’s lifetime pipe on recheck or disable', async () => {
+  it.skipIf(!IS_MACOS)('ends the permission owner’s lifetime pipe on recheck or disable', async () => {
     const { controller } = setup({ managed: true, running: false, grants: false });
     await controller.requestPermission('accessibility');
     const first = controller.permissionRequests[0];

@@ -146,6 +146,11 @@ export default defineConfig(({ mode }) => {
       }
     },
     test: {
+      // Fixture-heavy suites spawn real git/node subprocesses; the 5s default made
+      // 21 suites fail with 'Test timed out' on a loaded Windows runner. The
+      // node-side suite already allows 60s (package.json test:src).
+      testTimeout: 30_000,
+      hookTimeout: 30_000,
       environment: 'jsdom',
       // e2e/ 里是 Playwright 规格，不是 vitest 用例；交给 playwright 跑，
       // 否则会被 vitest 按 *.spec.mjs 收集进来并全部报错。
