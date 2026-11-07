@@ -111,10 +111,21 @@ test("a relative write that escapes the project write roots is denied", async ()
   assert.equal(decision.type, "deny");
 });
 
-test("a symlink that escapes the project write roots is denied", async () => {
+test("a symlink that escapes the project write roots is denied", async (t) => {
   const projectRoot = tempDir("pilotdeck-write-root-");
   const outside = tempDir("pilotdeck-write-outside-");
-  symlinkSync(outside, join(projectRoot, "link"));
+  try {
+    symlinkSync(outside, join(projectRoot, "link"));
+  } catch (error) {
+    // Creating a symlink on Windows needs elevated privileges or Developer
+    // Mode. Skip rather than delete the assertion: on any platform that can
+    // create the link, the escape must still be denied.
+    if ((error as NodeJS.ErrnoException)?.code === "EPERM") {
+      t.skip("platform forbids unprivileged symlink creation");
+      return;
+    }
+    throw error;
+  }
   const decision = await decideWrite(
     join(projectRoot, "link", "secret.txt"),
     { allow: [], deny: [], ask: [], writeRoots: [projectRoot] },
