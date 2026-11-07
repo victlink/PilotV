@@ -1,0 +1,44 @@
+# Normalize line endings so this repo behaves identically on Linux (NAS) and Windows.
+# Without this file core.autocrlf=true makes every tracked file look modified after
+# any cross-platform sync (986 phantom "M" entries observed on 2026-11-07).
+
+# Canonical form in the repository is LF for all text files.
+* text=auto eol=lf
+
+# Windows batch/cmd: cmd.exe mis-parses LF-only batch files (this caused the
+# 1.82 GB autostart.log restart loop, see docs/HANDOFF-Windows-20261105.md #3.1).
+# Keep LF in the repo, CRLF in the working tree.
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+*.vbs  text eol=crlf
+
+# Shell must stay LF or bash refuses to run it.
+*.sh   text eol=lf
+*.bash text eol=lf
+
+# Never touch these (git autodetect covers most, these are explicit guards).
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.mp4   binary
+*.mov   binary
+*.webm  binary
+*.pdf   binary
+*.glb   binary
+*.stl   binary
+*.db    binary
+*.sqlite binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.node  binary
+*.tar   binary
+*.gz    binary
+*.zip   binary
+
+# Generated/vendored output: diff noise suppression.
+*.min.js text

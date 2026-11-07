@@ -99,3 +99,17 @@ site/.qa/shots/
 site/.qa/prev/
 site/.qa/3d/
 site/.qa/app/
+
+# == P0 2026-11-07 ==
+# .run/ 全是运行态：日志、pids、探针、截图、一次性 patch。仓库只保留两个 supervisor 文件。
+.run/*
+!/.run/agent-supervisor.cmd
+!/.run/agent-supervisor.mjs
+
+# 手工留在原文件旁边的备份（start-windows.ps1.bak-*、package.json.bak-*）
+*.bak-*
+*.bak.*
+
+# 手工改名的旧前端产物，dist.previous-*/ 与 dist.prev-*/ 都没匹配到这两类
+pilotdeck-mobile/upstream-official/**/dist.bak.*/
+pilotdeck-mobile/upstream-official/**/dist.old.*/
