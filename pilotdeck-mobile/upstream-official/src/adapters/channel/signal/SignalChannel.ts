@@ -75,7 +75,7 @@ export class SignalChannel implements ChannelAdapter {
   private running = false;
   private activeChats = new Set<string>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
   private recipientByChat = new Map<string, string>();
 
   constructor(options: SignalChannelOptions = {}) {

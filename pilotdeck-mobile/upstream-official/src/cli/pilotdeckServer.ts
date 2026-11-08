@@ -41,6 +41,8 @@ export type PilotDeckServer = GatewayServer & {
   stopChannel(channelKey: string, reason?: string): Promise<void>;
   /** Last runtime state a channel reported ("connected", "failed", …), if any. */
   channelState(channelKey: string): string | undefined;
+  /** Resolve the currently running adapter on every call (including hot reloads). */
+  getChannel(channelKey: string): ChannelAdapter | undefined;
   deliverCronResult(delivery: CronResultDelivery): Promise<boolean>;
 };
 
@@ -167,6 +169,9 @@ export async function startPilotDeckServer(options: StartPilotDeckServerOptions)
     },
     channelState(channelKey: string) {
       return lastChannelState.get(channelKey);
+    },
+    getChannel(channelKey: string) {
+      return runningChannels.get(channelKey);
     },
     async deliverCronResult(delivery: CronResultDelivery) {
       const channel = runningChannels.get(delivery.originChannelKey ?? delivery.channelKey);

@@ -1,4 +1,5 @@
-import type { Gateway, GatewayEvent } from "../protocol/types.js";
+import type { Gateway, GatewayEvent, GatewayPermissionDecisionResult } from "../protocol/types.js";
+import type { PilotDeckElicitationAnswer } from "../../tool/elicitation/PilotDeckElicitationChannel.js";
 import { randomUUID } from "node:crypto";
 import type { WsHelloFrame, WsRequestFrame } from "../protocol/frames.js";
 import { PILOTDECK_GATEWAY_PROTOCOL_VERSION } from "../protocol/version.js";
@@ -256,9 +257,9 @@ export class GatewayWsConnection {
       case "cron_run_now":
         return this.options.gateway.cronRunNow(frame.params as never);
       case "elicitation_respond":
-        return this.options.gateway.respondElicitation(frame.params as never);
+        return this.options.gateway.respondElicitation(normalizeWebElicitationResponseParams(frame.params));
       case "permission_decide":
-        return this.options.gateway.permissionDecide(frame.params as never);
+        return this.decidePermission(frame.params);
       case "grant_session_permission":
         return this.options.gateway.grantSessionPermission(frame.params as never);
       case "read_session_messages":
@@ -333,6 +334,23 @@ export class GatewayWsConnection {
     }
   }
 
+  /**
+   * Apply a `permission_decide` request coming from a Web client.
+   *
+   * A malformed payload must not fail silently: the client gets the same
+   * response shape as any other decision, with `delivered: false` and a
+   * readable `reason` code (contract §4 / §6).
+   */
+  private async decidePermission(params: unknown): Promise<GatewayPermissionDecisionResult> {
+    let normalized: ReturnType<typeof normalizeWebPermissionDecisionParams>;
+    try {
+      normalized = normalizeWebPermissionDecisionParams(params);
+    } catch (error) {
+      return { delivered: false, reason: permissionDecisionValidationReason(error) };
+    }
+    return this.options.gateway.permissionDecide(normalized);
+  }
+
   private requireCapability(
     capability: string,
     method: "projectFilesList" | "commandsList" | "modelCatalogList" | "sessionModelGet" | "sessionModelSet" | "sessionModelClear",
@@ -392,6 +410,135 @@ function isRequestFrame(value: unknown): value is WsRequestFrame {
     typeof value.id === "string" &&
     typeof value.method === "string"
   );
+}
+
+/**
+ * Reason codes returned to the Web client when a `permission_decide` request
+ * cannot be normalised (contract §6 input validation).
+ *
+ * The codes are stable so the UI can tell "you sent something wrong" from
+ * "the request is gone" without parsing prose.
+ */
+export const WEB_PERMISSION_DECISION_REASONS = {
+  invalidParams: "invalid_permission_decision_params",
+  invalidSessionKey: "invalid_permission_decision_session_key",
+  invalidRequestId: "invalid_permission_decision_request_id",
+  invalidDecision: "invalid_permission_decision",
+} as const;
+
+/** Error raised while validating a `permission_decide` payload. */
+export class WebPermissionDecisionValidationError extends Error {
+  readonly reason: string;
+
+  constructor(reason: string, message: string) {
+    super(message);
+    this.name = "WebPermissionDecisionValidationError";
+    this.reason = reason;
+  }
+}
+
+function permissionDecisionValidationReason(error: unknown): string {
+  if (error instanceof WebPermissionDecisionValidationError) return error.reason;
+  return WEB_PERMISSION_DECISION_REASONS.invalidParams;
+}
+
+/**
+ * Normalize a `permission_decide` payload.
+ *
+ * The websocket entry point authenticates a token, not a user: the actor is
+ * whatever the client claims (`client_reported`), and `origin` is pinned to
+ * `web` so a browser can never claim an IM identity (contract §6).
+ *
+ * Every field is validated for real — a missing `sessionKey` / `requestId` or
+ * an unknown decision is rejected with a readable reason code instead of
+ * silently resolving to `delivered: false`.
+ */
+export function normalizeWebPermissionDecisionParams(params: unknown): {
+  sessionKey: string;
+  requestId: string;
+  decision: "allow" | "deny";
+  remember?: boolean;
+  reason?: string;
+  actor?: string;
+  actorSource: "client_reported";
+  origin: "web";
+} {
+  if (!isRecord(params)) {
+    throw new WebPermissionDecisionValidationError(
+      WEB_PERMISSION_DECISION_REASONS.invalidParams,
+      "Invalid permission_decide params.",
+    );
+  }
+  const sessionKey = params.sessionKey;
+  if (typeof sessionKey !== "string" || sessionKey.trim().length === 0) {
+    throw new WebPermissionDecisionValidationError(
+      WEB_PERMISSION_DECISION_REASONS.invalidSessionKey,
+      "Invalid permission_decide params: sessionKey must be a non-empty string.",
+    );
+  }
+  const requestId = params.requestId;
+  if (typeof requestId !== "string" || requestId.trim().length === 0) {
+    throw new WebPermissionDecisionValidationError(
+      WEB_PERMISSION_DECISION_REASONS.invalidRequestId,
+      "Invalid permission_decide params: requestId must be a non-empty string.",
+    );
+  }
+  const decision = params.decision;
+  if (decision !== "allow" && decision !== "deny") {
+    throw new WebPermissionDecisionValidationError(
+      WEB_PERMISSION_DECISION_REASONS.invalidDecision,
+      "Invalid permission decision; expected allow or deny.",
+    );
+  }
+  const actor = typeof params.actor === "string" ? params.actor.trim() : "";
+  return {
+    sessionKey,
+    requestId,
+    decision,
+    ...(typeof params.remember === "boolean" ? { remember: params.remember } : {}),
+    ...(typeof params.reason === "string" ? { reason: params.reason } : {}),
+    ...(actor && actor.length <= 128 ? { actor } : {}),
+    // The websocket entry point authenticates a token, not a user: the actor
+    // is whatever the client claims (contract §8).
+    actorSource: "client_reported",
+    origin: "web",
+  };
+}
+
+/**
+ * Normalize an `elicitation_respond` payload.
+ *
+ * The websocket entry point has no user identity and must not be able to
+ * impersonate a chat channel, so `origin` is pinned to `web` and no channel
+ * or chat binding is taken from the client.
+ */
+function normalizeWebElicitationResponseParams(params: unknown): {
+  sessionKey: string;
+  requestId: string;
+  answer: PilotDeckElicitationAnswer;
+  actor?: string;
+  actorSource: "client_reported";
+  origin: "web";
+} {
+  if (!isRecord(params)) throw new Error("Invalid elicitation response params.");
+  const sessionKey = params.sessionKey;
+  const requestId = params.requestId;
+  if (typeof sessionKey !== "string" || typeof requestId !== "string") {
+    throw new Error("Invalid elicitation response params.");
+  }
+  const answer = params.answer;
+  if (!isRecord(answer) || typeof answer.type !== "string") {
+    throw new Error("Invalid elicitation answer.");
+  }
+  const actor = typeof params.actor === "string" ? params.actor.trim() : "";
+  return {
+    sessionKey,
+    requestId,
+    answer: answer as PilotDeckElicitationAnswer,
+    ...(actor && actor.length <= 128 ? { actor } : {}),
+    actorSource: "client_reported",
+    origin: "web",
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

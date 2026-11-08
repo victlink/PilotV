@@ -50,7 +50,7 @@ export class EmailChannel implements ChannelAdapter {
   private defaultSubject = "Message";
   private activeChats = new Set<string>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
   private stopped = false;
 
   constructor(options: EmailChannelOptions = {}) {

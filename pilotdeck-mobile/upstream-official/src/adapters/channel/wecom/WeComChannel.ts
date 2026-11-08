@@ -9,6 +9,11 @@ import { WeComSessionMapper, type WeComSessionMapperScopeInput, type WeComSessio
 import { renderWeComEvent } from "./wecom-render.js";
 import { ImElicitationHelper } from "../protocol/ImElicitationHelper.js";
 import { ImPermissionHelper } from "../protocol/ImPermissionHelper.js";
+import {
+  deliverApprovalPrompt,
+  deliverElicitationPrompt,
+} from "../protocol/ApprovalPromptDelivery.js";
+import type { ApprovalPromptRoute } from "../../../approval/ApprovalRouter.js";
 import { executeChannelCommand } from "../protocol/ChannelCommandRegistry.js";
 import WebSocket from "ws";
 
@@ -152,10 +157,35 @@ export type WeComChannelOptions = {
   uuid?: () => string;
   reconnectBackoffMs?: readonly number[];
   onStateChange?: (state: WeComSessionMapperState) => void;
+  /**
+   * Optional override for outbound text delivery (used in tests). When omitted
+   * the channel talks to the WeCom bot websocket.
+   */
+  send?: (chatId: string, text: string) => Promise<boolean>;
 };
 
 export class WeComChannel implements ChannelAdapter {
   readonly channelKey: GatewayChannelKey = "wecom";
+
+  async routeApprovalPrompt(route: ApprovalPromptRoute): Promise<boolean> {
+    if (route.kind === "elicitation") {
+      // An elicitation is a question, not an authorization: it goes into the
+      // elicitation queue so the reply can never be read as a permission
+      // decision.
+      return deliverElicitationPrompt({
+        helper: this.elicitation,
+        route,
+        send: async (chatId, text) => this.sendReply(chatId, text, { chatType: route.chatType }),
+        logger: this.logger,
+      });
+    }
+    return deliverApprovalPrompt({
+      helper: this.permissions,
+      route,
+      send: async (chatId, text) => this.sendReply(chatId, text, { chatType: route.chatType }),
+      logger: this.logger,
+    });
+  }
 
   private readonly mapper: WeComSessionMapper;
   private readonly botId: string;
@@ -174,6 +204,7 @@ export class WeComChannel implements ChannelAdapter {
   private readonly textBatchDelayMs: number;
   private readonly textBatchSplitDelayMs: number;
   private readonly onStateChange?: (state: WeComSessionMapperState) => void;
+  private readonly explicitSend?: (chatId: string, text: string) => Promise<boolean>;
 
   private gateway?: Gateway;
   private logger?: ChannelLogger;
@@ -190,7 +221,7 @@ export class WeComChannel implements ChannelAdapter {
   private pendingTextBatches = new Map<string, WeComTextBatch>();
   private pendingTextBatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
 
   constructor(options: WeComChannelOptions = {}) {
     this.mapper = options.mapper ?? new WeComSessionMapper();
@@ -227,6 +258,7 @@ export class WeComChannel implements ChannelAdapter {
       TEXT_BATCH_SPLIT_DELAY_MS,
     );
     this.onStateChange = options.onStateChange;
+    this.explicitSend = options.send;
   }
 
   async start(deps: ChannelStartDeps): Promise<ChannelHandle> {
@@ -468,6 +500,20 @@ export class WeComChannel implements ChannelAdapter {
     return chatId;
   }
 
+  /**
+   * Which pending queue an inbound reply belongs to.
+   *
+   * Channel owned requests are keyed by the interaction key (per user in group
+   * chats). A mirrored request coming from the approval center is keyed by the
+   * plain chat id, because the router only knows the chat. The channel owned
+   * queue wins so an active turn is always answered first.
+   */
+  private resolvePermissionKey(chatId: string, interactionKey: string): string {
+    if (this.permissions.hasPending(interactionKey)) return interactionKey;
+    if (this.permissions.hasMirroredPending(chatId)) return chatId;
+    return interactionKey;
+  }
+
   private stripLeadingMention(text: string): string {
     return text.replace(/^@\S+\s*/, "").trim();
   }
@@ -591,9 +637,22 @@ export class WeComChannel implements ChannelAdapter {
     if (!text.trim() && parts.attachments.length === 0) return;
 
     const interactionKey = this.interactionKey(chatId, senderId, chatType);
-    if (this.elicitation.hasPending(interactionKey) && this.gateway) {
+    // A native elicitation is registered under the interaction key (per user
+    // in group chats), a mirrored one under the plain chat id.
+    const elicitationKey = this.elicitation.hasPending(interactionKey)
+      ? interactionKey
+      : this.elicitation.hasPending(chatId)
+        ? chatId
+        : undefined;
+    if (elicitationKey && this.gateway) {
       try {
-        const confirmation = await this.elicitation.answer(interactionKey, text, this.gateway);
+        const confirmation = await this.elicitation.answer(elicitationKey, text, this.gateway, {
+          actor: senderId,
+          origin: "im",
+          channelKey: this.channelKey,
+          chatId,
+          actorSource: "channel_identity",
+        });
         if (confirmation) await this.sendReply(chatId, confirmation, { chatType, replyToMessageId: messageId });
       } catch (e) {
         this.logger?.error?.(`wecom: elicitation answer error: ${e}`);
@@ -601,23 +660,30 @@ export class WeComChannel implements ChannelAdapter {
       return;
     }
 
-    if (this.permissions.hasPending(interactionKey) && this.gateway) {
+    const permissionKey = this.resolvePermissionKey(chatId, interactionKey);
+    if (this.permissions.hasPending(permissionKey) && this.gateway) {
       let answerToken: number | undefined;
       try {
-        const answer = await this.permissions.answerWithState(interactionKey, text, this.gateway);
+        const answer = await this.permissions.answerWithState(permissionKey, text, this.gateway, {
+          actor: senderId,
+          origin: "im",
+          channelKey: this.channelKey,
+          chatId,
+          actorSource: "channel_identity",
+        });
         answerToken = answer?.answerToken;
         if (answer?.text) {
           const confirmationDelivered = await this.sendReply(chatId, answer.text, { chatType, replyToMessageId: messageId });
           if (!confirmationDelivered) {
-            this.permissions.releaseAnswer(interactionKey, answer.answerToken);
+            this.permissions.releaseAnswer(permissionKey, answer.answerToken);
             return;
           }
           if (!answer.canAdvance && !answer.retryPrompt) return;
-          const nextPrompt = this.permissions.takeNextPrompt(interactionKey, answer.answerToken);
+          const nextPrompt = this.permissions.takeNextPrompt(permissionKey, answer.answerToken);
           if (nextPrompt) {
-            const nextPromptRequestId = this.permissions.getPromptRequestId(interactionKey, answer.answerToken);
+            const nextPromptRequestId = this.permissions.getPromptRequestId(permissionKey, answer.answerToken);
             const delivered = await this.sendReply(chatId, nextPrompt, { chatType, replyToMessageId: messageId });
-            this.permissions.confirmNextPrompt(interactionKey, delivered, nextPromptRequestId, answer.answerToken);
+            this.permissions.confirmNextPrompt(permissionKey, delivered, nextPromptRequestId, answer.answerToken);
           }
         }
       } catch (e) {
@@ -973,6 +1039,14 @@ export class WeComChannel implements ChannelAdapter {
     text: string,
     context: { chatType?: "dm" | "group"; replyToMessageId?: string } = {},
   ): Promise<boolean> {
+    if (this.explicitSend) {
+      try {
+        return await this.explicitSend(chatId, text);
+      } catch (e) {
+        this.logger?.error?.(`wecom: custom send failed: ${e}`);
+        return false;
+      }
+    }
     if (!this.ws || this.ws.readyState !== WS_OPEN) {
       this.logger?.warn?.(`wecom: not connected, cannot send to ${chatId}`);
       return false;

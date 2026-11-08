@@ -110,10 +110,10 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     alwaysOn = buildAlwaysOn(snapshot.config.alwaysOn);
     cron = buildCron(snapshot.config.cron);
 
-    const {
-      gateway, configStore, dispose: disposeGateway,
-      bindServer, isProjectBusy, updateSubsystems,
-    } = createLocalGateway({
+    // The server is created after the gateway, so the approval runtime resolves
+    // the channel registry lazily through `serverRef`.
+    let serverRef: Awaited<ReturnType<typeof startPilotDeckServer>> | undefined;
+    const localGateway = createLocalGateway({
       projectRoot,
       pilotHome,
       env,
@@ -122,6 +122,23 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       sessionOverrides,
       cron,
       telemetry,
+      resolveApprovalChannel: (channelKey) => serverRef?.getChannel(channelKey),
+      approvalLogger: {
+        warn: (message) => console.warn(message),
+        error: (message) => console.error(message),
+      },
+    });
+    const {
+      gateway, configStore, dispose: disposeGateway,
+      bindServer, isProjectBusy, updateSubsystems,
+    } = localGateway;
+
+    // Contract §7.4: the approval center is ready before the server starts
+    // serving, so no permission request is lost or decided too early.
+    await localGateway.approvalReady.catch((error) => {
+      console.error(
+        `[approval] runtime initialisation failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     });
 
     const standaloneApply = createApplyHandler({
@@ -438,6 +455,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       config: snapshot.config,
     });
     serverRef = server;
+
     (
       gateway as {
         setPrepareWeixinLogin?: (
@@ -464,6 +482,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     }
     const stop = async () => {
       try {
+        localGateway.approvalRuntime?.stop();
         await channelStatePersistence.flush();
         console.log(`[telemetry] shutdown snapshot ${JSON.stringify(telemetry.snapshot())}`);
         disposeGateway();

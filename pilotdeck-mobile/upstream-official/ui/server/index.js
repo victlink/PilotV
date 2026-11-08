@@ -2608,6 +2608,7 @@ function handleChatConnection(ws, request) {
                         {
                             remember: Boolean(data.rememberEntry),
                             reason: data.message,
+                            ...(userId ? { actor: userId } : {}),
                         },
                     );
                     trackPermissionFrames([{ kind: 'permission_cancelled', requestId: data.requestId }], data.sessionId);

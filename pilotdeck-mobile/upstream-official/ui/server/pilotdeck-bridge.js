@@ -2659,6 +2659,12 @@ export async function finalizeLastTurnReplacementViaGateway(
 
 export async function decidePermissionViaGateway(requestId, decision, options = {}) {
     const gw = await ensureGateway();
+    // The identity of the person who answered in the Web UI is reported by
+    // the browser. It was never verified against a channel, so it is
+    // forwarded as `client_reported` and never as `channel_identity`
+    // (contract §6). A missing identity stays missing — the audit trail
+    // must not carry a fabricated actor.
+    const reportedActor = typeof options.actor === 'string' ? options.actor.trim() : '';
     // PermissionBus is keyed by sessionKey + requestId. We don't know
     // which session owns the request, so try each known session.
     for (const state of sessionState.values()) {
@@ -2669,6 +2675,9 @@ export async function decidePermissionViaGateway(requestId, decision, options = 
                 decision: decision === 'allow' || decision === true ? 'allow' : 'deny',
                 remember: options.remember,
                 reason: options.reason,
+                origin: 'web',
+                ...(reportedActor ? { actor: reportedActor } : {}),
+                actorSource: 'client_reported',
             });
             if (result?.delivered) return true;
         } catch (error) {

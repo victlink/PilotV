@@ -44,7 +44,7 @@ export class BlueBubblesChannel implements ChannelAdapter {
   private seenGuids = new Set<string>();
   private activeChats = new Set<string>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
   private running = false;
 
   constructor(options: BlueBubblesChannelOptions = {}) {

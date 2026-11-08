@@ -122,7 +122,7 @@ export class WeixinChannel implements ChannelAdapter {
   private activeChats = new Set<string>();
   private activeLiveReplies = new Map<string, ImLiveReplyController<void>>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
   private contextTokens = new Map<string, string>();
   private consecutivePollErrors = 0;
   private connectionIssueNotified = false;
