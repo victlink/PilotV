@@ -1,3 +1,4 @@
+import VideoPlayer from '../../../media/VideoPlayer';
 import {
   Suspense,
   lazy,
@@ -5,6 +6,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type ComponentProps,
   type ReactNode,
 } from 'react';
 import type { IWorkbookData } from '@univerjs/core';
@@ -23,10 +25,10 @@ import {
   isAudioFile,
   isBuiltinOfficeFile,
   isImageFile,
+  isVideoFile,
   isOfficeFile,
   isPdfFile,
   isSpreadsheetFile,
-  isVideoFile,
   isWordFile,
 } from '../../utils/binaryFile';
 import { getPdfNavigationMode } from '../../utils/documentPreview';
@@ -36,7 +38,6 @@ import {
   type ReferenceCapabilities,
 } from '../../../../types/contentReference';
 import ContentReferenceMenu from './ContentReferenceMenu';
-import PdfDocumentPreview from './PdfDocumentPreview';
 import RegionSelectionOverlay, { type CapturedRegion } from './RegionSelectionOverlay';
 import SpreadsheetTabs, { type SpreadsheetSheetTab } from './SpreadsheetTabs';
 
@@ -49,6 +50,7 @@ const DocxBuiltinPreview = lazy(
 const PptxBuiltinPreview = lazy(
   () => import('./PptxBuiltinPreview'),
 );
+const LazyPdfDocumentPreview = lazy(() => import('./PdfDocumentPreview'));
 
 type CodeEditorBinaryFileProps = {
   file: CodeEditorFile;
@@ -666,6 +668,17 @@ function PreviewSpinner({ label }: { label?: string }) {
         <p className="text-[12px] text-neutral-500 dark:text-neutral-400">{label}</p>
       )}
     </div>
+  );
+}
+
+// Native PDFs and both converted Office paths share this loading boundary.
+// Their request, refresh and selection state stays in the existing parents.
+function PdfDocumentPreview(props: ComponentProps<typeof LazyPdfDocumentPreview>) {
+  const { t } = useTranslation('codeEditor');
+  return (
+    <Suspense fallback={<PreviewSpinner label={t('loading', { fileName: props.fileName })} />}>
+      <LazyPdfDocumentPreview {...props} />
+    </Suspense>
   );
 }
 
@@ -1556,9 +1569,11 @@ export default function CodeEditorBinaryFile({
   const documentIsFullscreen = isSidebar ? isExpanded : isFullscreen;
   const onToggleDocumentFullscreen = isSidebar ? onToggleExpand : onToggleFullscreen;
 
-  const mediaKind: 'video' | 'audio' | null = isVideo ? 'video' : isAudio ? 'audio' : null;
+  const mediaKind: 'video' | 'audio' | null = isAudio ? 'audio' : null;
 
-  const previewContent = isImage
+  const previewContent = isVideo && projectName
+    ? <div className="flex h-full items-center justify-center p-4"><VideoPlayer src={api.fileContentUrl(projectName, file.path)} downloadUrl={api.fileDownloadUrl(projectName, file.path)} name={file.name} /></div>
+    : isImage
     ? <ImagePreview projectName={projectName} file={file} title={title} message={message} onClose={onClose} />
     : mediaKind
       ? (

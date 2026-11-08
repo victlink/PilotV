@@ -12,12 +12,14 @@ const AgentMemorySections = lazy(() => import("./agentMemory"));
 const AgentResidentSections = lazy(() => import("./agentResident"));
 const AgentRouteSections = lazy(() => import("./agentRoute"));
 const AgentScheduleSections = lazy(() => import("./agentSchedule"));
+const MultimodalGenerationSettings = lazy(() => import("./multimodalGeneration"));
 const AgentSearchSections = lazy(() => import("./agentSearch"));
 const AdvancedSections = lazy(() => import("./advanced"));
 const McpServersSection = lazy(() => import("./extensions"));
 const GeneralSections = lazy(() => import("./general"));
 const IntegrationsSections = lazy(() => import("./integrations"));
 const ModelPoolSections = lazy(() => import("./modelPool"));
+const UsageSections = lazy(() => import("./usage"));
 const PrivacySections = lazy(() => import("./privacy"));
 const AboutSections = lazy(() => import("./about"));
 const OfficePreviewSections = lazy(() => import("./officePreview"));
@@ -41,11 +43,13 @@ const MENU_TITLE_KEYS: Record<SettingsMenuKey, string> = {
   general: "settingsPage.titles.general",
   appearance: "lightAppearance.title",
   modelPool: "settingsPage.titles.modelPool",
+  usage: "settingsPage.titles.usage",
   agent: "settingsPage.titles.agent",
   agentRoute: "settingsPage.titles.agentRoute",
   agentMemory: "settingsPage.titles.agentMemory",
   agentResident: "settingsPage.titles.agentResident",
   agentSearch: "settingsPage.titles.agentSearch",
+  multimodalGeneration: "settingsPage.titles.multimodalGeneration",
   agentSchedule: "settingsPage.titles.agentSchedule",
   projectTeam: "settingsPage.titles.projectTeam",
   integrations: "settingsPage.titles.integrations",
@@ -62,11 +66,13 @@ const PAGE_HEADING_KEYS: Record<SettingsMenuKey, string> = {
   general: "settingsPage.menu.general",
   appearance: "lightAppearance.title",
   modelPool: "settingsPage.menu.modelPool",
+  usage: "settingsPage.menu.usage",
   agent: "settingsPage.menu.agent",
   agentRoute: "settingsPage.menu.agentRoute",
   agentMemory: "settingsPage.menu.agentMemory",
   agentResident: "settingsPage.menu.agentResident",
   agentSearch: "settingsPage.menu.agentSearch",
+  multimodalGeneration: "settingsPage.menu.multimodalGeneration",
   agentSchedule: "settingsPage.menu.agentSchedule",
   projectTeam: "settingsPage.menu.projectTeam",
   integrations: "settingsPage.menu.messageChannels",
@@ -83,6 +89,7 @@ const PAGE_DESCRIPTION_KEYS: Partial<Record<SettingsMenuKey, string>> = {
   general: "settingsPage.descriptions.general",
   appearance: "lightAppearance.description",
   modelPool: "settingsPage.descriptions.modelPool",
+  usage: "settingsPage.descriptions.usage",
   agentRoute: "settingsPage.descriptions.agentRoute",
   agentMemory: "settingsPage.descriptions.agentMemory",
   agentResident: "settingsPage.descriptions.agentResident",
@@ -102,10 +109,12 @@ const PAGE_CLASS: Partial<Record<SettingsMenuKey, string>> = {
   general: "general-settings-page",
   appearance: "appearance-settings-page",
   modelPool: "model-pool-page",
+  usage: "usage-page",
   agentRoute: "agent-route-page",
   agentMemory: "agent-memory-page",
   agentResident: "agent-resident-page",
   agentSearch: "agent-search-page",
+  multimodalGeneration: "agent-search-page multimodal-generation-page",
   agentSchedule: "agent-scheduled-page",
   projectTeam: "project-team-page",
   integrations: "integration-settings-page",
@@ -201,6 +210,8 @@ export default function SettingsContent({
           <AgentResidentSections title={title} projects={projects} />
         ) : selectedKey === "agentSearch" ? (
           <AgentSearchSections title={title} />
+        ) : selectedKey === "multimodalGeneration" ? (
+          <MultimodalGenerationSettings />
         ) : selectedKey === "agentSchedule" ? (
           <AgentScheduleSections title={title} />
         ) : selectedKey === "projectTeam" ? (
@@ -215,6 +226,8 @@ export default function SettingsContent({
           <ComputerUseSections />
         ) : selectedKey === "modelPool" ? (
           <ModelPoolSections title={title} />
+        ) : selectedKey === "usage" ? (
+          <UsageSections />
         ) : selectedKey === "privacy" ? (
           <PrivacySections title={title} />
         ) : selectedKey === "advanced" ? (

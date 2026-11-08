@@ -15,6 +15,7 @@ export type V2Provider = {
 };
 
 export type PilotDeckConfig = {
+  runtime?: { python?: { enabled?: boolean } };
   agent?: {
     model?: string;
     maxContextTokens?: number;
@@ -63,28 +64,11 @@ export type PilotDeckConfig = {
     enabled?: boolean;
     timezone?: string;
     maxConcurrentRuns?: number;
-  };
+  } | null;
   tools?: {
-    webSearch?: {
-      enabled?: boolean;
-      provider?: import("../../../../../../../src/pilot/config/webSearchProviders.js").WebSearchProvider;
-      searchEngine?: import("../../../../../../../src/pilot/config/webSearchProviders.js").SerpApiEngine;
-      apiKey?: string;
-      endpoint?: string;
-      customProvider?: {
-        name?: string;
-        auth?: "bearer" | "bodyApiKey" | "queryApiKey" | "none";
-        method?: "GET" | "POST";
-        queryParam?: string;
-        apiKeyParam?: string;
-        resultsPath?: string;
-        titleField?: string;
-        urlField?: string;
-        snippetField?: string;
-        sourceField?: string;
-        publishedAtField?: string;
-      };
-    };
+    videoGeneration?: import("../../../../../../../src/pilot/config/videoGenerationConfig.js").VideoGenerationConfig;
+    imageGeneration?: import("../../../../../../../src/pilot/config/imageGenerationConfig.js").ImageGenerationConfig;
+    webSearch?: import("../../../../../../../src/pilot/config/webSearchConfig.js").WebSearchConfig;
   };
   gateway?: {
     enabled?: boolean;
@@ -100,8 +84,11 @@ export type PilotDeckConfig = {
       serverPort?: number;
       vitePort?: number;
       apiTimeoutMs?: number;
+      logRetentionDays?: number;
       databasePath?: string;
       workspacesRoot?: string;
+      generalWorkspaceDirectory?: string;
+      generalWorkspaceId?: string;
     };
     officePreview?: {
       service?: "builtin" | "libreoffice" | string;

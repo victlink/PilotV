@@ -1,4 +1,6 @@
-import { normalizeLightAppearance, deriveLightColors, type LightAppearance } from './lightAppearance';
+import { startupLabels, startupVisualProgress } from './startupPresentation';
+import { startupStyle } from './startupStyle';
+import { LEGACY_LIGHT_PRESETS, LIGHT_PRESETS, normalizeLightAppearance, deriveLightColors, type LightAppearance } from './lightAppearance';
 import { normalizeInterfacePreferences, type InterfacePreferences } from './interfacePreferences';
 export type DesktopAppearance = { language: 'en' | 'zh-CN'; themeMode: 'light' | 'dark' | 'system'; lightAppearance?: LightAppearance; interfacePreferences?: InterfacePreferences };
 
@@ -13,194 +15,103 @@ export function normalizeAppearance(value: unknown, locale = 'en'): DesktopAppea
 }
 
 const STARTUP_ZH: Record<string, string> = {
-  "Preparing PilotV runtime...": "正在准备 PilotDeck 运行环境…",
+  "Preparing PilotDeck runtime...": "正在准备 PilotV 运行环境…",
   "Checking local configuration...": "正在检查本地配置…",
   "Starting Web UI server...": "正在启动网页服务…",
-  "PilotV is ready for model setup.": "PilotDeck 已就绪，请配置模型。",
-  "PilotV runtime stopped.": "PilotDeck 运行环境已停止。",
+  "PilotDeck is ready for model setup.": "PilotV 已就绪，请配置模型。",
+  "PilotDeck runtime stopped.": "PilotV 运行环境已停止。",
   "Gateway exited unexpectedly. The Web UI is still available.": "Gateway 意外退出，网页界面仍可使用。",
   "Model configuration needs attention.": "模型配置需要修复。",
   "Starting local gateway...": "正在启动本地 Gateway…",
-  "PilotV is ready.": "PilotDeck 已就绪。",
+  "PilotDeck is ready.": "PilotV 已就绪。",
   "Gateway failed to start. The Web UI is still available.": "Gateway 启动失败，网页界面仍可使用。",
   "server exited unexpectedly. See runtime log for details.": "网页服务意外退出，请查看运行日志。",
   "gateway exited unexpectedly. See runtime log for details.": "Gateway 意外退出，请查看运行日志。",
-  "PilotV failed to start.": "PilotDeck 启动失败。",
-  "PilotV failed to restore window.": "PilotDeck 无法恢复窗口。",
+  "PilotDeck failed to start.": "PilotV 启动失败。",
+  "PilotDeck failed to restore window.": "PilotV 无法恢复窗口。",
   "Retry": "重试",
   "Open Log": "打开日志",
-  "Starting PilotV...": "正在启动 PilotDeck…",
+  "Starting PilotDeck...": "正在启动 PilotV…",
   "Log: ": "日志：",
   "Unknown startup error.": "未知的启动错误。",
-  "PilotV could not stop": "PilotDeck 无法停止"
+  "PilotDeck could not stop": "PilotV 无法停止"
 };
 
 export function startupText(message: string, language: DesktopAppearance['language']): string {
-  return language === 'zh-CN' ? STARTUP_ZH[message] || message : message;
+  // Runtime messages retain upstream keys; accept PilotV-branded callers too.
+  const key = message.replaceAll('PilotV', 'PilotDeck');
+  return language === 'zh-CN' ? STARTUP_ZH[key] || message.replaceAll('PilotDeck', 'PilotV') : message.replaceAll('PilotDeck', 'PilotV');
 }
 
-export function renderLoadingHtml(appearance: DesktopAppearance): string {
-  const text = (value: string) => startupText(value, appearance.language);
+export function renderLoadingHtml(appearance: DesktopAppearance, web = false): string {
+  const brandLabels = (language: DesktopAppearance['language']) => Object.fromEntries(
+    Object.entries(startupLabels(language)).map(([key, value]) => [key, typeof value === 'string' ? value.replaceAll('PilotDeck', 'PilotV') : value]),
+  );
+  const labels = brandLabels(appearance.language);
   const light = normalizeLightAppearance(appearance.lightAppearance);
   const canvas = light.preset === 'default' ? '#ffffff' : deriveLightColors(light).background;
-  return `<!doctype html>
-<html lang="${appearance.language}" data-theme="${appearance.themeMode}">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PilotV</title>
-  <style>
-     :root { color-scheme: light; --bg: ${canvas}; --fg: #171717; --muted: #525252; --line: #e5e5e5; --panel: #fafafa; --error-bg: #fef2f2; --error-fg: #991b1b; --shadow: rgba(0,0,0,.12); }
-    :root[data-theme="dark"] { color-scheme: dark; --bg: #0a0a0a; --fg: #f5f5f5; --muted: #a3a3a3; --line: #303039; --panel: #19191f; --error-bg: #35191f; --error-fg: #fecaca; --shadow: rgba(0,0,0,.35); }
-    @media (prefers-color-scheme: dark) {
-      :root[data-theme="system"] { color-scheme: dark; --bg: #0a0a0a; --fg: #f5f5f5; --muted: #a3a3a3; --line: #303039; --panel: #19191f; --error-bg: #35191f; --error-fg: #fecaca; --shadow: rgba(0,0,0,.35); }
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      padding-top: var(--desktop-caption-height, 0px);
-      display: grid;
-      place-items: center;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
-      color: var(--fg);
-    }
-    main {
-      width: min(520px, calc(100vw - 48px));
-      display: grid;
-      gap: 18px;
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 22px;
-      font-weight: 650;
-      letter-spacing: 0;
-    }
-    .mark {
-      width: 34px;
-      height: 34px;
-      border-radius: 8px;
-      display: grid;
-      place-items: center;
-      background: var(--fg);
-      color: var(--bg);
-      font-weight: 800;
-    }
-    .panel {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 22px;
-      background: var(--panel);
-      box-shadow: 0 18px 60px var(--shadow);
-    }
-    .row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .spinner {
-      width: 18px;
-      height: 18px;
-      border: 2px solid var(--line);
-      border-top-color: var(--fg);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      flex: 0 0 auto;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    #message {
-      margin: 0;
-      font-size: 15px;
-      line-height: 1.45;
-      color: var(--fg);
-    }
-    #detail {
-      display: none;
-      margin: 14px 0 0;
-      padding: 12px;
-      max-height: 180px;
-      overflow: auto;
-      white-space: pre-wrap;
-      border-radius: 6px;
-      background: var(--error-bg);
-      color: var(--error-fg);
-      font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
-    }
-    #log {
-      margin-top: 12px;
-      color: var(--muted);
-      font-size: 12px;
-      word-break: break-all;
-    }
-    .actions {
-      display: none;
-      gap: 10px;
-      margin-top: 16px;
-    }
-    button {
-      appearance: none;
-      border: 1px solid var(--line);
-      border-radius: 7px;
-      padding: 8px 12px;
-      background: var(--fg);
-      color: var(--bg);
-      font: inherit;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    button.secondary {
-      background: transparent;
-      color: var(--fg);
-    }
-    .error .spinner { display: none; }
-    .error #detail,
-    .error .actions { display: flex; }
-    .error #detail { display: block; }
-  </style>
-</head>
-<body>
-  <main>
-    <div class="brand"><div class="mark" aria-hidden="true"><svg viewBox="0 0 512 512" width="23" height="23" fill="currentColor"><path d="M154.0 144 H218.0 L256.0 213.3 L294.0 144 H358.0 L256.0 330.0 Z"/></svg></div><div>PilotV</div></div>
-    <section class="panel" id="panel">
-      <div class="row">
-        <div class="spinner" aria-hidden="true"></div>
-        <p id="message">${text("Preparing PilotV runtime...")}</p>
-      </div>
-      <pre id="detail"></pre>
-      <div id="log"></div>
-      <div class="actions">
-        <button id="retry">${text("Retry")}</button>
-        <button id="openLog" class="secondary">${text("Open Log")}</button>
-      </div>
-    </section>
-  </main>
-  <script>
-    const translations = ${JSON.stringify(appearance.language === 'zh-CN' ? STARTUP_ZH : {})};
-    const translate = value => translations[value] || value;
-    const panel = document.getElementById("panel");
-    const message = document.getElementById("message");
-    const detail = document.getElementById("detail");
-    const log = document.getElementById("log");
-    const retry = document.getElementById("retry");
-    const openLog = document.getElementById("openLog");
-
-    window.pilotdeckDesktop?.onRuntimeStatus((status) => {
-      message.textContent = translate(status.message || "Starting PilotV...");
-      log.textContent = status.logPath ? translate("Log: ") + status.logPath : "";
-      if (status.phase === "error") {
-        panel.classList.add("error");
-        detail.textContent = status.error || translate(status.message || "Unknown startup error.");
-      } else {
-        panel.classList.remove("error");
-        detail.textContent = "";
-      }
-    });
-    retry.addEventListener("click", () => window.pilotdeckDesktop?.retryRuntime());
-    openLog.addEventListener("click", () => window.pilotdeckDesktop?.openRuntimeLog());
-  </script>
-</body>
-</html>`;
+  return `<!doctype html><html lang="${appearance.language}" data-theme="${appearance.themeMode}">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>PilotV</title>
+<style>
+:root{color-scheme:light;--startup-bg:${canvas};--startup-fg:#171717;--startup-muted:#525252;--startup-line:#e5e5e5}
+:root[data-theme="dark"]{color-scheme:dark;--startup-bg:#0a0a0a;--startup-fg:#f5f5f5;--startup-muted:#a3a3a3;--startup-line:#303039}
+@media(prefers-color-scheme:dark){:root[data-theme="system"]{color-scheme:dark;--startup-bg:#0a0a0a;--startup-fg:#f5f5f5;--startup-muted:#a3a3a3;--startup-line:#303039}}
+${startupStyle}
+.pd-startup-brand{display:flex;align-items:center;justify-content:center;gap:12px}
+.pilotv-startup-mark{width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;background:var(--startup-fg);color:var(--startup-bg);flex:0 0 auto}
+#failure{display:none}#startup[data-error=true] #loading{display:none}#startup[data-error=true] #failure{display:block}#saveStatus:empty{display:none}
+</style></head><body style="margin:0"><div class="pd-startup-screen" id="startup"><main><h1 class="pd-startup-brand"><span class="pilotv-startup-mark" aria-hidden="true"><svg viewBox="0 0 512 512" width="23" height="23" fill="currentColor"><path d="M154.0 144 H218.0 L256.0 213.3 L294.0 144 H358.0 L256.0 330.0 Z"/></svg></span><span>PilotV</span></h1>
+<div id="loading" role="status"><div class="pd-startup-track" role="progressbar" aria-label="PilotV" aria-valuemin="0" aria-valuemax="100" aria-valuenow="8"><div class="pd-startup-bar" id="bar" style="width:8%"></div></div><p class="pd-startup-message" id="message">${labels.starting}</p></div>
+<section class="pd-startup-failure" id="failure" role="alert"><h2>${labels.failed}</h2><p class="reason" id="reason"></p><div class="pd-startup-meta" id="code"></div><p class="pd-startup-meta" id="log"></p><div class="pd-startup-actions"><button id="retry">${labels.restart}</button><button id="saveLog" class="secondary">${labels.save}</button></div><p class="pd-startup-meta" id="saveStatus" role="status"></p></section>
+</main></div><script>(()=>{
+const web=${web};
+const languages=${JSON.stringify({ en: brandLabels('en'), 'zh-CN': brandLabels('zh-CN') })};
+const saved=key=>{try{return localStorage.getItem(key)}catch{return null}};
+const appearance=web?(window.pilotdeckDesktop?.getAppearance?.()||{language:saved('userLanguage')||(navigator.language.startsWith('zh')?'zh-CN':'en'),themeMode:saved('themeMode')||saved('theme')||'system'}):${JSON.stringify({ language: appearance.language, themeMode: appearance.themeMode })};
+let labels=languages[appearance.language]||languages.en;
+if(web){
+ document.documentElement.dataset.theme=appearance.themeMode;
+ // Keep the startup canvas aligned with PilotV's first-paint theme.
+ let preference=appearance.lightAppearance;try{preference??=JSON.parse(saved('pilotdeck-light-appearance-v1')||'null')}catch{}
+ const presets=${JSON.stringify({ ...LIGHT_PRESETS, ...LEGACY_LIGHT_PRESETS })};
+ const background=preference?.preset==='custom'?preference.custom?.background:preference?.preset!=='default'?presets[preference?.preset]?.background:null;
+ const dark=appearance.themeMode==='dark'||appearance.themeMode==='system'&&window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+ document.documentElement.style.setProperty('--startup-bg',dark?'#0a0a0a':/^#[0-9a-f]{6}$/i.test(background)?background:'#ffffff');
+}
+const root=document.getElementById('startup'),bar=document.getElementById('bar'),message=document.getElementById('message');
+const visualProgress=${startupVisualProgress.toString()};
+let current={phase:'starting',progress:8,startedAt:Date.now(),phaseStartedAt:Date.now()};
+let animationStart=0;
+function draw(){bar.style.width=visualProgress(current)+'%';bar.parentElement.setAttribute('aria-valuenow',String(current.progress||8))}
+function update(status){
+ if(!status)return;
+ const reset=status.phase==='starting'&&current.phase!=='starting';
+ const finishing=current.completed&&!reset&&status.phase!=='error'&&status.phase!=='stopped';
+ current={...status,completed:!!(status.completed||finishing),leaving:!!(status.leaving||finishing&&current.leaving),progress:reset?8:Math.max(current.progress||8,status.progress||8),startedAt:status.startedAt||(reset?Date.now():current.startedAt),phaseStartedAt:status.phaseStartedAt||(status.phase===current.phase?current.phaseStartedAt:Date.now())};
+ if(status.language)labels=languages[status.language]||languages.en;
+ if(animationStart!==current.startedAt){animationStart=current.startedAt;root.style.setProperty('--startup-animation-offset',-(Date.now()-animationStart)+'ms')}
+ window.__pilotdeckStartupState=current;root.dataset.error=String(status.phase==='error');root.dataset.complete=String(current.completed);root.dataset.leaving=String(current.leaving);draw();
+ if(status.phase==='error'){
+  const code=(status.error||'').match(/\\bPD_[A-Z_]+\\b/)?.[0]||'PD_RUNTIME_PROCESS_FAILED';
+  document.getElementById('reason').textContent=labels[code]||labels.unknown;
+  document.getElementById('code').textContent=code;
+  document.getElementById('log').textContent=status.logPath?labels.log+': '+status.logPath:'';
+ }else message.textContent=labels[status.phase]||labels.starting;
+}
+message.textContent=labels.starting;document.querySelector('#failure h2').textContent=labels.failed;document.getElementById('retry').textContent=labels.restart;document.getElementById('saveLog').textContent=labels.save;
+// Seed the real position before enabling transitions. A new document must not
+// animate from the template's 8% after the native loading page nearly finished.
+bar.style.transition='none';
+const unsubscribe=window.pilotdeckDesktop?.onRuntimeStatus(update);update(window.pilotdeckDesktop?.getRuntimeStatus?.()||current);
+bar.getBoundingClientRect();bar.style.transition='';
+const timer=setInterval(draw,400);window.__pilotdeckStartupCleanup=()=>{clearInterval(timer);unsubscribe?.()};window.__pilotdeckStartupUpdate=update;
+document.getElementById('retry').addEventListener('click',()=>window.pilotdeckDesktop?.retryRuntime?window.pilotdeckDesktop.retryRuntime():window.location.reload());
+document.getElementById('saveLog').addEventListener('click',async()=>{
+ const button=document.getElementById('saveLog'),status=document.getElementById('saveStatus');button.disabled=true;status.textContent='';
+ try{
+  if(window.pilotdeckDesktop?.saveRuntimeLogs){const result=await window.pilotdeckDesktop.saveRuntimeLogs();if(!result.canceled)status.textContent=labels.saved}
+  else{const response=await fetch('/api/diagnostics/logs');if(!response.ok)throw Error('Download failed');const url=URL.createObjectURL(await response.blob()),a=document.createElement('a');a.href=url;a.download='PilotV-runtime.log';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+ }catch{status.textContent=labels.saveFailed}finally{button.disabled=false}
+});
+})();</script></body></html>`;
 }

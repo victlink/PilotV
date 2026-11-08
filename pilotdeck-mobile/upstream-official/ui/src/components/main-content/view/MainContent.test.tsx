@@ -4,8 +4,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppTab, Project } from '../../../types/app';
 import MainContentView from './MainContent';
-import { useWorkspaceUpload } from '../../main-content-v2/useWorkspaceUpload';
-import AppShellV2 from '../../app-shell/AppShellV2';
+import { useWorkspaceUpload } from '../../file-tree/hooks/useWorkspaceUpload';
+import AppShell from '../../app-shell/AppShell';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 
 const mocks = vi.hoisted(() => ({
@@ -55,7 +55,7 @@ vi.mock('../../../hooks/useProjectsState', async () => {
     };
   } };
 });
-vi.mock('../../app-shell/SidebarV2', () => ({ default: ({ onSelectTab }: { onSelectTab: (tab: AppTab) => void }) => (
+vi.mock('../../app-shell/Sidebar', () => ({ default: ({ onSelectTab }: { onSelectTab: (tab: AppTab) => void }) => (
   <nav>
     <button onClick={() => onSelectTab('skills')}>Go to skills</button>
     <button onClick={() => onSelectTab('cron')}>Go to scheduled tasks</button>
@@ -65,8 +65,8 @@ vi.mock('../../app-shell/SidebarV2', () => ({ default: ({ onSelectTab }: { onSel
 vi.mock('../../ui/ConnectionBanner', () => ({ ConnectionBanner: () => null }));
 vi.mock('../../settings/Settings', () => ({ default: () => null }));
 vi.mock('../../onboarding/view/subcomponents/CreateWorkspaceModal', () => ({ default: () => null }));
-vi.mock('../../main-content-v2/SkillsV2', () => ({ default: () => <div data-testid="skills-page" /> }));
-vi.mock('../../main-content-v2/CronV2', () => ({ default: () => <div data-testid="cron-page" /> }));
+vi.mock('../../skills/view/SkillsPanel', () => ({ default: () => <div data-testid="skills-page" /> }));
+vi.mock('../../cron/view/CronPanel', () => ({ default: () => <div data-testid="cron-page" /> }));
 
 vi.mock('../../../contexts/TaskMasterContext', () => ({
   useTaskMaster: () => ({
@@ -131,7 +131,7 @@ vi.mock('../../code-editor/view/EditorSidebar', () => ({
   default: () => <div data-testid="editor-sidebar" />,
 }));
 
-vi.mock('../../chat-v2/ChatInterfaceV2', () => ({
+vi.mock('../../chat/view/ChatInterface', () => ({
   default: ({ onFileOpen }: { onFileOpen: (filePath: string) => void }) => (
     <button type="button" onClick={() => onFileOpen('/workspace/PilotDeck/generated.pptx')}>
       Open workspace file
@@ -159,7 +159,7 @@ const project: Project = {
   fullPath: '/workspace/PilotDeck',
 };
 
-// Standalone layout tests use a persistent owner, as AppShellV2 does in the app.
+// Standalone layout tests use a persistent owner, as AppShell does in the app.
 function MainContent(props: Omit<ComponentProps<typeof MainContentView>, 'workspaceUpload'>) {
   const workspaceUpload = useWorkspaceUpload(props.selectedProject?.name);
   return <MainContentView {...props} workspaceUpload={workspaceUpload} />;
@@ -174,7 +174,6 @@ function propsFor(activeTab: AppTab, setActiveTab = vi.fn()) {
     setActiveTab,
     ws: null,
     sendMessage: vi.fn(),
-    latestMessage: null,
     isMobile: false,
     onMenuClick: vi.fn(),
     isLoading: false,
@@ -211,7 +210,7 @@ function RouteLocation() {
 describe('AppShell upload lifetime across dedicated routes', () => {
   // 文件页整窗显示：目录一直在主区里，不需要再点「文件目录」标签。
   async function startShellUpload(files = [new File(['upload contents'], 'large.txt')]) {
-    const view = render(<MemoryRouter initialEntries={['/p/pilotdeck']}><AppShellV2 /><RouteLocation /></MemoryRouter>);
+    const view = render(<MemoryRouter initialEntries={['/p/pilotdeck']}><AppShell /><RouteLocation /></MemoryRouter>);
     await waitFor(() => expect(view.container.querySelector('input[type="file"]')).not.toBeNull());
     fireEvent.change(view.container.querySelector('input[type="file"]')!, { target: { files } });
     await waitFor(() => expect(mocks.check).toHaveBeenCalledOnce());

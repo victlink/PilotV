@@ -7,9 +7,8 @@
  * - Fallback to English for missing translations
  * - Development mode warnings for missing keys
  *
- * Supported locales: en, zh-CN. Other locales were retired during the
- * V1 cleanup; add new locale bundles in `./locales/<lang>/` and register
- * them in `resources` + `./languages.js` to bring them back.
+ * Supported locales: en, zh-CN. Register new locale bundles from
+ * `./locales/<lang>/` in `resources` and `./languages.js`.
  */
 
 import i18n from 'i18next';
@@ -131,8 +130,11 @@ i18n.on('languageChanged', (lng) => {
 function syncAlwaysOnLanguage(lng) {
   const alwaysOnLang = lng === 'zh-CN' ? 'zh-CN' : 'en';
   authenticatedFetch('/api/config')
-    .then((r) => r.json())
+    .then((r) => r.ok ? r.json() : null)
     .then((data) => {
+      // The API also returns default YAML before the first model is saved.
+      // Keep language preferences local until a real config file exists.
+      if (data?.exists !== true) return;
       const raw = typeof data?.raw === 'string' ? data.raw : '';
       if (!raw) return;
       let parsed;

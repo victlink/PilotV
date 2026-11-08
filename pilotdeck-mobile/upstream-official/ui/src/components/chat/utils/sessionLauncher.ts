@@ -29,6 +29,7 @@ type StartSessionOptions = {
   };
   images?: unknown[];
   attachments?: ChatAttachment[];
+  displayAttachments?: ChatAttachment[];
   uploadedAttachments?: Array<{ uploadId: string; attachmentIds?: string[] }>;
   alwaysOnPlanId?: string;
   alwaysOnExecutionToken?: string;
@@ -118,6 +119,7 @@ export function startSessionCommand({
   images,
   attachments,
   uploadedAttachments,
+  displayAttachments,
   alwaysOnPlanId,
   alwaysOnExecutionToken,
   workspaceCwd,
@@ -155,6 +157,7 @@ export function startSessionCommand({
       ...(Array.isArray(uploadedAttachments) && uploadedAttachments.length > 0
         ? { uploadedAttachments }
         : {}),
+      ...(Array.isArray(displayAttachments) ? { displayAttachments } : {}),
       ...(resolvedWorkspaceCwd ? { workspaceCwd: resolvedWorkspaceCwd } : {}),
     },
   });

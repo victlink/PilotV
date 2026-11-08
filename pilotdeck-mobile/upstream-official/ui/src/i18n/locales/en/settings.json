@@ -1,4 +1,108 @@
 {
+  "pythonRuntime": {
+    "title": "Python environment",
+    "description": "Python 3.12 and common agent, data and document libraries, provided by PilotV.",
+    "enable": "Use bundled Python",
+    "toggleHint": "Enabled by default. Changes apply to later turns; running tasks keep their current environment. Additional packages are stored in your user profile.",
+    "checking": "Checking the execution host’s Python environment…",
+    "ready": "Ready on the execution host",
+    "disabled": "Bundled Python is disabled for new turns",
+    "external": "An explicitly activated virtual environment takes precedence",
+    "unavailable": "Bundled Python is unavailable on the execution host. Check the application installation and runtime logs, then check again.",
+    "statusFailed": "Could not check the execution host. Retry when the Gateway is connected.",
+    "interpreter": "Interpreter",
+    "libraries": "Bundled libraries",
+    "refresh": "Check again",
+    "saved": "Saved. Running tasks keep their current environment.",
+    "saveFailed": "Could not save the Python preference. Please try again."
+  },
+  "generalWorkspace": {
+    "title": "General conversations",
+    "directory": "Working directory",
+    "description": "Used for subsequent turns in General conversations. Existing files stay in their current folder. Leave blank to use the default.",
+    "current": "Current directory: {{path}}",
+    "browse": "Browse",
+    "save": "Save",
+    "reset": "Use default",
+    "retry": "Retry",
+    "saved": "General conversation directory updated",
+    "notEmptyError": "This folder is not empty. Choose an empty folder; the current directory has not changed.",
+    "unavailableError": "The saved working directory is unavailable or its identity could not be verified. Existing files have not been moved. Restore the folder or choose a new empty directory.",
+    "defaultAdjusted": "The default folder {{originalDirectory}} conflicts with an installation or an occupied path. PilotV is using {{directory}} instead. Existing files have been kept in their original folder.",
+    "loadError": "Could not load the working directory. Please try again.",
+    "saveError": "Could not use this folder. Check that it is writable and try again.",
+    "unsafeError": "Choose a folder separate from PilotV's configuration and session data.",
+    "invalidError": "Enter an absolute folder path or a path starting with ~."
+  },
+  "uninstall": {
+    "title": "Uninstall PilotV",
+    "description": "Choose whether to keep personal data before the system asks to remove the application.",
+    "systemHint": "Use your system package manager to remove this application. Personal data is retained.",
+    "failed": "Uninstall did not finish. Your personal data has been retained."
+  },
+  "runtimeLogs": {
+    "title": "Runtime logs",
+    "description": "Save logs for troubleshooting and control how long they are kept.",
+    "retention": "Keep logs for",
+    "retentionHint": "Applies immediately. Expired daily logs and crash reports are removed automatically.",
+    "days1": "1 day",
+    "days3": "3 days",
+    "days7": "1 week (default)",
+    "days30": "1 month",
+    "days90": "3 months",
+    "location": "Log location",
+    "save": "Download runtime logs",
+    "saved": "Runtime logs downloaded",
+    "saveFailed": "Could not download the logs. Try another location.",
+    "preferenceFailed": "Could not save the log retention preference."
+  },
+  "multimodalGeneration": {
+    "tabsLabel": "Multimodal",
+    "image": "Images",
+    "video": "Video"
+  },
+  "imageGeneration": {
+    "enabled": "Enable image generation",
+    "apiKey": "API key",
+    "apiKeyHint": "Stored locally. Leave blank to keep the saved key.",
+    "baseUrl": "API address",
+    "baseUrlHint": "An OpenAI Images API base address, such as https://api.openai.com/v1.",
+    "model": "Model",
+    "modelHint": "The image model offered by your service, configured separately from chat.",
+    "check": "Test connection",
+    "checking": "Generating test image…",
+    "connected": "Test succeeded. A valid image was generated in {{seconds}} seconds.",
+    "connectionFailed": "Test failed: {{error}}",
+    "unknownError": "Check the address, key, and service availability.",
+    "invalidAddress": "Enter a valid HTTP or HTTPS API address.",
+    "keyRequired": "Enter an API key.",
+    "newKeyRequired": "Enter the API key again after changing the API address.",
+    "modelRequired": "Enter an image model name.",
+    "saveFailed": "Could not save. Please try again."
+  },
+  "systemNotifications": {
+    "title": "Notifications",
+    "enabled": "Enable system notifications",
+    "description": "Get notified when a task completes, needs approval or an answer, or cannot continue.",
+    "sound": "Notification sound",
+    "soundDescription": "Use the default notification sound. System sound settings also apply.",
+    "badge": "Show app icon badge",
+    "badgeDescription": "Count tasks that need attention while the app is in the background. Returning to the main window clears the badge; conversation unread indicators remain separate.",
+    "preview": "Show message previews",
+    "previewDescription": "Include reply or question excerpts. When off, show only the conversation name and action needed.",
+    "systemSettings": "System notification settings",
+    "openSettings": "Open system settings",
+    "showHelp": "How to enable notifications",
+    "systemControlled": "Banners and sounds are controlled by your system. Allow notifications for PilotV in system settings.",
+    "granted": "Browser notification permission is granted. System banner and sound settings still apply.",
+    "denied": "Notifications are blocked. Allow them in your system or browser settings.",
+    "notGranted": "When enabling notifications, allow the browser to send them.",
+    "unsupported": "System notifications are unavailable. For the web app, use HTTPS or a localhost address.",
+    "unsupportedDesktop": "System notifications are unavailable in this desktop environment. Conversation indicators remain available.",
+    "browserHelp": "Open site settings beside the browser address bar and allow notifications for this site. Also allow the browser in your system notification settings.",
+    "desktopHelp": "Open Notifications in system settings, find PilotV, and allow notifications. On Linux, the location depends on your desktop environment.",
+    "saveError": "Could not save notification settings. Please try again."
+  },
   "openModelSettings": "Open model settings",
   "title": "Settings",
   "tabs": {
@@ -63,13 +167,16 @@
     "menu": {
       "general": "General",
       "modelPool": "Model Pool",
+      "usage": "Usage",
       "agent": "Agents",
       "agentRoute": "Route",
       "agentMemory": "Memory",
       "agentResident": "Always-On",
+      "multimodalGeneration": "Multimodal",
+      "imageGeneration": "Image generation",
+      "videoGeneration": "Video generation",
       "agentSearch": "Search",
       "agentSchedule": "Scheduled Tasks",
-      "projectTeam": "Project Team",
       "integrations": "Integrations",
       "messageChannels": "Message Channels",
       "external": "External Systems",
@@ -80,36 +187,43 @@
       "privacy": "Security & Privacy",
       "advanced": "Advanced",
       "system": "System",
-      "about": "About"
+      "about": "About",
+      "projectTeam": "Project Team"
     },
     "descriptions": {
       "general": "Set PilotV's interface appearance, chat input, and code editing experience.",
       "modelPool": "Centrally manage model providers, connection credentials, and available models. Enabled models are used by agents, routing, and memory.",
+      "usage": "See today’s token usage and daily activity.",
       "agentRoute": "Configure agent routing, model tiers, and fallbacks.",
       "agentMemory": "Manage memory, summarization intervals, and project memory data.",
       "agentResident": "Keep watching workspace changes after you leave, and advance work or sync progress at the right time.",
+      "imageGeneration": "Let agents generate and edit images in conversations and projects.",
+      "videoGeneration": "Let agents generate videos in conversations and projects.",
       "agentSearch": "Let agents retrieve real-time web information and add current external facts to their answers.",
       "agentSchedule": "Wake agents automatically at scheduled times to run tasks without requiring you to stay online.",
-      "projectTeam": "Assign roles, models, and tool permissions to the agents of a project.",
       "integrations": "Connect Feishu, WeChat, and WeCom message channels.",
       "mcpServers": "Connect local tools and remote services so agents can safely use external capabilities and context.",
-      "officePreview": "Configure Office file preview.",
+      "officePreview": "Choose how Office documents are previewed. PDFs always open in the built-in viewer.",
       "computerUse": "Let PilotV view your screen and operate local applications.",
       "privacy": "Manage tool rules and anonymous usage data. The chat composer controls global access permissions.",
       "advanced": "Manage application retry, service, and environment variable settings.",
       "about": "View the current version and check for updates.",
-      "aboutWeb": "View the current version and GitHub Releases."
+      "aboutWeb": "View the current version and GitHub Releases.",
+      "projectTeam": "Assign roles, models, and tool permissions to the agents of a project."
     },
     "titles": {
       "general": "General",
       "modelPool": "Model Pool",
+      "usage": "Usage",
       "agent": "Agents",
       "agentRoute": "Agents / Route",
       "agentMemory": "Agents / Memory",
       "agentResident": "Agents / Always-On",
+      "multimodalGeneration": "Multimodal",
+      "imageGeneration": "Image generation",
+      "videoGeneration": "Video generation",
       "agentSearch": "Agents / Search",
       "agentSchedule": "Agents / Scheduled Tasks",
-      "projectTeam": "Agents / Project Team",
       "integrations": "Integrations",
       "extensions": "Extensions",
       "mcpServers": "Extensions / MCP Servers",
@@ -117,7 +231,8 @@
       "computerUse": "Computer Use",
       "privacy": "Security & Privacy",
       "advanced": "Advanced",
-      "about": "About"
+      "about": "About",
+      "projectTeam": "Agents / Project Team"
     },
     "contentComingSoon": {
       "title": "Right panel content is not connected yet",
@@ -169,6 +284,7 @@
         "reasons": {
           "installing": "Applying the update. The client will reopen automatically. Please wait.",
           "noCompatibleInstaller": "This release is missing automatic update files for this system or architecture.",
+          "downloadUnavailable": "A new version is available, but its download is temporarily unavailable. Please check again shortly.",
           "checkFailed": "Unable to check for updates. Check your connection and click Check again to retry.",
           "development": "Automatic installation is unavailable in development mode.",
           "upToDate": "No update is needed. Automatic downgrades are disabled.",
@@ -432,6 +548,8 @@
   },
   "saveStatus": {
     "success": "Settings saved successfully!",
+    "enabled": "{{label}} enabled",
+    "disabled": "{{label}} disabled",
     "error": "Failed to save settings",
     "saving": "Saving..."
   },
@@ -796,64 +914,64 @@
       "form": "Form",
       "rawYaml": "Raw YAML"
     },
-	    "actions": {
-	      "opening": "Opening...",
-	      "revealFile": "Reveal in Finder",
-	      "revealFileMac": "Reveal in Finder",
-	      "revealFileWindows": "Reveal in Explorer",
-	      "revealFileGeneric": "Reveal in file manager",
-	      "refresh": "Refresh",
-	      "reloadCurrent": "Reload current config",
-	      "saving": "Saving...",
-	      "saveAndReload": "Save and reload current config",
-	      "saveAndReloadShort": "Save & reload",
-	      "remove": "Remove",
-	      "removeModel": "Remove model",
-	      "add": "Add",
-	      "dismiss": "Dismiss",
-	      "showDetails": "Show config details",
-	      "hideDetails": "Hide config details"
-	    },
-	    "status": {
-	      "unsavedChanges": "Unsaved changes",
-	      "noUnsavedChanges": "No unsaved changes",
-	      "fixYamlInFilesystem": "Fix the config file in the filesystem, then refresh.",
-	      "fixYamlInRawEditor": "Fix the Raw YAML below, then save to re-enable form settings.",
-	      "subsystems": {
-	        "pending": "Waiting for config parsing.",
-	        "processEnv": {
-	          "label": "Process Env",
-	          "applied": "Native settings have been applied to this process."
-	        },
-	        "memory": {
-	          "label": "Memory",
-	          "enabled": "Memory service is enabled.",
-	          "disabled": "memory.enabled is false."
-	        },
-	        "router": {
-	          "label": "Router (CCR)",
-	          "enabled": "Router dashboard uses native records.",
-	          "disabled": "router.enabled is false."
-	        },
-	        "gateway": {
-	          "label": "Gateway",
-	          "enabled": "Gateway is enabled.",
-	          "disabled": "gateway.enabled is false."
-	        }
-	      }
-	    },
-	    "rawYaml": {
-	      "configValid": "Config is valid",
-	      "unsaved": "(unsaved)",
-	      "configInvalid": "Config has validation errors",
-	      "configInvalidSeeBelow": "Config has validation errors — see below",
-	      "errors": "Errors",
-	      "warnings": "Warnings",
-	      "yamlParseError": "The config file YAML failed to parse. Fix the Raw YAML below, then save.",
-	      "yamlParseErrorWithDetail": "The config file YAML failed to parse: {{error}}",
-	      "cannotParse": "Could not parse the config file YAML. Fix the Raw YAML above, then save to restore form settings.",
-	      "rawYaml": "Raw YAML"
-	    },
+    "actions": {
+      "opening": "Opening...",
+      "revealFile": "Reveal in Finder",
+      "revealFileMac": "Reveal in Finder",
+      "revealFileWindows": "Reveal in Explorer",
+      "revealFileGeneric": "Reveal in file manager",
+      "refresh": "Refresh",
+      "reloadCurrent": "Reload current config",
+      "saving": "Saving...",
+      "saveAndReload": "Save and reload current config",
+      "saveAndReloadShort": "Save & reload",
+      "remove": "Remove",
+      "removeModel": "Remove model",
+      "add": "Add",
+      "dismiss": "Dismiss",
+      "showDetails": "Show config details",
+      "hideDetails": "Hide config details"
+    },
+    "status": {
+      "unsavedChanges": "Unsaved changes",
+      "noUnsavedChanges": "No unsaved changes",
+      "fixYamlInFilesystem": "Fix the config file in the filesystem, then refresh.",
+      "fixYamlInRawEditor": "Fix the Raw YAML below, then save to re-enable form settings.",
+      "subsystems": {
+        "pending": "Waiting for config parsing.",
+        "processEnv": {
+          "label": "Process Env",
+          "applied": "Native settings have been applied to this process."
+        },
+        "memory": {
+          "label": "Memory",
+          "enabled": "Memory service is enabled.",
+          "disabled": "memory.enabled is false."
+        },
+        "router": {
+          "label": "Router (CCR)",
+          "enabled": "Router dashboard uses native records.",
+          "disabled": "router.enabled is false."
+        },
+        "gateway": {
+          "label": "Gateway",
+          "enabled": "Gateway is enabled.",
+          "disabled": "gateway.enabled is false."
+        }
+      }
+    },
+    "rawYaml": {
+      "configValid": "Config is valid",
+      "unsaved": "(unsaved)",
+      "configInvalid": "Config has validation errors",
+      "configInvalidSeeBelow": "Config has validation errors — see below",
+      "errors": "Errors",
+      "warnings": "Warnings",
+      "yamlParseError": "The config file YAML failed to parse. Fix the Raw YAML below, then save.",
+      "yamlParseErrorWithDetail": "The config file YAML failed to parse: {{error}}",
+      "cannotParse": "Could not parse the config file YAML. Fix the Raw YAML above, then save to restore form settings.",
+      "rawYaml": "Raw YAML"
+    },
     "sectionGroups": {
       "basic": "Basic",
       "basicDescription": "Configure model services before running this service.",
@@ -918,12 +1036,30 @@
         "title": "Advanced retry settings",
         "description": "Automatic recovery policy for unstable connections",
         "fields": {
-          "requestMaxRetries": { "label": "Request max retries", "description": "Maximum retries for non-streaming requests." },
-          "streamMaxRetries": { "label": "Stream max retries", "description": "Maximum retries for streaming requests." },
-          "streamIdleTimeoutMs": { "label": "Stream idle timeout (ms)", "description": "Abort the stream when no data arrives within this duration." },
-          "judgeTimeoutMs": { "label": "Judge timeout (ms)", "description": "Maximum time to wait for a routing decision." },
-          "baseDelayMs": { "label": "Base delay (ms)", "description": "Initial wait before the first retry." },
-          "maxDelayMs": { "label": "Maximum delay (ms)", "description": "Maximum wait between retries." }
+          "requestMaxRetries": {
+            "label": "Request max retries",
+            "description": "Maximum retries for non-streaming requests."
+          },
+          "streamMaxRetries": {
+            "label": "Stream max retries",
+            "description": "Maximum retries for streaming requests."
+          },
+          "streamIdleTimeoutMs": {
+            "label": "Stream idle timeout (ms)",
+            "description": "Abort the stream when no data arrives within this duration."
+          },
+          "judgeTimeoutMs": {
+            "label": "Judge timeout (ms)",
+            "description": "Maximum time to wait for a routing decision."
+          },
+          "baseDelayMs": {
+            "label": "Base delay (ms)",
+            "description": "Initial wait before the first retry."
+          },
+          "maxDelayMs": {
+            "label": "Maximum delay (ms)",
+            "description": "Maximum wait between retries."
+          }
         }
       },
       "runtime": {
@@ -931,14 +1067,38 @@
         "description": "Configure service ports, data paths, and network proxy. Changes to ports or paths usually require restarting the service.",
         "advancedToggle": "Advanced settings",
         "fields": {
-          "host": { "label": "Host", "description": "Bind interface for the HTTP/WebSocket server." },
-          "serverPort": { "label": "Server port", "description": "Express + WebSocket port." },
-          "vitePort": { "label": "Vite port", "description": "Frontend dev server (only used when running `npm run dev`)." },
-          "apiTimeout": { "label": "API timeout (ms)", "description": "Per-request upstream timeout." },
-          "databasePath": { "label": "Database path", "description": "SQLite auth/projects database (~ expands to home)." },
-          "workspacesRoot": { "label": "Workspaces root", "description": "Directory under which projects are scanned." },
-          "proxyUrl": { "label": "HTTPS proxy", "description": "Outbound HTTPS proxy URL. Applies to both Gateway and UI Server (proxy.url in pilotdeck.yaml)." },
-          "proxyNoProxy": { "label": "No-proxy list", "description": "Comma-separated hostnames/IPs that bypass the proxy (proxy.noProxy in pilotdeck.yaml). 127.0.0.1 and localhost are always excluded." }
+          "host": {
+            "label": "Host",
+            "description": "Bind interface for the HTTP/WebSocket server."
+          },
+          "serverPort": {
+            "label": "Server port",
+            "description": "Express + WebSocket port."
+          },
+          "vitePort": {
+            "label": "Vite port",
+            "description": "Frontend dev server (only used when running `npm run dev`)."
+          },
+          "apiTimeout": {
+            "label": "API timeout (ms)",
+            "description": "Per-request upstream timeout."
+          },
+          "databasePath": {
+            "label": "Database path",
+            "description": "SQLite auth/projects database (~ expands to home)."
+          },
+          "workspacesRoot": {
+            "label": "Workspaces root",
+            "description": "Directory under which projects are scanned."
+          },
+          "proxyUrl": {
+            "label": "HTTPS proxy",
+            "description": "Outbound HTTPS proxy URL. Applies to both Gateway and UI Server (proxy.url in pilotdeck.yaml)."
+          },
+          "proxyNoProxy": {
+            "label": "No-proxy list",
+            "description": "Comma-separated hostnames/IPs that bypass the proxy (proxy.noProxy in pilotdeck.yaml). 127.0.0.1 and localhost are always excluded."
+          }
         }
       },
       "officePreview": {
@@ -951,8 +1111,8 @@
           },
           "binaryPath": {
             "label": "LibreOffice executable path",
-            "description": "Optional. Enter the full soffice/libreoffice path for custom installations; leave empty to auto-detect.",
-            "placeholder": "/Applications/LibreOffice.app/Contents/MacOS/soffice"
+            "description": "Leave empty to detect automatically, or enter the full path for a custom installation. Save and check after making changes.",
+            "placeholder": "Full path to the LibreOffice executable"
           },
           "detectedBinaryPath": {
             "label": "Auto-scanned paths",
@@ -981,13 +1141,20 @@
           "unknown": "LibreOffice status is temporarily unavailable",
           "error": "Could not check LibreOffice status",
           "refresh": "Check again",
+          "saveAndCheck": "Save and check",
+          "pending": "Save to check this path",
           "noDetectedPaths": "No candidate paths were found yet. You can still enter a full path manually and check again.",
           "pathLabel": "Path",
           "versionLabel": "Version",
           "path": "Path: {{path}}",
           "version": "Version: {{version}}"
         },
-        "builtinNote": "Built-in preview works out of the box: DOCX keeps document layout, XLSX supports worksheet tabs and cell selection, and PPTX supports slide browsing. Legacy DOC, XLS, and PPT files require LibreOffice.",
+        "configurationTitle": "LibreOffice setup",
+        "serviceDetails": {
+          "builtin": "Preview DOCX, XLSX and PPTX without installing anything.",
+          "libreoffice": "Requires a local installation. Supports legacy DOC, XLS and PPT in print layout."
+        },
+        "builtinNote": "Includes document layout, worksheet tabs and cell selection, and slide browsing.",
         "unavailableWarning": "LibreOffice is selected, but no LibreOffice/soffice executable is available on this machine. Install LibreOffice or switch to Built-in preview."
       },
       "models": {
@@ -1026,7 +1193,11 @@
           "cancelTest": "Cancel",
           "textRequest": "Text request",
           "imageRequest": "Image request",
-          "imageNotDescribed": "Could not confirm whether this model supports image input. Please verify and set this manually."
+          "imageNotDescribed": "Could not confirm whether this model supports image input. Please verify and set this manually.",
+          "saveAndTest": "Save and test",
+          "invalidTokenLimits": "Enter token limits as positive whole numbers.",
+          "otherTestRunning": "The connection test for {{provider}} {{model}} has not finished. Wait or cancel the previous test.",
+          "cancelPreviousTest": "Cancel previous test"
         },
         "title": "Model Pool",
         "description": "Centrally manage model providers, connection credentials, and available models. Enabled models are used by agents, routing, and memory.",
@@ -1184,16 +1355,37 @@
       "alwaysOn": {
         "title": "Always-On",
         "description": "Configure automatic discovery globally and opt individual workspaces in.",
-        "enabled": { "label": "Enabled", "description": "Master switch for Always-On background agent." },
+        "enabled": {
+          "label": "Enabled",
+          "description": "Master switch for Always-On background agent."
+        },
         "trigger": {
           "title": "Trigger",
           "description": "Discover work worth advancing at the right time, without interrupting too often.",
-          "autoDiscovery": { "label": "Auto discovery", "description": "When enabled, Always-On periodically inspects opted-in workspaces and proposes follow-up plans." },
-          "tickInterval": { "label": "Check interval (minutes)", "description": "How often the background agent checks workspace status." },
-          "cooldown": { "label": "Cooldown (minutes)", "description": "Minimum time between runs per workspace." },
-          "dailyBudget": { "label": "Daily budget", "description": "Maximum number of plans that can run per workspace each day." },
-          "heartbeatStale": { "label": "Heartbeat stale (seconds)", "description": "Heartbeats older than this are considered stale." },
-          "recentUserMsg": { "label": "Recent user message (minutes)", "description": "Only fire if the user sent a message within this window." },
+          "autoDiscovery": {
+            "label": "Auto discovery",
+            "description": "When enabled, Always-On periodically inspects opted-in workspaces and proposes follow-up plans."
+          },
+          "tickInterval": {
+            "label": "Check interval (minutes)",
+            "description": "How often the background agent checks workspace status."
+          },
+          "cooldown": {
+            "label": "Cooldown (minutes)",
+            "description": "Minimum time between runs per workspace."
+          },
+          "dailyBudget": {
+            "label": "Daily budget",
+            "description": "Maximum number of plans that can run per workspace each day."
+          },
+          "heartbeatStale": {
+            "label": "Heartbeat stale (seconds)",
+            "description": "Heartbeats older than this are considered stale."
+          },
+          "recentUserMsg": {
+            "label": "Recent user message (minutes)",
+            "description": "Only fire if the user sent a message within this window."
+          },
           "preferChannel": {
             "label": "Preferred channel",
             "description": "Default channel for always-on progress updates.",
@@ -1207,25 +1399,58 @@
         "dormancy": {
           "title": "Dormancy",
           "description": "File-system watcher that pauses discovery while the user is actively editing.",
-          "enabled": { "label": "Enabled", "description": "Suppress discovery fires while the workspace has recent file changes." },
-          "debounce": { "label": "Debounce (ms)", "description": "Wait this long after the last file change before resuming." },
-          "ignoreGlobs": { "label": "Ignore globs", "description": "File patterns excluded from dormancy detection, one per line." }
+          "enabled": {
+            "label": "Enabled",
+            "description": "Suppress discovery fires while the workspace has recent file changes."
+          },
+          "debounce": {
+            "label": "Debounce (ms)",
+            "description": "Wait this long after the last file change before resuming."
+          },
+          "ignoreGlobs": {
+            "label": "Ignore globs",
+            "description": "File patterns excluded from dormancy detection, one per line."
+          }
         },
         "workspace": {
           "title": "Workspace",
           "description": "Isolated workspace strategy for Always-On runs.",
-          "gitWorktree": { "label": "Git worktree base dir", "description": "Root directory for git worktree-based isolation." },
-          "snapshotDir": { "label": "Snapshot base dir", "description": "Root directory for snapshot-based isolation." },
-          "snapshotMaxBytes": { "label": "Snapshot max bytes", "description": "Maximum size of a workspace snapshot." },
-          "maxPlansPerCycle": { "label": "Max plans per cycle", "description": "Maximum number of plans that can be accumulated in a single isolation environment cycle." },
-          "gitLfs": { "label": "Git LFS", "description": "Include Git LFS objects in workspace snapshots." }
+          "gitWorktree": {
+            "label": "Git worktree base dir",
+            "description": "Root directory for git worktree-based isolation."
+          },
+          "snapshotDir": {
+            "label": "Snapshot base dir",
+            "description": "Root directory for snapshot-based isolation."
+          },
+          "snapshotMaxBytes": {
+            "label": "Snapshot max bytes",
+            "description": "Maximum size of a workspace snapshot."
+          },
+          "maxPlansPerCycle": {
+            "label": "Max plans per cycle",
+            "description": "Maximum number of plans that can be accumulated in a single isolation environment cycle."
+          },
+          "gitLfs": {
+            "label": "Git LFS",
+            "description": "Include Git LFS objects in workspace snapshots."
+          }
         },
         "execution": {
           "title": "Execution",
           "description": "Safety limits for each Always-On run.",
-          "maxTurns": { "label": "Max turns", "description": "Maximum number of agent turns per run." },
-          "maxToolCalls": { "label": "Max tool calls", "description": "Maximum total tool calls per run." },
-          "timeout": { "label": "Timeout (minutes)", "description": "Hard timeout for each run." }
+          "maxTurns": {
+            "label": "Max turns",
+            "description": "Maximum number of agent turns per run."
+          },
+          "maxToolCalls": {
+            "label": "Max tool calls",
+            "description": "Maximum total tool calls per run."
+          },
+          "timeout": {
+            "label": "Timeout (minutes)",
+            "description": "Hard timeout for each run."
+          }
         },
         "workspaceOptIn": {
           "title": "Projects",
@@ -1344,6 +1569,7 @@
         "provider": {
           "label": "Search provider",
           "description": "Choose the search service currently used by the agent.",
+          "deepseek": "DeepSeek Search",
           "glm": "GLM / Z.AI Web Search",
           "tavily": "Tavily",
           "custom": "Custom",
@@ -1377,7 +1603,7 @@
         },
         "endpoint": {
           "label": "Endpoint",
-          "description": "HTTP(S) request URL for the custom search service.",
+          "description": "HTTP(S) request URL for the custom search service. Changing the URL clears the saved API key. Enter the key again for the new address.",
           "placeholder": "https://example.com/search"
         },
         "custom": {
@@ -1423,7 +1649,10 @@
       "router": {
         "title": "PilotV Router",
         "description": "Embedded router for fan-out across providers (tier-based routing, token saver, auto-orchestrate).",
-        "enabled": { "label": "Enabled", "description": "When on, agents use the router instead of the configured provider directly." },
+        "enabled": {
+          "label": "Enabled",
+          "description": "When on, agents use the router instead of the configured provider directly."
+        },
         "advancedToggle": "Advanced settings",
         "ui": {
           "otherProvider": "Other",
@@ -1497,30 +1726,54 @@
         "zeroUsageRetry": {
           "label": "Zero-usage retry",
           "description": "Automatically retry when the upstream returns a response with zero tokens used.",
-          "maxAttempts": { "label": "Max attempts", "description": "Maximum retry attempts before giving up." }
+          "maxAttempts": {
+            "label": "Max attempts",
+            "description": "Maximum retry attempts before giving up."
+          }
         },
         "transientRetry": {
           "label": "Transient error retry",
           "description": "Automatically retry on transient errors (rate limits, server errors, overloaded) with exponential backoff.",
-          "maxAttempts": { "label": "Max attempts", "description": "Maximum retry attempts before giving up." },
-          "baseDelayMs": { "label": "Base delay (ms)", "description": "Initial delay before the first retry, in milliseconds." },
-          "maxDelayMs": { "label": "Max delay (ms)", "description": "Maximum delay between retries, in milliseconds." }
+          "maxAttempts": {
+            "label": "Max attempts",
+            "description": "Maximum retry attempts before giving up."
+          },
+          "baseDelayMs": {
+            "label": "Base delay (ms)",
+            "description": "Initial delay before the first retry, in milliseconds."
+          },
+          "maxDelayMs": {
+            "label": "Max delay (ms)",
+            "description": "Maximum delay between retries, in milliseconds."
+          }
         },
         "tokenSaver": {
           "title": "Token Saver",
           "description": "A lightweight judge classifies each turn into a tier and routes it to a cost-appropriate model.",
           "judgeModel": "Judge model",
           "defaultTier": "Default tier",
-          "judgeTimeout": { "label": "Judge timeout (ms)", "description": "Maximum time to wait for the judge decision." },
-          "subagentPolicy": { "label": "Sub-agent policy", "description": "How sub-agents are routed: 'judge' re-evaluates each sub-agent turn, 'skip' keeps the direct sub-agent route." }
+          "judgeTimeout": {
+            "label": "Judge timeout (ms)",
+            "description": "Maximum time to wait for the judge decision."
+          },
+          "subagentPolicy": {
+            "label": "Sub-agent policy",
+            "description": "How sub-agents are routed: 'judge' re-evaluates each sub-agent turn, 'skip' keeps the direct sub-agent route."
+          }
         },
         "autoOrchestrate": {
           "title": "Auto Orchestrate",
           "description": "Automatically fan out complex turns into parallel sub-agents when the judge assigns certain tiers.",
           "triggerTiers": "Trigger tiers",
-          "slimPrompt": { "label": "Slim system prompt", "description": "Use a shorter system prompt for orchestrated sub-agents to save tokens." }
+          "slimPrompt": {
+            "label": "Slim system prompt",
+            "description": "Use a shorter system prompt for orchestrated sub-agents to save tokens."
+          }
         },
-        "stats": { "label": "Stats collection", "description": "Track token usage and cost per session. Powers the Dashboard tab." },
+        "stats": {
+          "label": "Stats collection",
+          "description": "Track token usage and cost per session. Powers the Dashboard tab."
+        },
         "pricing": {
           "title": "Model Pricing",
           "description": "Custom pricing per model ($/million tokens). Used when the API doesn't report cost.",
@@ -1561,8 +1814,14 @@
       "gateway": {
         "title": "Gateway",
         "description": "Messaging gateway (Feishu / Telegram / Discord / Slack) — channel-level secrets are best edited via Raw YAML.",
-        "enabled": { "label": "Enabled", "description": "When on, the gateway home is generated and channels with credentials come online." },
-        "home": { "label": "Gateway home", "description": "Working directory for gateway state and per-channel configs." }
+        "enabled": {
+          "label": "Enabled",
+          "description": "When on, the gateway home is generated and channels with credentials come online."
+        },
+        "home": {
+          "label": "Gateway home",
+          "description": "Working directory for gateway state and per-channel configs."
+        }
       },
       "subsystemReload": {
         "title": "Subsystem reload status",
@@ -1645,7 +1904,7 @@
   },
   "gateway": {
     "title": "IM Channels",
-    "description": "Configure instant messaging channels (Feishu, WeChat, WeCom) so the agent can be reached from IM apps.",
+    "description": "Configure instant messaging channels (Feishu/Lark, WeChat, WeCom, Slack, Telegram) so the agent can be reached from IM apps.",
     "connected": "Connected",
     "notConfigured": "Not configured",
     "enabled": "Enabled",
@@ -1657,6 +1916,28 @@
     "disable": "Disable",
     "cancel": "Cancel",
     "dismiss": "Dismiss",
+    "connecting": "Connecting…",
+    "connectionFailed": "Connection failed",
+    "verified": "Verified",
+    "keepSavedToken": "Saved — leave blank to keep it",
+    "slack": {
+      "title": "Slack",
+      "summary": "Chat with the agent in Slack DMs, or @mention it in channels",
+      "guide": "1. Create an app at api.slack.com/apps and turn on Socket Mode (no public URL needed).\n2. Create an App-Level Token with the connections:write scope.\n3. Add bot scopes: chat:write, app_mentions:read, im:history (plus channels:history / groups:history to follow threads in public / private channels, reactions:write for the 👀 receipt).\n4. Subscribe to bot events app_mention and message.im (plus message.channels / message.groups).\n5. Under App Home, turn on the Messages Tab and tick \"Allow users to send Slash commands and messages from the messages tab\" — otherwise Slack blocks DMs to the bot. Then install the app and copy the Bot User OAuth Token.\nTip: Slack reserves \"/\" for its own commands — use !new to start a fresh session.",
+      "botToken": "Bot User OAuth Token",
+      "botTokenHint": "OAuth & Permissions → Bot User OAuth Token (xoxb-…)",
+      "appToken": "App-Level Token",
+      "appTokenHint": "Basic Information → App-Level Tokens (xapp-…, scope connections:write)",
+      "saveSuccess": "Slack config saved — connecting now"
+    },
+    "telegram": {
+      "title": "Telegram",
+      "summary": "Chat with the agent through a Telegram bot",
+      "guide": "1. Open @BotFather in Telegram and send /newbot.\n2. Copy the bot token it gives you and paste it below.\nThe bot answers every message in private chats. In groups it replies when @mentioned or when you reply to it. Uses long polling, so no public URL is needed (the server must be able to reach api.telegram.org).",
+      "token": "Bot Token",
+      "tokenHint": "From @BotFather, looks like 123456789:AA…",
+      "saveSuccess": "Telegram config saved — connecting now"
+    },
     "feishu": {
       "title": "Feishu / Lark",
       "label": "Feishu Bot",
@@ -1724,15 +2005,16 @@
     "description": "Adjust display mode, colors and background. Changes take effect immediately and save automatically.",
     "mode": "Appearance mode",
     "presets": "Color palette",
-    "presetHint": "Accent colors apply to buttons and selected states.",
+    "presetHint": "One accent, balanced surfaces and states. Every palette follows light, dark and system mode.",
     "autoSave": "Changes save automatically",
     "preset": {
-      "default": "Default",
+      "gray": "Graphite gray",
+      "default": "Iris purple",
       "blue": "Mist blue",
-      "mint": "Mint",
-      "apricot": "Apricot",
+      "mint": "Mint green",
+      "apricot": "Apricot orange",
       "lavender": "Lavender",
-      "rose": "Rose",
+      "rose": "Rose pink",
       "custom": "Custom"
     },
     "accent": "Accent color",
@@ -1767,8 +2049,6 @@
     "previewText": "A little color for your next idea.",
     "deviceOnly": "Appearance preferences stay on this device",
     "reset": "Restore defaults",
-    "lightOnly": "These colors and backgrounds apply only in light mode. Dark appearance stays unchanged.",
-    "editLight": "Switch to light and edit",
     "saveFailed": "Could not save appearance. Your last saved settings have been restored. Check device storage and try again.",
     "invalidImage": "Choose a valid PNG, JPEG or WebP image no larger than 10 MB.",
     "imageSaveFailed": "Could not read or save the image. Try another image or check device storage.",
@@ -1789,7 +2069,10 @@
     "hardwareAcceleration": "Use hardware (3D) acceleration",
     "hardwareHint": "Use the GPU to render the interface. Disable if you experience rendering issues. Fully quit and reopen the desktop app to apply changes.",
     "browserHardwareHint": "Hardware acceleration is managed by your browser. Change it in browser settings.",
-    "restartRequired": "Saved. Fully quit and reopen the desktop app to apply this change."
+    "restartRequired": "Saved. Fully quit and reopen the desktop app to apply this change.",
+    "customHint": "Fine-tune your accent for both appearances.",
+    "lightBackgroundHint": "Sidebar background is adjustable in light mode.",
+    "wallpaperLightOnly": "Wallpaper effects apply in light mode. Your image and adjustments are saved when using dark mode."
   },
   "computerUse": {
     "controlTitle": "Control",
@@ -1802,15 +2085,16 @@
     },
     "granted": "Granted",
     "notGranted": "Permission required",
+    "permissionCheckFailed": "Could not check permissions",
     "openPermissions": "Grant permission",
     "windowsPermissions": "Normal desktop applications usually need no additional system permission. Elevated windows and system security interfaces have additional restrictions.",
     "linuxPermissions": "The component uses your current desktop login session. Capture, accessibility, and input capabilities depend on the desktop environment and system services.",
-    "permissionHint": "Grant permissions to {{owner}} in System Settings, then return here and recheck. If macOS still asks you to reopen the application, restart it as instructed.",
+    "permissionHint": "Grant permissions to {{owner}} in System Settings. The status updates automatically when you return, and enabled instances reconnect. Follow any additional macOS restart instructions.",
     "permissionFallbackTitle": "Application missing from the permission list?",
     "permissionFallbackIntro": "If {{owner}} is missing from the list, add the application included with PilotV manually. No separate download is needed.",
     "permissionFallbackAdd": "Click Grant permission to open the relevant permission page in System Settings.",
     "permissionFallbackSelect": "Click Show permission application and drag the selected application from Finder into the permission list. Or click + below the list, press ⌘⇧G in the file picker, paste the path below, and open it.",
-    "permissionFallbackFinish": "Enable the application's permission, complete any system verification, then return here and click Recheck.",
+    "permissionFallbackFinish": "Enable the application's permission and complete system verification. This page updates automatically; you can also click Recheck. If the switch is on but permission is still missing, remove the old entry and add the application at the path below.",
     "revealPermissionApp": "Show permission application",
     "copyPermissionPath": "Copy application path",
     "permissionPathCopied": "Copied",
@@ -1833,5 +2117,126 @@
     "stop": "Stop and disable",
     "waylandHint": "This is a Wayland desktop. The system may request permission on the first capture; some operations require a desktop helper. Unsupported operations report a specific reason.",
     "missingDriver": "The deployed computer use component is missing. Redeploy PilotV; the component is included with the runtime and needs no separate installation."
+  },
+  "usage": {
+    "overview": "All-time usage overview",
+    "activeDays": "Active Days",
+    "totalCalls": "Total calls",
+    "period": "Activity period",
+    "year": "{{year}}",
+    "activityView": "Activity view",
+    "views": {
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "cumulative": "Cumulative"
+    },
+    "dailyChart": "Daily token activity. Use arrow keys to explore dates.",
+    "weeklyChart": "Weekly tokens. Use arrow keys to explore weeks.",
+    "cumulativeChart": "Cumulative tokens at each week’s end. Use arrow keys to explore weeks.",
+    "weekDetail_one": "{{start}}–{{end}} · {{tokens}} tokens · {{count, number}} call",
+    "weekDetail_other": "{{start}}–{{end}} · {{tokens}} tokens · {{count, number}} calls",
+    "cumulativeDetail": "{{date}} · {{tokens}} cumulative tokens",
+    "tokens": "tokens",
+    "intensity": "Token intensity relative to the daily peak in this period",
+    "totalToDate": "Total through this date",
+    "today": "Tokens today",
+    "total": "Total Tokens",
+    "peak": "Daily Peak",
+    "longestStreak": "Longest Streak",
+    "currentStreak": "Current Streak",
+    "days": "days",
+    "days_one": "day",
+    "days_other": "days",
+    "activity": "Token Activity",
+    "lastYear": "Last 365 days",
+    "timeZone": "Daily totals · Beijing time (UTC+8)",
+    "refresh": "Refresh",
+    "error": "Could not refresh usage. Please try again.",
+    "loading": "Loading usage…",
+    "unavailable": "Usage is temporarily unavailable.",
+    "monday": "Mon",
+    "wednesday": "Wed",
+    "friday": "Fri",
+    "less": "Less",
+    "more": "More",
+    "legendZero": "0 tokens",
+    "legendBelow": "Below {{max}} tokens",
+    "legendRange": "{{min}}–{{max}} tokens (exclusive upper bound)",
+    "legendAtLeast": "{{min}} tokens or more",
+    "dayDetail_one": "{{date}} · {{tokens}} tokens · {{count, number}} call",
+    "dayDetail_other": "{{date}} · {{tokens}} tokens · {{count, number}} calls",
+    "calls_one": "{{count, number}} call",
+    "calls_other": "{{count, number}} calls",
+    "timeZoneShort": "Beijing time",
+    "autoRefresh": "Updates every 30 seconds",
+    "updatedShort": "Updated {{time}}",
+    "scope": "Counts reported token usage from conversations, routing, subagents, and context compaction. Memory and title generation are excluded, as are calls without reported usage.",
+    "since": "Recorded since {{date}}. Earlier unrecorded usage is not included.",
+    "empty": "No usage yet. Usage will appear here after your first conversation.",
+    "updated": "Updated {{time}} · refreshes every 30 seconds"
+  },
+  "customSearch": {
+    "basicsTitle": "Basic configuration",
+    "requestTitle": "Request template",
+    "previewTitle": "Preview and save",
+    "variablesHelp": "Variables and request rules",
+    "namePlaceholder": "Custom search",
+    "formEncoding": "Form URL encoded",
+    "title": "Custom request and response",
+    "description": "The model calls web_search(query, gl). These settings translate that call into your API request and map its response back to search results. Save this configuration before testing the connection.",
+    "endpoint": "Request URL",
+    "name": "Provider name",
+    "method": "Request method",
+    "auth": "Authentication",
+    "authOptions": {
+      "bearer": "Bearer token",
+      "headerApiKey": "API key in header",
+      "bodyApiKey": "API key in body",
+      "queryApiKey": "API key in query",
+      "none": "No authentication"
+    },
+    "apiKeyParam": "API key field / header name",
+    "queryParam": "Legacy query field",
+    "variables": "Variables: {{query}} (search text), {{limit}} (number), {{gl}} (country, defaults to us), {{apiKey}} (saved secret). Use variables in JSON values; a standalone {{limit}} keeps its numeric type. Store secrets in the API key field, not in templates.",
+    "legacy": "Leaving both query parameters and body blank keeps the legacy query field. An explicit JSON object defines the entire request. GET uses query parameters and cannot have a body. Changing URL or authentication requires re-entering the API key.",
+    "headers": "Request headers (JSON)",
+    "queryParams": "Query parameters (JSON)",
+    "bodyEncoding": "Body encoding",
+    "requestBody": "Request body (JSON template)",
+    "mapping": "Response mapping",
+    "paths": "Paths use dotted fields and array indexes, e.g. data.results or links[0].url. Use $ for a root array. Blank result path detects common lists; blank item fields use the placeholders below. Wrong lists or URL mappings fail the connection test.",
+    "resultsPath": "Results list path",
+    "titleField": "Title field",
+    "urlField": "URL field",
+    "snippetField": "Snippet field",
+    "sourceField": "Source field",
+    "publishedAtField": "Publication date field",
+    "testQuery": "Preview query",
+    "preview": "Preview request",
+    "previewHint": "JSON bodies are expanded for readability and serialized once when sent. Preview uses a placeholder key and sends no request.",
+    "save": "Save request configuration",
+    "invalidJson": "Invalid JSON"
+  },
+  "videoGeneration": {
+    "enabled": "Enable video generation",
+    "apiKey": "API key",
+    "apiKeyHint": "Stored locally. Leave blank to keep the saved key.",
+    "baseUrl": "API address",
+    "baseUrlHint": "OpenAI-compatible Videos API base URL, such as http://localhost:8000/v1.",
+    "model": "Model",
+    "modelHint": "The video model offered by your service, configured separately from chat.",
+    "check": "Test connection",
+    "checking": "Generating test video…",
+    "connected": "Test succeeded. A valid video was generated in {{seconds}} seconds.",
+    "connectionFailed": "Test failed: {{error}}",
+    "unknownError": "Check the address, key, and service availability.",
+    "invalidAddress": "Enter a valid HTTP or HTTPS API address.",
+    "keyRequired": "Enter an API key.",
+    "newKeyRequired": "Enter the API key again after changing the API address.",
+    "modelRequired": "Enter an video model name.",
+    "saveFailed": "Could not save. Please try again.",
+    "extraParams": "Model parameters (optional)",
+    "extraParamsHint": "JSON defaults required by your model service. For MiniMax-H3: {\"task\":\"t2va\",\"aspect_ratio\":\"16:9\"}.",
+    "invalidParams": "Enter a JSON object no larger than 8 KB."
   }
 }

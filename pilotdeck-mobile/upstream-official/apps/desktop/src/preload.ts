@@ -1,9 +1,10 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer, webFrame, type IpcRendererEvent } from "electron";
 
 import { installWindowChrome } from "./preloadChrome";
 import type { DesktopCommand, DesktopMenuState } from "./desktopCommands";
 import type { DesktopAppearance } from './appearance';
 import type { FilePickerRequest, FilePickerResult } from './filePicker';
+import type { NotificationPreferences, SystemNotification } from '../../../ui/shared/notifications';
 
 installWindowChrome(process.platform, ipcRenderer);
 
@@ -12,10 +13,32 @@ type RuntimeStatus = {
   message: string;
   logPath?: string;
   error?: string;
+  progress?: number;
+  startedAt?: number;
+  phaseStartedAt?: number;
 };
 
 contextBridge.exposeInMainWorld("pilotdeckDesktop", {
   platform: process.platform,
+  getUninstallStatus: () => ipcRenderer.invoke('pilotdeck:uninstall-status') as Promise<{ supported: boolean }>,
+  uninstall: () => ipcRenderer.invoke('pilotdeck:uninstall') as Promise<{ canceled: boolean }>,
+  getNotificationStatus: () => ipcRenderer.invoke('pilotdeck:notification-status'),
+  setNotificationPreferences: (value: NotificationPreferences) => ipcRenderer.invoke('pilotdeck:notification-preferences', value),
+  showNotification: (value: SystemNotification) => ipcRenderer.invoke('pilotdeck:notification-show', value),
+  recordTaskReminder: (value: SystemNotification) => ipcRenderer.invoke('pilotdeck:notification-reminder', value),
+  setNotificationScope: (scope: string | null) => ipcRenderer.invoke('pilotdeck:notification-scope', scope),
+  openNotificationSettings: () => ipcRenderer.invoke('pilotdeck:notification-settings'),
+  onNotificationNavigate: (callback: (data: SystemNotification['data']) => void) => {
+    const listener = (_event: IpcRendererEvent, data: SystemNotification['data']) => callback(data);
+    ipcRenderer.on('pilotdeck:notification-navigate', listener);
+    return () => ipcRenderer.off('pilotdeck:notification-navigate', listener);
+  },
+  // Zoom roles in the application menu drive these; the renderer polls the
+  // factor on window resize to show transient feedback (webFrame has no events).
+  getZoomFactor: () => webFrame.getZoomFactor(),
+  resetZoom: () => {
+    webFrame.setZoomLevel(0);
+  },
   setMenuState: (state: DesktopMenuState) => ipcRenderer.invoke("pilotdeck:menu-state", state),
   onCommand: (callback: (command: DesktopCommand) => void) => {
     const listener = (_event: IpcRendererEvent, command: DesktopCommand) => callback(command);
@@ -35,6 +58,8 @@ contextBridge.exposeInMainWorld("pilotdeckDesktop", {
   pauseUpdate: () => ipcRenderer.invoke("pilotdeck:update-pause"),
   resumeUpdate: () => ipcRenderer.invoke("pilotdeck:update-resume"),
   getRuntimeInfo: () => ipcRenderer.invoke("pilotdeck:get-runtime-info"),
+  getRuntimeStatus: () => ipcRenderer.sendSync('pilotdeck:get-runtime-status') as RuntimeStatus | null,
+  saveRuntimeLogs: () => ipcRenderer.invoke('pilotdeck:save-runtime-logs') as Promise<{ canceled: boolean }>,
   getAboutInfo: () => ipcRenderer.invoke("pilotdeck:about-info"),
   onRuntimeStatus: (callback: (status: RuntimeStatus) => void) => {
     const listener = (_event: IpcRendererEvent, status: RuntimeStatus) => callback(status);
@@ -44,5 +69,6 @@ contextBridge.exposeInMainWorld("pilotdeckDesktop", {
   retryRuntime: () => ipcRenderer.invoke("pilotdeck:retry-runtime"),
   openRuntimeLog: () => ipcRenderer.invoke("pilotdeck:open-runtime-log"),
   pickFolder: () => ipcRenderer.invoke("pilotdeck:pick-folder"),
+  openDirectory: (directory: string) => ipcRenderer.invoke('pilotdeck:open-directory', directory) as Promise<boolean>,
   pickFiles: (request: FilePickerRequest) => ipcRenderer.invoke('pilotdeck:pick-files', request) as Promise<FilePickerResult>,
 });

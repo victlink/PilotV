@@ -1,10 +1,7 @@
 import { IS_PLATFORM } from '../constants/config';
+import { clientRequestHeaders, rememberRequestHeadersMode } from './requestContext';
 import { activeBackendOrigin } from '../components/app-shell/pilotvRuntime';
 import { readTokenFor, writeTokenFor } from '../components/auth/deviceTokens';
-
-// 上传走 XHR，没法复用 authenticatedFetch，令牌存取要和它用同一个来源，
-// 否则刷新后的新令牌只写进 pilotdeck-tokens，下一次上传就带着空 Authorization 发出去了。
-const readAuthToken = () => readTokenFor(activeBackendOrigin());
 
 /** Shared transport for chat and workspace uploads; completion awaits the HTTP response. */
 export function postFormDataWithProgress({
@@ -23,6 +20,9 @@ export function postFormDataWithProgress({
       return;
     }
     const xhr = new XMLHttpRequest();
+    // Capture the device and token together so a device switch cannot redirect a refresh.
+    const dispatchedOrigin = activeBackendOrigin();
+    const dispatchedToken = readTokenFor(dispatchedOrigin);
     const abort = () => xhr.abort();
     const cleanup = () => signal.removeEventListener('abort', abort);
     xhr.upload.onprogress = (event) => {
@@ -37,8 +37,9 @@ export function postFormDataWithProgress({
     };
     xhr.onload = () => {
       cleanup();
+      rememberRequestHeadersMode(xhr.getResponseHeader('x-pilotdeck-request-headers-mode'));
       const token = xhr.getResponseHeader('X-Refreshed-Token');
-      if (token) writeTokenFor(activeBackendOrigin(), token);
+      if (token && dispatchedToken === readTokenFor(dispatchedOrigin)) writeTokenFor(dispatchedOrigin, token);
       let body: Record<string, any> = {};
       try { body = JSON.parse(xhr.responseText || '{}'); } catch { /* HTTP status still identifies failure. */ }
       resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, body });
@@ -47,8 +48,8 @@ export function postFormDataWithProgress({
     xhr.ontimeout = () => { cleanup(); reject(Object.assign(new Error('Upload timed out. Please retry.'), { code: 'UPLOAD_TIMEOUT' })); };
     xhr.onabort = () => { cleanup(); reject(new DOMException('Upload aborted', 'AbortError')); };
     xhr.open('POST', url);
-    const token = readAuthToken();
-    if (!IS_PLATFORM && token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    for (const [name, value] of Object.entries(clientRequestHeaders(url))) xhr.setRequestHeader(name, value);
+    if (!IS_PLATFORM && dispatchedToken) xhr.setRequestHeader('Authorization', `Bearer ${dispatchedToken}`);
     signal.addEventListener('abort', abort, { once: true });
     try { xhr.send(formData); } catch (error) { cleanup(); reject(error); }
   });

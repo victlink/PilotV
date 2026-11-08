@@ -1,13 +1,20 @@
 import { postFormDataWithProgress } from './uploadFormData';
 import { IS_PLATFORM } from "../constants/config";
+import { clientRequestHeaders, rememberRequestUser, requestAuthToken } from './requestContext';
 import { activeBackendOrigin } from '../components/app-shell/pilotvRuntime';
 import { readTokenFor, writeTokenFor } from '../components/auth/deviceTokens';
 
-// 令牌按设备分开存（deviceTokens.ts）。这里再读旧的 auth-token 会拿不到值：
-// 登录只写 pilotdeck-tokens，于是每个带鉴权的请求都缺 Authorization 头，
-// 后端回 401，前端就清会话回到登录页 —— 表现成"怎么都登不进去"。
 const readAuthToken = () => readTokenFor(activeBackendOrigin());
-const storeAuthToken = (token) => writeTokenFor(activeBackendOrigin(), token);
+
+const firstPartyFetch = (url, options = {}) => {
+  const dispatchedToken = requestAuthToken();
+  const headers = new Headers(clientRequestHeaders(url, options.body));
+  new Headers(options.headers).forEach((value, name) => headers.set(name, value));
+  return fetch(url, { ...options, headers: Object.fromEntries(headers) }).then(response => {
+    rememberRequestUser(url, response, options.body, dispatchedToken);
+    return response;
+  });
+};
 
 const normalizePathForUrl = (value) => String(value || '').replace(/\\/g, '/');
 
@@ -33,7 +40,7 @@ const encodePathSegments = (relativePath) =>
     .map((segment) => encodeURIComponent(segment))
     .join('/');
 
-const appendAuthToken = (url) => {
+export const appendAuthToken = (url) => {
   const token = readAuthToken();
   if (!token) return url;
   const separator = url.includes('?') ? '&' : '?';
@@ -42,7 +49,8 @@ const appendAuthToken = (url) => {
 
 // Utility function for authenticated API calls
 export const authenticatedFetch = (url, options = {}) => {
-  const token = readAuthToken();
+  const dispatchedOrigin = activeBackendOrigin();
+  const token = readTokenFor(dispatchedOrigin);
   const {
     suppressServerErrorToast = false,
     ...fetchOptions
@@ -59,16 +67,15 @@ export const authenticatedFetch = (url, options = {}) => {
     defaultHeaders['Authorization'] = `Bearer ${token}`;
   }
 
-  return fetch(url, {
+  const mergedHeaders = new Headers(defaultHeaders);
+  new Headers(fetchOptions.headers).forEach((value, name) => mergedHeaders.set(name, value));
+  return firstPartyFetch(url, {
     ...fetchOptions,
-    headers: {
-      ...defaultHeaders,
-      ...fetchOptions.headers,
-    },
+    headers: mergedHeaders,
   }).then((response) => {
     const refreshedToken = response.headers.get('X-Refreshed-Token');
-    if (refreshedToken) {
-      storeAuthToken(refreshedToken);
+    if (refreshedToken && token === readTokenFor(dispatchedOrigin)) {
+      writeTokenFor(dispatchedOrigin, refreshedToken);
     }
     if (!suppressServerErrorToast && response.status >= 500) {
       window.dispatchEvent(new CustomEvent('pilotdeck:toast', {
@@ -165,13 +172,13 @@ function defaultWebHttpUserHint(status) {
 export const api = {
   // Auth endpoints (no token required)
   auth: {
-    status: () => fetch('/api/auth/status'),
-    login: (username, password) => fetch('/api/auth/login', {
+    status: () => firstPartyFetch('/api/auth/status'),
+    login: (username, password) => firstPartyFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     }),
-    register: (username, password) => fetch('/api/auth/register', {
+    register: (username, password) => firstPartyFetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -274,6 +281,9 @@ export const api = {
     if (token) params.set('token', token);
     return `/api/search/conversations?${params.toString()}`;
   },
+  globalSearch: (body, { signal } = {}) => authenticatedFetch('/api/search/global', {
+    method: 'POST', body: JSON.stringify(body), signal,
+  }),
   createProject: (path) =>
     authenticatedFetch('/api/projects/create', {
       method: 'POST',
@@ -296,6 +306,8 @@ export const api = {
   },
   readFileBlob: (projectName, filePath) =>
     authenticatedFetch(api.fileContentUrl(projectName, filePath), { suppressServerErrorToast: true }),
+  fileMetadata: (projectName, filePath, { signal } = {}) =>
+    authenticatedFetch(api.fileContentUrl(projectName, filePath), { method: 'HEAD', cache: 'no-store', signal, suppressServerErrorToast: true }),
   fileContentSha256: (projectName, filePath) => {
     const params = new URLSearchParams({ path: filePath, sha256: '1' });
     return authenticatedFetch(
@@ -389,10 +401,10 @@ export const api = {
   },
   pilotDeckConfig: () =>
     authenticatedFetch('/api/config'),
-  saveFile: (projectName, filePath, content) =>
+  saveFile: (projectName, filePath, content, expectedHash, expectedContent) =>
     authenticatedFetch(`/api/projects/${projectName}/file`, {
       method: 'PUT',
-      body: JSON.stringify({ filePath, content }),
+      body: JSON.stringify({ filePath, content, expectedHash, expectedContent }),
     }),
   getFiles: (projectName, options = {}) =>
     authenticatedFetch(`/api/projects/${projectName}/files`, options),

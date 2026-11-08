@@ -55,6 +55,8 @@ describe("settings route paths", () => {
 
   it("maps menu keys and legacy tabs onto dedicated settings URLs", () => {
     expect(getSettingsPath("modelPool")).toBe("/settings/models");
+    expect(getSettingsPath("usage")).toBe("/settings/usage");
+    expect(mapSettingsSectionToMenuKey("usage")).toBe("usage");
     expect(getSettingsPath("agentSearch")).toBe("/settings/agent-search");
     expect(getSettingsPath("projectTeam")).toBe("/settings/project-team");
     expect(getSettingsPathFromTab("config:tools")).toBe("/settings/agent-search");
@@ -93,4 +95,18 @@ it.each([
   const url = new URL(getSettingsPathFromTab(tab), 'http://fixture');
   expect(url.pathname).toBe(page);
   expect(url.searchParams.get('reference')).toBe(reference);
+});
+
+describe('multimodal settings navigation', () => {
+  it('has one destination and retains the modality from old links', () => {
+    expect(getSettingsPath('multimodalGeneration')).toBe('/settings/multimodal-generation');
+    for (const section of ['image-generation', 'video-generation', 'multimodal-generation']) {
+      expect(mapSettingsSectionToMenuKey(section)).toBe('multimodalGeneration');
+    }
+    expect(getSettingsPathFromTab('config:imageGeneration')).toBe('/settings/multimodal-generation');
+    expect(getSettingsPathFromTab('config:videoGeneration')).toBe('/settings/multimodal-generation?tab=video');
+    expect(getSettingsPathFromTab('video-generation')).toBe('/settings/multimodal-generation?tab=video');
+    expect(getSettingsPathFromTab('multimodal-generation?tab=video')).toBe('/settings/multimodal-generation?tab=video');
+    expect(getSettingsPathFromTab('multimodal-generation?tab=unknown')).toBe('/settings/multimodal-generation');
+  });
 });

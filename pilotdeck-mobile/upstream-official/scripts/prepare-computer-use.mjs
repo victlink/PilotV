@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { writeIcns } from './lib/app-icons.mjs';
+import { MAC_HOST_ID, MAC_DEV_HOST_ID } from './lib/mac-computer-use.mjs';
 
 const scripts = dirname(fileURLToPath(import.meta.url));
 export const driverPin = JSON.parse(readFileSync(join(scripts, 'computer-use/cua-driver.json'), 'utf8'));
@@ -18,15 +20,54 @@ export function selectDriverAsset(platform, arch) {
 export function verifyDriverArchive(bytes, asset) {
   if (createHash('sha256').update(bytes).digest('hex') !== asset.sha256) throw new Error(`Cua Driver checksum mismatch: ${asset.name}`);
 }
+
+const retryableStatuses = new Set([408, 425, 429, 500, 502, 503, 504]);
+const retryableTransport = error => ['AbortError', 'TimeoutError'].includes(error?.name)
+  || /^(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|UND_ERR_(?:SOCKET|CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT))$/.test(error?.cause?.code || error?.code || '');
+
+export async function downloadDriverArchive(url, archive, { fetchImpl = fetch, wait = delay } = {}) {
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      const response = await fetchImpl(url, { signal: AbortSignal.timeout(5 * 60_000) });
+      if (!response.ok || !response.body) {
+        await response.body?.cancel().catch(() => {});
+        throw Object.assign(new Error(`Driver download failed: HTTP ${response.status}`), {
+          status: response.status, retryable: retryableStatuses.has(response.status),
+        });
+      }
+      const output = createWriteStream(archive);
+      try {
+        await pipeline(response.body, output);
+      } finally {
+        // Web-stream rejection can settle pipeline before the file's pending
+        // open/close completes. Do not unlink or retry while it can recreate
+        // the archive, or while Windows still has the failed writer open.
+        if (!output.closed) await new Promise(resolve => {
+          output.once('close', resolve);
+          output.destroy();
+        });
+      }
+      return;
+    } catch (error) {
+      // Never append to or reuse a truncated archive after a dropped stream.
+      rmSync(archive, { force: true });
+      if (!(error.retryable ?? retryableTransport(error)) || attempt === 4) throw error;
+      const backoff = 1000 * 2 ** (attempt - 1);
+      const reason = error.status ? `HTTP ${error.status}` : error.cause?.code || error.code || error.name;
+      console.warn(`[computer-use] download attempt ${attempt}/4 failed (${reason}); retrying in ${backoff}ms`);
+      await wait(backoff);
+    }
+  }
+}
 const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex');
 const run = (command, args, options = {}) => {
-  const result = spawnSync(command, args, { stdio: 'inherit', ...options });
+  const result = spawnSync(command, args, { stdio: 'inherit', windowsHide: true, ...options });
   if (result.error || result.status !== 0) throw result.error || new Error(`${command} failed`);
 };
 
 // A native GUI host gives Web deployments the same direct-parent permission
 // contract as Electron, without using a user's separately installed Driver.
-async function stageMacApp(directory) {
+async function stageMacApp(directory, productionHost) {
   const app = join(directory, 'PilotDeck Computer Use.app');
   const contents = join(app, 'Contents');
   mkdirSync(join(contents, 'MacOS'), { recursive: true });
@@ -35,9 +76,10 @@ async function stageMacApp(directory) {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>pilotdeck-computer-use</string>
-<key>CFBundleIdentifier</key><string>cn.pilotdeck.computer-use</string>
-<key>CFBundleName</key><string>PilotDeck Computer Use</string>
-<key>CFBundleDisplayName</key><string>PilotDeck Computer Use</string>
+<key>CFBundleIdentifier</key><string>${productionHost ? MAC_HOST_ID : MAC_DEV_HOST_ID}</string>
+<key>CFBundleName</key><string>PilotDeck Computer Use${productionHost ? '' : ' Dev'}</string>
+<key>CFBundleDisplayName</key><string>PilotDeck Computer Use${productionHost ? '' : ' Dev'}</string>
+<key>PilotDeckPermissionProbeVersion</key><integer>1</integer>
 <key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>CFBundleIconFile</key><string>computer-use.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
@@ -50,7 +92,7 @@ async function stageMacApp(directory) {
 <key>NSAppleEventsUsageDescription</key><string>PilotDeck communicates with applications to perform computer tasks you request.</string>
 </dict></plist>\n`);
   mkdirSync(join(contents, 'Resources'));
-  cpSync(join(directory, 'LICENSE.txt'), join(contents, 'Resources/LICENSE.txt'));
+  copyFileSync(join(directory, 'LICENSE.txt'), join(contents, 'Resources/LICENSE.txt'));
   await writeIcns(join(scripts, 'computer-use/icon.png'), join(contents, 'Resources/computer-use.icns'));
   const source = join(scripts, 'computer-use/macos-host.m');
   const host = join(contents, 'MacOS/pilotdeck-computer-use');
@@ -63,16 +105,18 @@ async function stageMacApp(directory) {
 }
 
 export async function prepareComputerUse({ destination = resolve(scripts, '../resources/cua-driver'),
-  platform = process.platform, arch = process.env.PILOTDECK_DESKTOP_NODE_ARCH || process.arch, env = process.env } = {}) {
+  platform = process.platform, arch = process.env.PILOTDECK_DESKTOP_NODE_ARCH || process.arch, env = process.env,
+  productionHost = env.PILOTDECK_DESKTOP_REQUIRE_SIGNING === '1' } = {}) {
   const asset = selectDriverAsset(platform, arch);
   const binaryName = platform === 'win32' ? 'cua-driver.exe' : 'cua-driver';
   const executable = platform === 'darwin' ? 'PilotDeck Computer Use.app/Contents/MacOS/cua-driver' : binaryName;
   const metadataPath = join(destination, 'manifest.json');
   if (existsSync(metadataPath) && existsSync(join(destination, executable))) {
     const installed = JSON.parse(readFileSync(metadataPath, 'utf8'));
-    if (installed.layoutVersion === 6 && installed.version === driverPin.version && installed.platform === platform && installed.arch === arch
+    if (installed.layoutVersion === 7 && installed.version === driverPin.version && installed.platform === platform && installed.arch === arch
       && installed.archiveSha256 === asset.sha256 && installed.binarySha256 === sha256(join(destination, executable))
-      && (platform !== 'darwin' || installed.hostSourceSha256 === sha256(join(scripts, 'computer-use/macos-host.m'))
+      && (platform !== 'darwin' || installed.hostBundleId === (productionHost ? MAC_HOST_ID : MAC_DEV_HOST_ID)
+        && installed.hostSourceSha256 === sha256(join(scripts, 'computer-use/macos-host.m'))
         && installed.iconSourceSha256 === sha256(join(scripts, 'computer-use/icon.png'))
         && existsSync(join(destination, 'PilotDeck Computer Use.app/Contents/Resources/computer-use.icns'))
         && installed.iconSha256 === sha256(join(destination, 'PilotDeck Computer Use.app/Contents/Resources/computer-use.icns')))) return destination;
@@ -86,9 +130,7 @@ export async function prepareComputerUse({ destination = resolve(scripts, '../re
       const base = env.PILOTDECK_CUA_BASE_URL || env.PILOTDECK_DESKTOP_CUA_BASE_URL || `https://github.com/${driverPin.repository}/releases/download/${driverPin.tag}`;
       const url = `${base.replace(/\/$/, '')}/${asset.name}`;
       console.log(`[computer-use] downloading ${url}`);
-      const response = await fetch(url);
-      if (!response.ok || !response.body) throw new Error(`Driver download failed: HTTP ${response.status}`);
-      await pipeline(response.body, createWriteStream(archive));
+      await downloadDriverArchive(url, archive);
     }
     verifyDriverArchive(readFileSync(archive), asset);
     const extracted = join(temporary, 'extracted'); mkdirSync(extracted);
@@ -106,12 +148,13 @@ export async function prepareComputerUse({ destination = resolve(scripts, '../re
     const binary = findBinary(extracted);
     if (!binary) throw new Error('Driver archive contains no executable');
     const staged = join(temporary, 'staged'); mkdirSync(staged);
-    cpSync(binary, join(staged, binaryName));
+    copyFileSync(binary, join(staged, binaryName));
     if (platform !== 'win32') chmodSync(join(staged, binaryName), 0o755);
-    cpSync(join(scripts, 'computer-use/LICENSE.txt'), join(staged, 'LICENSE.txt'));
-    if (platform === 'darwin') await stageMacApp(staged);
-    writeFileSync(join(staged, 'manifest.json'), JSON.stringify({ layoutVersion: 6, executable, version: driverPin.version, platform, arch,
-      ...(platform === 'darwin' ? { hostSourceSha256: sha256(join(scripts, 'computer-use/macos-host.m')),
+    copyFileSync(join(scripts, 'computer-use/LICENSE.txt'), join(staged, 'LICENSE.txt'));
+    if (platform === 'darwin') await stageMacApp(staged, productionHost);
+    writeFileSync(join(staged, 'manifest.json'), JSON.stringify({ layoutVersion: 7, executable, version: driverPin.version, platform, arch,
+      ...(platform === 'darwin' ? { hostBundleId: productionHost ? MAC_HOST_ID : MAC_DEV_HOST_ID,
+        hostSourceSha256: sha256(join(scripts, 'computer-use/macos-host.m')),
         iconSourceSha256: sha256(join(scripts, 'computer-use/icon.png')),
         iconSha256: sha256(join(staged, 'PilotDeck Computer Use.app/Contents/Resources/computer-use.icns')) } : {}),
       archive: asset.name, archiveSha256: asset.sha256, binarySha256: sha256(join(staged, executable)) }, null, 2));
