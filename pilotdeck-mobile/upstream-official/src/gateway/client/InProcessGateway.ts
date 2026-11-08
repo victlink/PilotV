@@ -4,6 +4,38 @@ import { randomUUID } from "node:crypto";
 import { mkdir, realpath, stat, writeFile } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
+
+/** Sink that observes every turn event (used by the unified approval center). */
+export type ApprovalEventSink = (input: {
+  sessionKey: string;
+  channelKey: string;
+  projectKey?: string | undefined;
+  event: { type: string; [key: string]: unknown };
+}) => void;
+
+/** Guard that may reject a decision before it reaches the permission bus. */
+export type ApprovalDecisionGuard = (
+  input: GatewayPermissionDecisionInput,
+) => Promise<{ allowed: boolean; reason?: string }>;
+
+/**
+ * Payload handed to an {@link ApprovalDecisionSink}.
+ *
+ * `blocked` marks a decision that a guard refused before it reached the
+ * permission bus: it was never applied, but the attempt stays auditable
+ * (contract §8).
+ */
+export type ApprovalDecisionSinkInput = GatewayPermissionDecisionInput & {
+  /** True when a guard refused the decision. */
+  blocked?: boolean;
+  /** Why the guard refused the decision. */
+  blockedReason?: string;
+  /** Which kind of request the decision belongs to. */
+  kind?: "permission" | "elicitation";
+};
+
+/** Sink that records applied decisions (audit trail). */
+export type ApprovalDecisionSink = (input: ApprovalDecisionSinkInput) => void;
 import type { AgentEvent, AgentInput, AgentTurnResult } from "../../agent/index.js";
 import {
   flattenToolResultBlockText,
@@ -27,6 +59,7 @@ import type {
   GatewayElicitationResponseInput,
   GatewayEvent,
   GatewayPermissionDecisionInput,
+  GatewayPermissionDecisionResult,
   GatewayRecordAgentStatusMessageInput,
   GatewaySessionPermissionGrantInput,
   GatewayServerInfo,
@@ -244,6 +277,82 @@ export class InProcessGateway implements Gateway {
   private readonly uuid: () => string;
   private readonly replacementTransactionTimeoutMs: number;
   private readonly abortTurnTimeoutMs: number;
+  /** Sinks that observe every turn event (used by the unified approval center). */
+  private readonly approvalEventSinks = new Set<ApprovalEventSink>();
+  /** Guards that may reject a decision before it reaches the permission bus. */
+  private readonly approvalDecisionGuards = new Set<ApprovalDecisionGuard>();
+  /** Sinks that record an applied decision (audit). */
+  private readonly approvalDecisionSinks = new Set<ApprovalDecisionSink>();
+
+  addApprovalEventSink(sink: ApprovalEventSink): void {
+    this.approvalEventSinks.add(sink);
+  }
+
+  removeApprovalEventSink(sink: ApprovalEventSink): void {
+    this.approvalEventSinks.delete(sink);
+  }
+
+  addApprovalDecisionGuard(guard: ApprovalDecisionGuard): void {
+    this.approvalDecisionGuards.add(guard);
+  }
+
+  removeApprovalDecisionGuard(guard: ApprovalDecisionGuard): void {
+    this.approvalDecisionGuards.delete(guard);
+  }
+
+  addApprovalDecisionSink(sink: ApprovalDecisionSink): void {
+    this.approvalDecisionSinks.add(sink);
+  }
+
+  removeApprovalDecisionSink(sink: ApprovalDecisionSink): void {
+    this.approvalDecisionSinks.delete(sink);
+  }
+
+  private notifyApprovalEventSinks(
+    sessionKey: string,
+    channelKey: string,
+    projectKey: string | undefined,
+    event: { type: string; [key: string]: unknown },
+  ): void {
+    for (const sink of this.approvalEventSinks) {
+      try {
+        sink({ sessionKey, channelKey, projectKey, event });
+      } catch {
+        // A failing observer must never break the turn.
+      }
+    }
+  }
+
+  private async runApprovalGuards(
+    input: GatewayPermissionDecisionInput,
+  ): Promise<{ allowed: boolean; reason?: string }> {
+    for (const guard of this.approvalDecisionGuards) {
+      const result = await guard({
+        sessionKey: input.sessionKey,
+        requestId: input.requestId,
+        decision: input.decision,
+        remember: input.remember,
+        reason: input.reason,
+        actor: input.actor,
+        origin: input.origin,
+        channelKey: input.channelKey,
+        chatId: input.chatId,
+        actorSource: input.actorSource,
+      });
+      if (!result.allowed) return result;
+    }
+    return { allowed: true };
+  }
+
+  private notifyApprovalDecisionSinks(input: ApprovalDecisionSinkInput): void {
+    for (const sink of this.approvalDecisionSinks) {
+      try {
+        sink(input);
+      } catch {
+        // A failing audit sink must never break the decision.
+      }
+    }
+  }
   /**
    * B1 — registry of active per-session emit sinks. The gateway shares this
    * map with the per-session `GatewayElicitationChannel` so an `askUser`
@@ -444,7 +553,13 @@ export class InProcessGateway implements Gateway {
       bytes: 0,
       truncated: false,
     });
-    this.emitSinks.set(input.sessionKey, (event) => queue.enqueue(event));
+    const enqueueTurnEvent = (event: GatewayEvent): void => {
+      if (event.type === "permission_request" || event.type === "elicitation_request") {
+        this.notifyApprovalEventSinks(input.sessionKey, input.channelKey, input.projectKey, event);
+      }
+      queue.enqueue(event);
+    };
+    this.emitSinks.set(input.sessionKey, enqueueTurnEvent);
     const emitGatewayFailureStatus = (status: GatewayRecordAgentStatusMessageInput["status"]): Promise<void> => {
       const recorded = this.recordGatewayStatusMessage({
         sessionKey: input.sessionKey,
@@ -1039,15 +1154,57 @@ export class InProcessGateway implements Gateway {
     return this.requireCron().runTaskNow(input);
   }
 
-  async respondElicitation(input: GatewayElicitationResponseInput): Promise<{ delivered: boolean }> {
+  async respondElicitation(input: GatewayElicitationResponseInput): Promise<{ delivered: boolean; reason?: string }> {
+    // An elicitation answer goes through the same decision path as a tool
+    // permission so the unified approval center sees and audits it. A
+    // question is not an authorization, but it still has to come from a
+    // channel that is allowed to answer it.
+    const decision: "allow" | "deny" = input.answer?.type === "cancelled" ? "deny" : "allow";
+    const decisionInput: GatewayPermissionDecisionInput = {
+      sessionKey: input.sessionKey,
+      requestId: input.requestId,
+      decision,
+      reason: describeElicitationAnswer(input.answer),
+      ...(input.actor !== undefined ? { actor: input.actor } : {}),
+      ...(input.origin !== undefined ? { origin: input.origin } : {}),
+      ...(input.channelKey !== undefined ? { channelKey: input.channelKey } : {}),
+      ...(input.chatId !== undefined ? { chatId: input.chatId } : {}),
+      ...(input.actorSource !== undefined ? { actorSource: input.actorSource } : {}),
+    };
+    const guard = await this.runApprovalGuards(decisionInput);
+    if (!guard.allowed) {
+      this.notifyApprovalDecisionSinks({
+        ...decisionInput,
+        blocked: true,
+        ...(guard.reason ? { blockedReason: guard.reason } : {}),
+        kind: "elicitation",
+      });
+      return { delivered: false, reason: guard.reason ?? "approval_decision_blocked" };
+    }
     const entry = this.elicitationBus.consume(input.sessionKey, input.requestId);
     if (!entry) return { delivered: false };
     entry.resolve(input.answer);
     this.options.dispatchHookForSession?.(input.sessionKey, "ElicitationResult", { requestId: input.requestId, delivered: true });
+    this.notifyApprovalDecisionSinks({ ...decisionInput, kind: "elicitation" });
     return { delivered: true };
   }
 
-  async permissionDecide(input: GatewayPermissionDecisionInput): Promise<{ delivered: boolean }> {
+  async permissionDecide(input: GatewayPermissionDecisionInput): Promise<GatewayPermissionDecisionResult> {
+    const guard = await this.runApprovalGuards(input);
+    if (!guard.allowed) {
+      // A refused decision was never applied, but it still happened: the
+      // audit trail has to show who tried to decide what (contract §8).
+      this.notifyApprovalDecisionSinks({
+        ...input,
+        blocked: true,
+        ...(guard.reason ? { blockedReason: guard.reason } : {}),
+        kind: "permission",
+      });
+      // The refusal reason must reach the caller, otherwise the Web client
+      // and the chat adapter cannot tell "refused" from "expired"
+      // (contract §4 state semantics).
+      return { delivered: false, reason: guard.reason ?? "approval_decision_blocked" };
+    }
     const entry = this.permissionBus.consume(input.sessionKey, input.requestId);
     if (!entry) return { delivered: false };
     entry.resolve({
@@ -1056,6 +1213,7 @@ export class InProcessGateway implements Gateway {
       remember: input.remember,
       reason: input.reason,
     });
+    this.notifyApprovalDecisionSinks(input);
     return { delivered: true };
   }
 
@@ -1941,6 +2099,18 @@ function inferToolErrorCategory(code: string | undefined):
   if (/(invalid|argument|param|schema)/i.test(code)) return "tool_param_error";
   if (/(parse|json|decode|format)/i.test(code)) return "tool_result_parse_error";
   return "tool_runtime_error";
+}
+
+/**
+ * Short, auditable summary of an elicitation answer.
+ */
+function describeElicitationAnswer(answer: GatewayElicitationResponseInput["answer"]): string {
+  if (!answer || typeof answer !== "object") return "answered";
+  if (answer.type === "cancelled") return `cancelled:${answer.reason ?? ""}`.slice(0, 200);
+  const values = Object.values(answer.answers ?? {}).map((value) =>
+    Array.isArray(value) ? value.join(",") : String(value),
+  );
+  return `answered:${values.join("; ")}`.slice(0, 200);
 }
 
 export function mapAgentEvent(event: AgentEvent, runId: string): GatewayEvent[] {

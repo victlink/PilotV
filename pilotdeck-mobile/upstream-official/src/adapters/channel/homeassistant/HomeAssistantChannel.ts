@@ -59,7 +59,7 @@ export class HomeAssistantChannel implements ChannelAdapter {
   private readonly pendingServiceCalls = new Map<number, PendingServiceCall>();
   private activeChats = new Set<string>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
 
   constructor(options: HomeAssistantChannelOptions = {}) {
     this.mapper = options.mapper ?? new HomeAssistantSessionMapper();

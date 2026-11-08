@@ -35,7 +35,7 @@ export class TelegramChannel implements ChannelAdapter {
   private bot: any = null;
   private activeChats = new Set<string>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
 
   constructor(options: TelegramChannelOptions = {}) {
     this.mapper = options.mapper ?? new TelegramSessionMapper();

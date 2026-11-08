@@ -39,7 +39,7 @@ export class DingTalkChannel implements ChannelAdapter {
   private client: any = null;
   private activeChats = new Set<string>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
   private sessionWebhooks = new Map<string, string>();
   private seenIds = new Set<string>();
 
