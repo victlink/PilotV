@@ -50,6 +50,11 @@ jobs:
       # 历史上被覆盖过一次，表现是「gateway 偶尔整体退出」，查了两天。
       - name: Upstream patches still apply (and are still applied)
         run: node scripts/ci/check-upstream-patches.mjs
+      # 桌面端只能出「前置是否齐备」的结论：apps/desktop 在仓里只有 src 和
+      # package.json，上游打包链的 scripts/resources 没随 vendor 进来。这一项拦的是
+      # 「依赖声明与 lockfile 漂移」和「新出现却没入库的打包文件」，不是本机没装 pnpm。
+      - name: Desktop packaging prerequisites
+        run: node scripts/ci/check-desktop-prereqs.mjs --no-color
       - name: Unquoted heredoc variables in deploy script
         run: bash scripts/check_deploy_script_escaping.sh scripts/deploy_pilotv_device.sh
 
