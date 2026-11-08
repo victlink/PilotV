@@ -110,6 +110,12 @@ import { listModelCatalog, normalizeSessionModelSelection, restoreSessionModelSe
 import { createDialogProjectRegistry } from "../gateway/dialog/projectRegistry.js";
 import type { SessionModelSelection } from "../gateway/protocol/types.js";
 import { listCommands } from "../gateway/dialog/commands.js";
+import type { ApprovalCapableChannel } from "../approval/ApprovalRouter.js";
+import {
+  attachApprovalRuntime,
+  type ApprovalRuntimeHandle,
+} from "./approval/attachApprovalRuntime.js";
+import type { ApprovalRuntime } from "./approval/approvalRuntime.js";
 
 export type CreateLocalGatewayOptions = {
   projectRoot?: string;
@@ -151,6 +157,24 @@ export type CreateLocalGatewayOptions = {
    */
   autoElicitation?: boolean;
   telemetry?: TelemetryClient;
+  /**
+   * Called after a turn has fully ended (success, error or abort).
+   *
+   * The unified approval center uses it to converge the approvals that are
+   * still pending for the finished session (contract §2).
+   */
+  afterTurnCompleted?: (input: { sessionKey: string; projectKey?: string; runId: string }) => void;
+  /**
+   * Resolves a chat channel for the IM mirror of an approval prompt.
+   *
+   * The gateway factory has no access to the channel server, so the caller
+   * (the server command) injects the resolver. When it is omitted the
+   * approval center still runs — guard, audit and TTL sweeper — but no
+   * prompt is mirrored into a chat channel (contract §3).
+   */
+  resolveApprovalChannel?: (channelKey: string) => ApprovalCapableChannel | undefined;
+  /** Logger used by the approval runtime (contract §7). */
+  approvalLogger?: { warn?(message: string): void; error?(message: string): void };
 };
 
 export type SubsystemUpdate = {
@@ -179,6 +203,19 @@ export type CreateLocalGatewayResult = {
    * AlwaysOnManager / CronManager in response to a config change.
    */
   updateSubsystems: (update: SubsystemUpdate) => void;
+  /**
+   * The unified approval runtime of this gateway (contract §7).
+   *
+   * It is `undefined` until the runtime finished initialising — await
+   * {@link CreateLocalGatewayResult.approvalReady} first.
+   */
+  approvalRuntime: ApprovalRuntime | undefined;
+  /**
+   * Settles once the approval center is initialised and its bridge is
+   * running. The factory itself stays synchronous, so the server command
+   * awaits this handle before it starts serving.
+   */
+  approvalReady: Promise<void>;
 };
 
 export function resolveBrowserUseOutputDir(input: {
@@ -387,6 +424,28 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
         source: snapshot.router?.enabled ? "router" as const : "default" as const,
       },
     };
+  };
+  // The approval runtime handle of this gateway. It is assigned right after
+  // the gateway is constructed; the closure below only runs when a turn
+  // ends, i.e. long after the assignment.
+  let approvalHandle: ApprovalRuntimeHandle | undefined;
+  const convergePendingApprovals = (sessionKey: string): void => {
+    const warn = (error: unknown): void => {
+      options.approvalLogger?.warn?.(
+        `[approval] failed to cancel pending approvals for ${sessionKey}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    };
+    const runtime = approvalHandle?.current();
+    if (!runtime) {
+      // The center is still initialising — converge as soon as it is ready.
+      void approvalHandle?.ready.then(() => {
+        const ready = approvalHandle?.current();
+        if (!ready) return;
+        void ready.center.cancelSession(sessionKey, "turn_ended").catch(warn);
+      });
+      return;
+    }
+    void runtime.center.cancelSession(sessionKey, "turn_ended").catch(warn);
   };
   const gateway = new InProcessGateway(router, {
     funasrInstallCommand: getPilotDeckInstallCommand(),
@@ -660,16 +719,38 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
         });
       }
       registry.scheduleMemoryMaintenance(projectKey ?? projectRoot);
+      // The unified approval center converges the approvals that are still
+      // pending for the finished session (contract §2). It lives inside the
+      // gateway factory so that every command (server, tui, cli) converges
+      // its own turns — contract §7.
+      convergePendingApprovals(sessionKey);
+      options.afterTurnCompleted?.({ sessionKey, projectKey, runId });
     },
   });
   // Hand the gateway back to the registry so per-session creation can
   // build a `GatewayElicitationChannel` against this gateway's bus +
   // emit-sink (B1).
   registry.setGateway(gateway);
+  // Contract §7: the approval center, the router and the bridge are wired
+  // here, so every gateway — not only the server command — runs the
+  // approval runtime. The factory stays synchronous; `approvalReady` is the
+  // handle a caller awaits before it starts serving.
+  approvalHandle = attachApprovalRuntime({
+    gateway,
+    pilotHome,
+    ...(options.resolveApprovalChannel
+      ? { resolveChannel: options.resolveApprovalChannel }
+      : {}),
+    logger: options.approvalLogger ?? {},
+  });
   return {
     gateway,
     configStore,
     registry,
+    get approvalRuntime(): ApprovalRuntime | undefined {
+      return approvalHandle?.current();
+    },
+    approvalReady: approvalHandle?.ready ?? Promise.resolve(),
     dispose: () => {
       registry.invalidate();
       router?.shutdown();
@@ -679,6 +760,7 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
       if (ownsTelemetry) {
         void telemetry.shutdown();
       }
+      approvalHandle.stop();
     },
     bindServer: (server) => { boundServer = server; },
     isProjectBusy: (projectKey: string) => router!.hasActiveUserTurn(projectKey),

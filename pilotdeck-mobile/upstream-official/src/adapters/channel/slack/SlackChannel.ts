@@ -34,7 +34,7 @@ export class SlackChannel implements ChannelAdapter {
   private botUserId: string | null = null;
   private activeChats = new Set<string>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
 
   constructor(options: SlackChannelOptions = {}) {
     this.mapper = options.mapper ?? new SlackSessionMapper();

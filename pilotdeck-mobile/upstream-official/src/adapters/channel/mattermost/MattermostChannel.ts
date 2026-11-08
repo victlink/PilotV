@@ -41,7 +41,7 @@ export class MattermostChannel implements ChannelAdapter {
   private closed = false;
   private activeChats = new Set<string>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
 
   constructor(options: MattermostChannelOptions = {}) {
     this.mapper = options.mapper ?? new MattermostSessionMapper();

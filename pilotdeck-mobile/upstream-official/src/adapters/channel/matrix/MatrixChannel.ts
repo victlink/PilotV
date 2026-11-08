@@ -43,7 +43,7 @@ export class MatrixChannel implements ChannelAdapter {
   private userId: string | null = null;
   private activeChats = new Set<string>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
 
   constructor(options: MatrixChannelOptions = {}) {
     this.mapper = options.mapper ?? new MatrixSessionMapper();

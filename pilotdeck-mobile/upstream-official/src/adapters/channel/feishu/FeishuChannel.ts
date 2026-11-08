@@ -13,6 +13,10 @@ import { deliverChatCronResult } from "../protocol/ImCronDelivery.js";
 import { ImElicitationHelper } from "../protocol/ImElicitationHelper.js";
 import { ImPermissionHelper } from "../protocol/ImPermissionHelper.js";
 import {
+  deliverApprovalPrompt,
+  deliverElicitationPrompt,
+} from "../protocol/ApprovalPromptDelivery.js";
+import {
   ImLiveReplyController,
   type ImLiveReplyControllerOptions,
   type ImLiveReplyTransport,
@@ -20,6 +24,7 @@ import {
 import { FeishuSessionMapper, type FeishuSessionMapperState } from "./FeishuSessionMapper.js";
 import { type FeishuLiveCardActivityKind } from "./feishu-render.js";
 import { createVisibleErrorStatusDetail } from "../../../status/agentStatus.js";
+import type { ApprovalPromptRoute } from "../../../approval/ApprovalRouter.js";
 
 let Lark: any = null;
 let larkLoadAttempted = false;
@@ -100,6 +105,7 @@ type ParsedEvent =
       eventId: string;
       chatId: string;
       text: string;
+      senderId?: string;
       messageId?: string;
       messageType?: string;
       content?: string;
@@ -109,6 +115,7 @@ type ParsedEvent =
 type FeishuInboundMessage = {
   chatId: string;
   text: string;
+  senderId?: string;
   eventId: string;
   messageId?: string;
   messageType?: string;
@@ -132,6 +139,26 @@ type FeishuInboundBatch = {
 
 export class FeishuChannel implements ChannelAdapter {
   readonly channelKey = "feishu";
+
+  async routeApprovalPrompt(route: ApprovalPromptRoute): Promise<boolean> {
+    if (route.kind === "elicitation") {
+      // An elicitation is a question, not an authorization: it goes into the
+      // elicitation queue so the reply can never be read as a permission
+      // decision.
+      return deliverElicitationPrompt({
+        helper: this.elicitation,
+        route,
+        send: async (chatId, text) => this.send({ chatId, text }),
+        logger: this.logger,
+      });
+    }
+    return deliverApprovalPrompt({
+      helper: this.permissions,
+      route,
+      send: async (chatId, text) => this.send({ chatId, text }),
+      logger: this.logger,
+    });
+  }
 
   private readonly mapper: FeishuSessionMapper;
   private readonly explicitSend?: (message: FeishuOutboundMessage) => Promise<void>;
@@ -159,7 +186,7 @@ export class FeishuChannel implements ChannelAdapter {
   private readonly permissionAnsweringTokens = new Map<string, number>();
   private nextPermissionAnsweringToken = 1;
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
   private readonly attachmentStore = new ImAttachmentStore({
     rootDir: join(homedir(), ".pilotdeck", "im-attachments"),
     channelKey: "feishu",
@@ -295,6 +322,7 @@ export class FeishuChannel implements ChannelAdapter {
       messageId,
       messageType: message.message_type,
       content: message.content,
+      senderId: extractFeishuSenderId(raw),
     });
   }
 
@@ -346,7 +374,7 @@ export class FeishuChannel implements ChannelAdapter {
   private tryHandlePendingInteraction(input: FeishuInboundMessage): boolean {
     if (!this.gateway) return false;
     if (this.elicitation.hasPending(input.chatId)) {
-      void this.answerPendingElicitation(input.chatId, input.text).catch((e: unknown) => {
+      void this.answerPendingElicitation(input.chatId, input.text, input.senderId).catch((e: unknown) => {
         this.logger?.error?.(`feishu: elicitation answer error: ${e}`);
       });
       return true;
@@ -356,7 +384,7 @@ export class FeishuChannel implements ChannelAdapter {
       const answeringToken = this.nextPermissionAnsweringToken++;
       this.permissionAnsweringChats.add(input.chatId);
       this.permissionAnsweringTokens.set(input.chatId, answeringToken);
-      void this.answerPendingPermission(input.chatId, input.text)
+      void this.answerPendingPermission(input.chatId, input.text, input.senderId)
         .catch((e: unknown) => {
           this.logger?.error?.(`feishu: permission answer error: ${e}`);
         })
@@ -370,17 +398,29 @@ export class FeishuChannel implements ChannelAdapter {
     return false;
   }
 
-  private async answerPendingElicitation(chatId: string, text: string): Promise<void> {
+  private async answerPendingElicitation(chatId: string, text: string, actor?: string): Promise<void> {
     if (!this.gateway) return;
-    const confirmation = await this.elicitation.answer(chatId, text, this.gateway);
+    const confirmation = await this.elicitation.answer(chatId, text, this.gateway, {
+      ...(actor ? { actor } : {}),
+      origin: "im",
+      channelKey: this.channelKey,
+      chatId,
+      actorSource: "channel_identity",
+    });
     if (confirmation) await this.send({ chatId, text: confirmation });
   }
 
-  private async answerPendingPermission(chatId: string, text: string): Promise<void> {
+  private async answerPendingPermission(chatId: string, text: string, actor?: string): Promise<void> {
     if (!this.gateway) return;
     let answerToken: number | undefined;
     try {
-      const answer = await this.permissions.answerWithState(chatId, text, this.gateway);
+      const answer = await this.permissions.answerWithState(chatId, text, this.gateway, {
+        ...(actor ? { actor } : {}),
+        origin: "im",
+        channelKey: this.channelKey,
+        chatId,
+        actorSource: "channel_identity",
+      });
       answerToken = answer?.answerToken;
       if (answer?.text) {
         const confirmationDelivered = await this.send({ chatId, text: answer.text });
@@ -442,7 +482,7 @@ export class FeishuChannel implements ChannelAdapter {
 
     if (this.elicitation.hasPending(chatId)) {
       try {
-        await this.answerPendingElicitation(chatId, messageText);
+        await this.answerPendingElicitation(chatId, messageText, first.senderId);
       } catch (e) {
         this.logger?.error?.(`feishu: elicitation answer error: ${e}`);
       }
@@ -451,7 +491,7 @@ export class FeishuChannel implements ChannelAdapter {
 
     if (this.permissions.hasPending(chatId)) {
       try {
-        await this.answerPendingPermission(chatId, messageText);
+        await this.answerPendingPermission(chatId, messageText, first.senderId);
       } catch (e) {
         this.logger?.error?.(`feishu: permission answer error: ${e}`);
       }
@@ -1117,6 +1157,14 @@ export class FeishuChannel implements ChannelAdapter {
   }
 }
 
+function extractFeishuSenderId(raw: Record<string, unknown>): string | undefined {
+  const event = (raw.event as Record<string, unknown> | undefined) ?? raw;
+  const sender = event.sender as Record<string, unknown> | undefined;
+  const senderId = sender?.sender_id as Record<string, unknown> | undefined;
+  const id = senderId?.open_id ?? senderId?.user_id ?? senderId?.union_id ?? event.user_id ?? event.from_user;
+  return typeof id === "string" && id.trim() ? id.trim() : undefined;
+}
+
 function parseDirectShape(raw: Record<string, unknown>): ParsedEvent | undefined {
   if (typeof raw.chatId === "string" && typeof raw.text === "string") {
     return {
@@ -1150,6 +1198,7 @@ function parseV2Event(raw: Record<string, unknown>): ParsedEvent | undefined {
     eventId: header.event_id,
     chatId,
     text,
+    senderId: extractFeishuSenderId(raw),
     messageId: event.message.message_id,
     messageType: event.message.message_type,
     content,
@@ -1162,7 +1211,14 @@ function parseV1Event(raw: Record<string, unknown>): ParsedEvent | undefined {
     | undefined;
   if (!event?.chat_id || event.text === undefined) return undefined;
   const eventId = (raw.uuid as string | undefined) ?? event.uuid ?? `v1:${event.chat_id}:${Date.now()}`;
-  return { kind: "message", eventId, chatId: event.chat_id, text: event.text, messageType: "text" };
+  return {
+    kind: "message",
+    eventId,
+    chatId: event.chat_id,
+    text: event.text,
+    messageType: "text",
+    senderId: extractFeishuSenderId(raw),
+  };
 }
 
 function isSupportedFeishuInboundType(messageType: string | undefined): boolean {

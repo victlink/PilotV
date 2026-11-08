@@ -37,6 +37,8 @@ export type PilotDeckServer = GatewayServer & {
    * Stops any previously running instance of the same channelKey first.
    */
   hotStartChannel(channel: ChannelAdapter): Promise<void>;
+  /** Resolve the currently running adapter on every call (including hot reloads). */
+  getChannel(channelKey: string): ChannelAdapter | undefined;
   deliverCronResult(delivery: CronResultDelivery): Promise<boolean>;
 };
 
@@ -122,6 +124,9 @@ export async function startPilotDeckServer(options: StartPilotDeckServerOptions)
     hotStartChannel(channel: ChannelAdapter) {
       void startChannelInBackground(channel);
       return Promise.resolve();
+    },
+    getChannel(channelKey: string) {
+      return runningChannels.get(channelKey);
     },
     async deliverCronResult(delivery: CronResultDelivery) {
       const channel = runningChannels.get(delivery.originChannelKey ?? delivery.channelKey);

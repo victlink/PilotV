@@ -43,7 +43,7 @@ export class WhatsAppChannel implements ChannelAdapter {
   private seenIds = new Set<string>();
   private activeChats = new Set<string>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
   private running = false;
 
   constructor(options: WhatsAppChannelOptions = {}) {

@@ -338,6 +338,19 @@ export type GatewayElicitationResponseInput = {
   sessionKey: string;
   requestId: string;
   answer: PilotDeckElicitationAnswer;
+  /** Identity of the responder, recorded in the audit trail. */
+  actor?: string;
+  /**
+   * Where the answer came from. Web clients must not claim another origin:
+   * the websocket server overwrites this field.
+   */
+  origin?: "web" | "im" | "system" | "api";
+  /** Channel the answer came from (used to enforce IM bindings). */
+  channelKey?: string;
+  /** Chat the answer came from (used to enforce IM bindings). */
+  chatId?: string;
+  /** Provenance of `actor`. */
+  actorSource?: "channel_identity" | "client_reported";
 };
 
 /**
@@ -357,6 +370,39 @@ export type GatewayPermissionDecisionInput = {
   /** Persist the decision as an `allow_session` rule when true. */
   remember?: boolean;
   /** Optional free-form reason; surfaced in audit/transcript. */
+  reason?: string;
+  /** Identity of the approver, recorded in the audit trail. */
+  actor?: string;
+  /** Channel submitting the decision (used to enforce IM bindings). */
+  channelKey?: string;
+  /** Chat the decision came from (used to enforce IM bindings). */
+  chatId?: string;
+  /**
+   * Provenance of `actor`. Chat adapters verified the sender
+   * (`channel_identity`); the websocket entry point has no user identity and
+   * only ever reports `client_reported`.
+   */
+  actorSource?: "channel_identity" | "client_reported";
+  /**
+   * Where the decision came from. Web clients must not claim another
+   * origin: the websocket server overwrites this field.
+   */
+  origin?: "web" | "im" | "system" | "api";
+};
+
+/**
+ * Result of a permission decision.
+ *
+ * `delivered: false` is returned when the decision was refused. `reason`
+ * carries a stable machine-readable code explaining *why* (guard rejection,
+ * invalid input, unknown request) so the caller — the Web client or the chat
+ * adapter — can tell the approver what happened instead of silently
+ * pretending the request expired (contract §4 state semantics).
+ */
+export type GatewayPermissionDecisionResult = {
+  /** True only when the decision was applied to the pending request. */
+  delivered: boolean;
+  /** Stable reason code; present when the decision was refused. */
   reason?: string;
 };
 
@@ -625,16 +671,18 @@ export interface Gateway {
    * B1 — host responds to an `elicitation_request` event surfaced through
    * `submitTurn`. Resolves the waiting tool's `askUser()` promise. Returns
    * `{ delivered: false }` if the requestId is unknown (already cancelled
-   * or the session has ended).
+   * or the session has ended). A refused decision additionally carries a
+   * stable `reason` code.
    */
-  respondElicitation(input: GatewayElicitationResponseInput): Promise<{ delivered: boolean }>;
+  respondElicitation(input: GatewayElicitationResponseInput): Promise<{ delivered: boolean; reason?: string }>;
   /**
    * Web Phase 2 — host responds to a `permission_request` event surfaced
    * through `submitTurn`. Resolves the agent-side permission promise so the
    * blocked tool either runs (allow) or returns a denial. Returns
-   * `{ delivered: false }` if the requestId is unknown.
+   * `{ delivered: false }` if the requestId is unknown, and a `reason` code
+   * whenever the decision was refused.
    */
-  permissionDecide(input: GatewayPermissionDecisionInput): Promise<{ delivered: boolean }>;
+  permissionDecide(input: GatewayPermissionDecisionInput): Promise<GatewayPermissionDecisionResult>;
   /**
    * Grants a tool only for the current session. This is intentionally
    * non-persistent: global Settings / permissions.json stay unchanged.

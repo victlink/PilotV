@@ -9,6 +9,8 @@ export type PilotPathEnv = Record<string, string | undefined>;
 export const DEFAULT_PILOT_HOME = "~/.pilotdeck";
 export const PILOT_CONFIG_FILE_NAME = "pilotdeck.yaml";
 export const PILOT_PROJECT_DIR_NAME = ".pilotdeck";
+export const PILOT_APPROVAL_DIR_NAME = "approvals";
+export const PILOT_APPROVAL_BINDINGS_FILE_NAME = "approval-bindings.json";
 
 /** Keep project-local runtime data untracked, including before Git is initialized. */
 export function ensurePilotProjectGitIgnore(projectRoot: string, createDirectory = true): void {
@@ -44,6 +46,14 @@ export function resolvePilotHome(env: PilotPathEnv = process.env): string {
 
 export function getPilotConfigFilePath(pilotHome: string): string {
   return resolve(pilotHome, PILOT_CONFIG_FILE_NAME);
+}
+
+export function getPilotApprovalDir(pilotHome: string): string {
+  return resolve(pilotHome, PILOT_APPROVAL_DIR_NAME);
+}
+
+export function getPilotApprovalBindingsFilePath(pilotHome: string): string {
+  return resolve(pilotHome, PILOT_APPROVAL_BINDINGS_FILE_NAME);
 }
 
 export function getPilotProjectConfigFilePath(projectRoot: string): string {
