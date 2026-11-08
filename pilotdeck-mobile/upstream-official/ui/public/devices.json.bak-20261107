@@ -1,0 +1,19 @@
+{
+  "devices": [
+    {
+      "name": "marc-pc",
+      "origin": "http://100.120.169.61:3001",
+      "artifactsPort": 8799
+    },
+    {
+      "name": "leo-mac-studio",
+      "origin": "http://100.117.103.34:3002",
+      "artifactsPort": 8799
+    },
+    {
+      "name": "jx88",
+      "origin": "http://100.108.86.109:3001",
+      "artifactsPort": 8799
+    }
+  ]
+}
