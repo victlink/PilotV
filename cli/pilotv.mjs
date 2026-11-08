@@ -23,6 +23,8 @@ const USAGE = `pilotv —— PilotV 统一入口
   pilotv verify --live [--base URL]       真 Chromium 走一遍登录→切设备→成果台，截图落 review/
   pilotv export --out FILE [--base URL]   成果清单导出为 xlsx（数字由代码算，不手抄）
   pilotv deploy <device> [--apply]        看这台设备还缺什么（默认只出计划，加 --apply 才下发）
+  pilotv setup [--apply]                本机从 clone 到可用还缺什么（默认只出计划）
+                                          --apply 只代跑幂等且不需要提权的几步（清单/插件/体检）
                                           --no-ssh 只按端口探测；--dev-dir 远端开发目录
   pilotv --help                          
 
@@ -93,6 +95,14 @@ export async function main(argv = process.argv.slice(2)) {
   if (command === 'deploy') {
     const { runDeploy } = await import('./deploy-command.mjs');
     const result = await runDeploy(options);
+    if (options.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    else process.stdout.write(`${result.summary}\n`);
+    return result.exitCode ?? (result.ok ? 0 : 1);
+  }
+
+  if (command === 'setup') {
+    const { runSetup } = await import('./setup-command.mjs');
+    const result = await runSetup(options);
     if (options.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     else process.stdout.write(`${result.summary}\n`);
     return result.exitCode ?? (result.ok ? 0 : 1);
