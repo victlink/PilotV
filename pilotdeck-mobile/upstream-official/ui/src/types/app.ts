@@ -6,7 +6,7 @@ export type SessionMessagesUpdateTarget = {
   relativeTranscriptPath?: string;
 };
 
-export type AppTab = 'home' | 'chat' | 'always-on' | 'cron' | 'files' | 'shell' | 'git' | 'tasks' | 'memory' | 'skills' | 'preview' | 'dashboard' | 'weknora' | `plugin:${string}`;
+export type AppTab = 'home' | 'chat' | 'always-on' | 'cron' | 'approval' | 'files' | 'shell' | 'git' | 'tasks' | 'memory' | 'skills' | 'preview' | 'dashboard' | 'weknora' | `plugin:${string}`;
 
 export type AlwaysOnSessionTarget =
   | {

@@ -40,6 +40,9 @@ export type ApprovalPromptRoute = {
   sessionKey: string;
   requestId: string;
   toolName: string;
+  /** Project context is explicit; no name is inferred from a path or session. */
+  projectKey: string;
+  projectName: string;
   prompt: string;
   risk: ApprovalRisk;
   expiresAt: number;
@@ -129,6 +132,7 @@ export class ApprovalRouter {
     sessionKey: string;
     channelKey: string;
     projectKey?: string;
+    projectName?: string;
     event: { type: string; [key: string]: unknown };
   }): Promise<ApprovalRecord | undefined> {
     const event = input.event;
@@ -158,6 +162,7 @@ export class ApprovalRouter {
         requestId,
         toolName,
         ...(input.projectKey ? { projectKey: input.projectKey } : {}),
+        ...(input.projectName ? { projectName: input.projectName } : {}),
         originChannelKey: input.channelKey,
         risk,
         summary:
@@ -215,6 +220,8 @@ export class ApprovalRouter {
           sessionKey: record.sessionKey,
           requestId: record.requestId,
           toolName: record.toolName,
+          projectKey: record.projectKey ?? "未关联项目",
+          projectName: record.projectName ?? "未关联项目",
           prompt: this.formatPrompt(record),
           risk: record.risk,
           expiresAt: record.expiresAt,
@@ -247,14 +254,17 @@ export class ApprovalRouter {
     const expiresAt = new Date(record.expiresAt).toLocaleString("zh-CN", {
       hour12: false,
     });
+    const project = record.projectName ?? record.projectKey ?? "未关联项目";
     if (record.kind === "elicitation") {
       // An elicitation is a question, not an authorization. It must never use
       // the permission wording ("1 = allow once"), otherwise the reply would
       // be read as a permission decision.
       return [
         `【PilotDeck 业务确认】${record.toolName}`,
+        `项目：${project}`,
+        `项目标识：${record.projectKey ?? "未关联项目"}`,
         `请求编号：${record.requestId}`,
-        `会话：${record.sessionKey}`,
+        `来源会话：${record.sessionKey}`,
         `有效期至：${expiresAt}`,
         "",
         "请求内容：",
@@ -266,9 +276,11 @@ export class ApprovalRouter {
     const riskLabel = record.risk === "high" ? "高" : record.risk === "medium" ? "中" : "低";
     return [
       `【PilotDeck 授权请求】${record.toolName}`,
+      `项目：${project}`,
+      `项目标识：${record.projectKey ?? "未关联项目"}`,
       `风险等级：${riskLabel}`,
       `请求编号：${record.requestId}`,
-      `会话：${record.sessionKey}`,
+      `来源会话：${record.sessionKey}`,
       `有效期至：${expiresAt}`,
       "",
       "请求内容：",

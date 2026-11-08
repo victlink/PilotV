@@ -2665,9 +2665,17 @@ export async function decidePermissionViaGateway(requestId, decision, options = 
     // (contract §6). A missing identity stays missing — the audit trail
     // must not carry a fabricated actor.
     const reportedActor = typeof options.actor === 'string' ? options.actor.trim() : '';
-    // PermissionBus is keyed by sessionKey + requestId. We don't know
-    // which session owns the request, so try each known session.
-    for (const state of sessionState.values()) {
+    // PermissionBus is keyed by sessionKey + requestId. When the caller knows
+    // which session owns the request, only that session is asked: a decision
+    // must never be delivered into another session's permission bus. An
+    // unknown session id therefore fails instead of falling back to "try
+    // everything". Without a session id the legacy behaviour (ask every known
+    // session) is kept for the older call sites.
+    const requestedSessionId = typeof options.sessionId === 'string' ? options.sessionId.trim() : '';
+    const states = requestedSessionId
+        ? [sessionState.get(requestedSessionId)].filter(Boolean)
+        : sessionState.values();
+    for (const state of states) {
         try {
             const result = await gw.permissionDecide({
                 sessionKey: state.sessionKey,
@@ -2914,14 +2922,27 @@ export function registerAlwaysOnNotificationForwarding(clients, forwardToSession
     });
 }
 
-export async function elicitationRespondViaGateway(requestId, answer) {
+export async function elicitationRespondViaGateway(requestId, answer, sessionId, actor) {
     const gw = await ensureGateway();
-    for (const state of sessionState.values()) {
+    // Same scoping rule as `decidePermissionViaGateway`: a known session id is
+    // answered in that session only, an unknown one fails instead of falling
+    // back to every session.
+    const requestedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
+    const states = requestedSessionId
+        ? [sessionState.get(requestedSessionId)].filter(Boolean)
+        : sessionState.values();
+    for (const state of states) {
         try {
             const result = await gw.respondElicitation({
                 sessionKey: state.sessionKey,
                 requestId,
                 answer,
+                // The answering identity was not verified against a channel, so
+                // the provenance is `client_reported` and never
+                // `channel_identity` (contract §6).
+                ...(actor != null ? { actor: String(actor) } : {}),
+                actorSource: 'client_reported',
+                origin: 'web',
             });
             if (result?.delivered) return true;
         } catch (error) {

@@ -14,6 +14,7 @@ import { projectDisplayName, sessionDisplayTitle, setSessionCustomTitle, useCust
 import { isImeEnterEvent } from '../../utils/ime';
 import { isGeneralProject } from './appShellSelection';
 import { REVIEW_CLOSE_EVENT } from '../chat-review/reviewEvents';
+import ApprovalSessionPanel from '../approval-session/ApprovalSessionPanel';
 
 const CronPanel = lazy(() => import('../cron/view/CronPanel'));
 const SkillsPanel = lazy(() => import('../skills/view/SkillsPanel'));
@@ -46,6 +47,9 @@ function DedicatedWorkspacePage({ title, isSidebarCollapsed, onOpenSidebar, chil
 }
 function PageFallback() {
   return <div className="flex h-full w-full items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-600 dark:border-neutral-600 dark:border-t-neutral-300" /></div>;
+}
+function ApprovalSessionArea({ isSidebarCollapsed, onOpenSidebar }: { isSidebarCollapsed?: boolean; onOpenSidebar?: () => void }) {
+  return <DedicatedWorkspacePage title="审批会话" isSidebarCollapsed={isSidebarCollapsed} onOpenSidebar={onOpenSidebar}><ApprovalSessionPanel /></DedicatedWorkspacePage>;
 }
 function ScheduledTasksArea({ isSidebarCollapsed, onOpenSidebar }: { isSidebarCollapsed?: boolean; onOpenSidebar?: () => void }) {
   const { t } = useTranslation();
@@ -259,6 +263,7 @@ function MainAreaContent(props: MainAreaProps) {
 }
 
 export default function MainArea(props: MainAreaProps) {
+  if (props.activeTab === 'approval') return <ApprovalSessionArea isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} />;
   if (props.activeTab === 'cron') return <ScheduledTasksArea isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} />;
   if (props.activeTab === 'skills') return <SkillsArea onSkillsProjectChange={props.onSkillsProjectChange} onUseSkill={props.onUseSkill} isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} selectedProject={props.selectedProject} projects={props.projects} />;
   return <ChatHistorySearchControllerProvider><MainAreaContent {...props} /></ChatHistorySearchControllerProvider>;

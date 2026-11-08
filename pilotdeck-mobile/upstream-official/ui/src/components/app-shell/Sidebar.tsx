@@ -38,6 +38,7 @@ import {
   BookOpen,
   Sparkles,
   CalendarClock,
+  ShieldCheck,
   Settings2,
   MessageSquarePlus,
 } from 'lucide-react';
@@ -237,6 +238,7 @@ const EXPLORE_ENTRIES: ExploreEntry[] = [
   // 侧栏这条特意走 explore.scheduledTasks：中文只写「定时」两个字，窄栏里不挤；
   // 主内容区的页面标题仍旧是 quickActions.scheduledTasks 的「定时任务」。
   { key: 'cron', labelKey: 'sidebar:explore.scheduledTasks', labelDefault: 'Scheduled Tasks', icon: <CalendarClock aria-hidden="true" className="h-3 w-3" strokeWidth={1.8} /> },
+  { key: 'approval', labelKey: 'sidebar:explore.approvalSession', labelDefault: 'Approval session', icon: <ShieldCheck aria-hidden="true" className="h-3 w-3" strokeWidth={1.8} /> },
 ];
 
 const CONTEXT_MENU_WIDTH = 176;

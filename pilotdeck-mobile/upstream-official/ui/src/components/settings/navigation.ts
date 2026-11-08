@@ -19,6 +19,7 @@ const PAGE_SLUG_BY_KEY: Partial<Record<SettingsMenuKey, string>> = {
   officePreview: "office",
   computerUse: "computer-use",
   privacy: "privacy",
+  approvalChannel: "approval-channel",
   advanced: "advanced",
   about: "about",
 };

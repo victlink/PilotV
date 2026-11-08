@@ -2,6 +2,7 @@ import { useMatch } from 'react-router-dom';
 
 export const SCHEDULED_TASKS_PATH = '/cron';
 export const SKILLS_PATH = '/skills';
+export const APPROVAL_SESSION_PATH = '/approval-session';
 export const SETTINGS_PATH = '/settings';
 export const SETTINGS_SECTION_PATH = '/settings/:section';
 
@@ -22,6 +23,7 @@ export function useSettingsRouteMatch() {
 export const DEDICATED_TAB_PATHS = {
   cron: SCHEDULED_TASKS_PATH,
   skills: SKILLS_PATH,
+  approval: APPROVAL_SESSION_PATH,
 } as const;
 
 export type DedicatedTab = keyof typeof DEDICATED_TAB_PATHS;

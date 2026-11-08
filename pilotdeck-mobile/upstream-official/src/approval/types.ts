@@ -95,7 +95,10 @@ export type ApprovalRecord = {
   /** Id of the pending request inside the gateway permission bus. */
   requestId: string;
   toolName: string;
+  /** Stable project identifier; absent means the request is not project-scoped. */
   projectKey?: string;
+  /** Trusted project display name, when supplied by the request context. */
+  projectName?: string;
   /** Channel that owns the turn (`web` for the Web UI). */
   originChannelKey: string;
   risk: ApprovalRisk;

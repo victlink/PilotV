@@ -121,6 +121,7 @@ import videoGenerationRoutes from './routes/video-generation.js';
 import imageGenerationRoutes from './routes/image-generation.js';
 import modelsRoutes, { createSessionModelHandlers } from './routes/models.js';
 import settingsRoutes from './routes/settings.js';
+import approvalSessionRoutes from './routes/approval-session.js';
 import { createUsageRouter } from './routes/usage.js';
 import configRoutes from './routes/config.js';
 import gatewayRoutes from './routes/gateway.js';
@@ -646,6 +647,15 @@ app.use('/api/models', authenticateToken, modelsRoutes);
 
 // Settings API Routes (protected)
 app.use('/api/settings', authenticateToken, settingsRoutes);
+app.use('/api/approval-session', authenticateToken, approvalSessionRoutes({
+    decidePermission: async (requestId, decision, options) => Boolean(await decidePermissionViaGateway(requestId, decision, options)),
+    respondElicitation: async (sessionId, requestId, answer, actor) => Boolean(await elicitationRespondViaGateway(requestId, answer, sessionId, actor)),
+    resolveProject: async (entry) => {
+        const session = sessionManager.getSession(entry.sessionId);
+        const projectKey = session?.projectPath || entry.projectKey || entry.projectPath || entry.context?.projectPath;
+        return projectKey ? { projectKey, projectName: path.basename(projectKey) } : undefined;
+    },
+}));
 app.use('/api/usage', authenticateToken, createUsageRouter());
 
 // PilotDeck unified YAML config routes (protected)

@@ -7,6 +7,7 @@ import { cn } from "../../../lib/utils";
 import type { DesktopVersionCheckResult } from "../version";
 import type { SettingsMenuKey } from "../types";
 import type { SettingsProject } from "../shared/types";
+import ApprovalChannelSettings from "../../approval-session/ApprovalChannelSettings";
 import { SETTINGS_CONFIG_ICON } from "./navIcons";
 const AgentMemorySections = lazy(() => import("./agentMemory"));
 const AgentResidentSections = lazy(() => import("./agentResident"));
@@ -58,6 +59,7 @@ const MENU_TITLE_KEYS: Record<SettingsMenuKey, string> = {
   officePreview: "settingsPage.titles.officePreview",
   computerUse: "settingsPage.titles.computerUse",
   privacy: "settingsPage.titles.privacy",
+  approvalChannel: "审批通道",
   advanced: "settingsPage.titles.advanced",
   about: "settingsPage.titles.about",
 };
@@ -81,6 +83,7 @@ const PAGE_HEADING_KEYS: Record<SettingsMenuKey, string> = {
   officePreview: "settingsPage.menu.officePreview",
   computerUse: "settingsPage.menu.computerUse",
   privacy: "settingsPage.menu.privacy",
+  approvalChannel: "审批通道",
   advanced: "settingsPage.menu.system",
   about: "settingsPage.menu.about",
 };
@@ -230,6 +233,8 @@ export default function SettingsContent({
           <UsageSections />
         ) : selectedKey === "privacy" ? (
           <PrivacySections title={title} />
+        ) : selectedKey === "approvalChannel" ? (
+          <ApprovalChannelSettings />
         ) : selectedKey === "advanced" ? (
           <AdvancedSections title={title} />
         ) : selectedKey === "about" ? (
