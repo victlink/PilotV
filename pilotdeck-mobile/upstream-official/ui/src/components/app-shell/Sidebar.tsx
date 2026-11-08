@@ -39,6 +39,7 @@ import {
   Sparkles,
   CalendarClock,
   Settings2,
+  MessageSquarePlus,
 } from 'lucide-react';
 import type { AppTab, Project, ProjectSession } from '../../types/app';
 import { cn } from '../../lib/utils.js';

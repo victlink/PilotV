@@ -43,6 +43,14 @@ export default function WorkspacePickerBar({
   const searchAvailable = Boolean(search?.available);
   const searchOpen = Boolean(search?.isOpen);
   const searchPresentation = searchOpen ? search?.presentation ?? null : null;
+  const setInlineHostMounted = search?.setInlineHostMounted;
+
+  // 本组件就地（inline）渲染会话搜索面板，消息区就不必再画一份浮层搜索条。
+  useEffect(() => {
+    if (!setInlineHostMounted) return undefined;
+    setInlineHostMounted(true);
+    return () => setInlineHostMounted(false);
+  }, [setInlineHostMounted]);
 
   // A missing selection is only possible briefly while projects are loading.
   // Present it as General instead of exposing a third, unusable null state.

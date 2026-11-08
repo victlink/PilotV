@@ -2,15 +2,15 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { FindShortcutProvider } from '../../contexts/FindShortcutContext';
-import type { ChatMessage } from '../chat/types/types';
-import type { RenderableMessageItem } from './processGrouping';
+import { FindShortcutProvider } from '../../../contexts/FindShortcutContext';
+import type { ChatMessage } from '../types/types';
+import type { RenderableMessageItem } from '../utils/processGrouping';
 import MessagesPaneV2, {
   collectFinalResultMessages,
   filterRenderableItemsBySpeaker,
   getTurnStartIndices,
   isReplyExpandedByDefault,
-} from './MessagesPaneV2';
+} from './MessagesPane';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -118,7 +118,7 @@ function Pane({
   onSelectSpeaker,
   isAssistantWorking = false,
   scrollContainerRef,
-}: PaneProps & { scrollContainerRef: React.RefObject<HTMLDivElement | null> }) {
+}: PaneProps & { scrollContainerRef: React.RefObject<HTMLDivElement> }) {
   return (
     <FindShortcutProvider activeScope="chat">
       <MessagesPaneV2
@@ -193,7 +193,7 @@ describe('speaker filtering helpers', () => {
     const other = assistantMessage('a-other', '别人的过程发言', { agentName: '阿强' });
     const tool = toolMessage('tool-1');
     const trace = item(assistantMessage('trace-1', ''), 1, {
-      turnTrace: { id: 'turn-trace-1', durationMs: 1000, items: [item(other, 1), item(tool, 2)] },
+      turnTrace: { id: 'turn-trace-1', isLive: false, defaultExpanded: false, items: [item(other, 1), item(tool, 2)] },
     });
 
     const filtered = filterRenderableItemsBySpeaker([trace], 'name:小林');
@@ -205,7 +205,7 @@ describe('speaker filtering helpers', () => {
   it('drops a trace whose children all belong to other speakers', () => {
     const other = assistantMessage('a-other', '别人的过程发言', { agentName: '阿强' });
     const trace = item(assistantMessage('trace-1', ''), 1, {
-      turnTrace: { id: 'turn-trace-2', durationMs: 1000, items: [item(other, 1)] },
+      turnTrace: { id: 'turn-trace-2', isLive: false, defaultExpanded: false, items: [item(other, 1)] },
     });
 
     expect(filterRenderableItemsBySpeaker([trace], 'name:小林')).toHaveLength(0);
@@ -235,7 +235,7 @@ describe('final result detection helpers', () => {
     const question = userMessage('u-1', '检查代码');
     const final = assistantMessage('a-final', '结论。');
     const trace = item(assistantMessage('trace-1', ''), 0.01, {
-      turnTrace: { id: 'turn-trace-1', durationMs: 1000, items: [] },
+      turnTrace: { id: 'turn-trace-1', isLive: false, defaultExpanded: false, items: [] },
     });
 
     const finals = collectFinalResultMessages(
@@ -293,7 +293,7 @@ describe('final result detection helpers', () => {
     const secondQuestion = userMessage('u-2', '第二个问题');
     const secondResult = assistantMessage('a-2', '第二个结论。');
     const firstTrace = item(assistantMessage('trace-1', ''), 0.01, {
-      turnTrace: { id: 'turn-trace-1', durationMs: 1000, items: [] },
+      turnTrace: { id: 'turn-trace-1', isLive: false, defaultExpanded: false, items: [] },
     });
 
     const finals = collectFinalResultMessages(

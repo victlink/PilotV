@@ -1,7 +1,7 @@
 import {
   PROJECT_AGENT_ROLE_TEMPLATES,
   type ProjectAgentRole,
-} from "../../lib/projectTeam";
+} from "../../../lib/projectTeam";
 
 /**
  * The project team role names live in the `projectTeam` i18n namespace, not in

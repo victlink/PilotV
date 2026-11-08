@@ -4,10 +4,10 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
 import { createInstance } from 'i18next';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import enChat from '../../i18n/locales/en/chat.json';
-import enProjectTeam from '../../i18n/locales/en/projectTeam.json';
-import zhChat from '../../i18n/locales/zh-CN/chat.json';
-import zhProjectTeam from '../../i18n/locales/zh-CN/projectTeam.json';
+import enChat from '../../../i18n/locales/en/chat.json';
+import enProjectTeam from '../../../i18n/locales/en/projectTeam.json';
+import zhChat from '../../../i18n/locales/zh-CN/chat.json';
+import zhProjectTeam from '../../../i18n/locales/zh-CN/projectTeam.json';
 import { collectSpeakers, type SpeakerEntry } from './agentIdentity';
 import ProjectTeamStrip from './ProjectTeamStrip';
 

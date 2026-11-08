@@ -14,7 +14,7 @@
  *
  * 本文件只做纯判定，不碰网络与状态，方便单测。
  */
-import type { ProjectAgentModel, ProjectTeamAgent } from '../../lib/projectTeam';
+import type { ProjectAgentModel, ProjectTeamAgent } from '../../../lib/projectTeam';
 
 export type AgentModelScope = {
   /** 模型菜单当前作用在哪个作用域上。 */

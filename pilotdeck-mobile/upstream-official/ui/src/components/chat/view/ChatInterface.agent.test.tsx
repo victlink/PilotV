@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import ChatInterfaceV2 from './ChatInterfaceV2';
+import ChatInterfaceV2 from './ChatInterface';
 
 const chatMocks = vi.hoisted(() => ({
   useSessionInputQueue: vi.fn(),

@@ -23,7 +23,7 @@ type CodeEditorSurfaceProps = {
   extensions: Extension[];
   baseFilePath?: string;
   onFileOpen?: (filePath: string) => void;
-  previewRootRef?: RefObject<HTMLDivElement | null>;
+  previewRootRef?: RefObject<HTMLDivElement>;
   onEditorViewChange?: (view: EditorView | null) => void;
 };
 

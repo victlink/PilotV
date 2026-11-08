@@ -39,13 +39,13 @@ const STARTUP_ZH: Record<string, string> = {
 
 export function startupText(message: string, language: DesktopAppearance['language']): string {
   // Runtime messages retain upstream keys; accept PilotV-branded callers too.
-  const key = message.replaceAll('PilotV', 'PilotDeck');
-  return language === 'zh-CN' ? STARTUP_ZH[key] || message.replaceAll('PilotDeck', 'PilotV') : message.replaceAll('PilotDeck', 'PilotV');
+  const key = message.replace(/PilotV/g, 'PilotDeck');
+  return language === 'zh-CN' ? STARTUP_ZH[key] || message.replace(/PilotDeck/g, 'PilotV') : message.replace(/PilotDeck/g, 'PilotV');
 }
 
 export function renderLoadingHtml(appearance: DesktopAppearance, web = false): string {
   const brandLabels = (language: DesktopAppearance['language']) => Object.fromEntries(
-    Object.entries(startupLabels(language)).map(([key, value]) => [key, typeof value === 'string' ? value.replaceAll('PilotDeck', 'PilotV') : value]),
+    Object.entries(startupLabels(language)).map(([key, value]) => [key, typeof value === 'string' ? value.replace(/PilotDeck/g, 'PilotV') : value]),
   );
   const labels = brandLabels(appearance.language);
   const light = normalizeLightAppearance(appearance.lightAppearance);

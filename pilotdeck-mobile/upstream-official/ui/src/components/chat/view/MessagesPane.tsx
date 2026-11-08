@@ -34,7 +34,10 @@ import { isSpeakerUtterance, messageMatchesSpeaker } from './agentIdentity';
 import AssistantReplyQuoteAction from './AssistantReplyQuoteAction';
 import SubagentDetailModal from './SubagentDetailModal';
 import ChatHistorySearchBar from './ChatHistorySearchBar';
-import { useRegisterChatHistorySearchControls } from './ChatHistorySearchController';
+import {
+  useOptionalChatHistorySearchController,
+  useRegisterChatHistorySearchControls,
+} from './ChatHistorySearchController';
 import { useChatHistorySearch } from '../hooks/useChatHistorySearch';
 import { getSessionRequestIdentity } from '../utils/sessionRequestIdentity';
 import type { SearchableChatMessageInput } from '../utils/chatHistorySearchUtils';
@@ -57,7 +60,7 @@ import {
 type DiffLine = { type: string; content: string; lineNum: number };
 
 type MessagesPaneProps = {
-  scrollContainerRef: RefObject<HTMLDivElement | null>;
+  scrollContainerRef: RefObject<HTMLDivElement>;
   showReturnToLatest?: boolean;
   onResumeScroll?: () => void;
   onPauseScroll?: (messageKey?: string) => void;
@@ -1387,6 +1390,9 @@ function MessagesPane({
     renderWindowKey: `${virtualWindow.startIndex}:${virtualWindow.endIndex}`,
     onNavigate: revealSearchTrace,
   });
+  const searchController = useOptionalChatHistorySearchController();
+  // 工作区选择条就地渲染搜索面板时，消息区不再重复画一份浮层搜索条。
+  const searchInlineHostMounted = searchController?.inlineHostMounted ?? false;
   useRegisterChatHistorySearchControls(chatHistorySearch);
   const [hasLayoutWarning, setHasLayoutWarning] = useState(false);
   useEffect(() => {
@@ -1435,7 +1441,7 @@ function MessagesPane({
           </button>
         </div>
       ) : null}
-      {chatHistorySearch.isOpen ? (
+      {chatHistorySearch.isOpen && !searchInlineHostMounted ? (
         <ChatHistorySearchBar
           query={chatHistorySearch.query}
           onQueryChange={chatHistorySearch.setQuery}

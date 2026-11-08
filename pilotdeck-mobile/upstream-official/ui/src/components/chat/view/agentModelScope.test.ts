@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ProjectTeamAgent } from '../../lib/projectTeam';
+import type { ProjectTeamAgent } from '../../../lib/projectTeam';
 import { resolveAgentModelScope, toAgentModel, withAgentModel } from './agentModelScope';
 
 const AGENTS = [

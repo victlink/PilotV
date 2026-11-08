@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProjectTeamAgent } from '../../lib/projectTeam';
-import ComposerV2 from './ComposerV2';
+import type { ProjectTeamAgent } from '../../../lib/projectTeam';
+import ComposerV2 from './Composer';
 
 // 弹出的下拉靠 ResizeObserver 盯着锚点位置；jsdom 没有它。
 beforeEach(() => {
