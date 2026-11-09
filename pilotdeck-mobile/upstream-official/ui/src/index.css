@@ -1125,8 +1125,137 @@
     margin: 4px auto;
   }
 
+  /* ── 任务／审核浮窗 ───────────────────────────────────────────────
+     两块内容都浮在对话窗口「上面」：任务面板不再插在标题栏和对话之间
+     把对话挤矮，审核也不再整页替换对话。整层只做定位、不吃点击，卡片
+     之外的对话照常滚动和输入。右边留出抽屉的宽度，避免压住页面标签。 */
+  .pd-float-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 45;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 12px 56px 12px 12px;
+    pointer-events: none;
+  }
+
+  .pd-float-layer > * {
+    pointer-events: auto;
+  }
+
+  .pd-float-card {
+    position: relative;
+    display: flex;
+    max-height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--line, #e4e5ee);
+    border-radius: 16px;
+    background: #fff;
+    box-shadow:
+      0 24px 60px rgba(31, 27, 66, 0.2),
+      0 2px 8px rgba(31, 27, 66, 0.08);
+    animation: pd-float-card-in 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+
+  .dark .pd-float-card {
+    border-color: var(--line, #262626);
+    background: #0b0b0d;
+    box-shadow:
+      0 24px 60px rgba(0, 0, 0, 0.6),
+      0 2px 8px rgba(0, 0, 0, 0.4);
+  }
+
+  @keyframes pd-float-card-in {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .pd-float-card--tasks {
+    width: min(880px, 100%);
+    /* 任务卡自己滚，卡片始终留在对话上方，不把对话挤矮。 */
+    overflow-y: auto;
+  }
+
+  /* 面板自带的底边线和浅底是给「插在主区里」那一版写的；浮窗里改由卡片
+     收边，否则会出现两层边框。 */
+  .pd-float-card--tasks > [data-testid='task-monitor-panel'] {
+    border-bottom: 0;
+    background: transparent;
+  }
+
+  .pd-float-card--approval {
+    width: min(1040px, 100%);
+    /* 留出四周的对话可见区域，读作「浮在对话上的一扇窗」。 */
+    height: min(760px, 100%);
+  }
+
+  .pd-float-card-header {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px 9px 16px;
+    border-bottom: 1px solid var(--line, #ececf3);
+  }
+
+  .dark .pd-float-card-header {
+    border-bottom-color: var(--line, #232326);
+  }
+
+  .pd-float-card-title {
+    min-width: 0;
+    flex: 1;
+    margin: 0;
+    color: #1d1d22;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+
+  .dark .pd-float-card-title {
+    color: #f4f4f5;
+  }
+
+  .pd-float-card-close {
+    display: inline-flex;
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #8b8ea0;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .pd-float-card-close:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: #1d1d22;
+  }
+
+  .dark .pd-float-card-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .pd-page-drawer-panel {
+      animation: none;
+    }
+
+    .pd-float-card {
       animation: none;
     }
   }

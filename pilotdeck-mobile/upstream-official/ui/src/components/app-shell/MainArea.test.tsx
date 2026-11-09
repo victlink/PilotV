@@ -90,6 +90,17 @@ vi.mock('./MultiWindowArea', () => ({
   default: () => <div data-testid="multi-window-page" />,
 }));
 
+// 任务 / 审核是浮窗内容，这里只验证它们浮在对话之上而不是替换对话。
+vi.mock('./TaskMonitorPanel', () => ({
+  default: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="task-monitor-panel"><button type="button" onClick={onClose}>关闭任务</button></div>
+  ),
+}));
+
+vi.mock('../approval-session/ApprovalSessionPanel', () => ({
+  default: () => <div data-testid="approval-panel" />,
+}));
+
 const project: Project = {
   name: 'pilotdeck',
   displayName: 'PilotDeck',
@@ -231,19 +242,19 @@ describe('MainArea dashboard switcher', () => {
     expect(screen.getByRole('button', { name: '展开页面标签' })).toBeTruthy();
   });
 
-  it('opens the multi-window layout menu from the page drawer', async () => {
+  it('opens the window layout menu from the page drawer', async () => {
     render(<Harness />);
 
-    // 「多窗口」已经搬进右侧抽屉，紧跟在「成果」后面。
+    // 「窗口」已经搬进右侧抽屉，紧跟在「成果」后面，名字也压到两个字。
     const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
-    const multiWindowButton = pages.getByRole('button', { name: '多窗口' });
+    const multiWindowButton = pages.getByRole('button', { name: '窗口' });
     const artifactsButton = pages.getByRole('button', { name: '成果' });
     expect(artifactsButton.compareDocumentPosition(multiWindowButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    expect(screen.queryByRole('menu', { name: '多窗口布局' })).toBeNull();
+    expect(screen.queryByRole('menu', { name: '窗口布局' })).toBeNull();
     fireEvent.click(multiWindowButton);
 
-    const menu = screen.getByRole('menu', { name: '多窗口布局' });
+    const menu = screen.getByRole('menu', { name: '窗口布局' });
     expect(within(menu).getByRole('menuitem', { name: '2 窗口' })).toBeTruthy();
     expect(within(menu).getByRole('menuitem', { name: '6 窗口' })).toBeTruthy();
 
@@ -251,7 +262,41 @@ describe('MainArea dashboard switcher', () => {
 
     await waitFor(() => expect(screen.getByTestId('multi-window-page')).toBeTruthy());
     expect(JSON.parse(localStorage.getItem('pilotv-multi-window-v1') || '{}').layout).toBe(4);
-    expect(screen.queryByRole('menu', { name: '多窗口布局' })).toBeNull();
+    expect(screen.queryByRole('menu', { name: '窗口布局' })).toBeNull();
+  });
+
+  it('floats the review window over a still-mounted conversation', () => {
+    render(<Harness />);
+
+    // 审核曾经整页替换对话；现在它是一扇浮窗，对话留在下面不被卸载。
+    fireEvent.click(screen.getByRole('button', { name: '审核' }));
+
+    const review = screen.getByTestId('approval-float');
+    expect(within(review).getByTestId('approval-panel')).toBeTruthy();
+    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
+
+    // 浮窗在抽屉之外，不占内容宽度，右侧页面标签照样能点。
+    expect(within(screen.getByRole('navigation', { name: '页面切换' })).getByRole('button', { name: '成果' })).toBeTruthy();
+
+    fireEvent.click(within(review).getByRole('button', { name: '关闭审核' }));
+    expect(screen.queryByTestId('approval-float')).toBeNull();
+    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
+  });
+
+  it('floats the task monitor instead of squeezing the conversation', () => {
+    render(<Harness />);
+
+    fireEvent.click(screen.getByRole('button', { name: '任务' }));
+
+    const float = screen.getByTestId('task-monitor-float');
+    expect(within(float).getByTestId('task-monitor-panel')).toBeTruthy();
+    // 浮窗挂在对话区内部，对话本身仍是当前视图。
+    expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
+
+    // 打开审核会收起任务浮窗，两块浮窗不会互相压住。
+    fireEvent.click(screen.getByRole('button', { name: '审核' }));
+    expect(screen.queryByTestId('task-monitor-float')).toBeNull();
+    expect(screen.getByTestId('approval-float')).toBeTruthy();
   });
 
   it('renames the selected session inline after double-clicking the header title', () => {
