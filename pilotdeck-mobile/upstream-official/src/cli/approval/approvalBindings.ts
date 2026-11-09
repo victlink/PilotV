@@ -79,6 +79,7 @@ function parseBinding(value: unknown): ApprovalBindingConfig | undefined {
     ...optionalStringArray(entry.approverIds, "approverIds"),
     ...optionalStringArray(entry.projectKeys, "projectKeys"),
     ...optionalStringArray(entry.toolNames, "toolNames"),
+    ...(nonEmptyString(entry.approvalSession) ? { approvalSession: nonEmptyString(entry.approvalSession) } : {}),
   };
 }
 

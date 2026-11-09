@@ -3,6 +3,8 @@ export type ApprovalState = 'pending' | 'expired' | 'cancelled' | 'approved' | '
 export type ApprovalRequest = {
   id: string; requestId: string; sessionId: string; projectName: string; projectKey: string;
   kind: 'permission' | 'elicitation'; toolName?: string; summary: string; input?: unknown; context?: unknown;
+  /** Redacted, human readable preview of the concrete request content. */
+  payloadPreview?: string; payloadRedacted?: boolean;
   createdAt: string; updatedAt: string; state: ApprovalState; risk?: ApprovalRisk; expiresAt?: string;
 };
 export type ApprovalChannelBinding = { enabled: boolean; channelKey: string; chatId: string; approverIds: string[] };

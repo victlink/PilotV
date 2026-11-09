@@ -172,17 +172,19 @@ describe('approval session API', () => {
     expect(decide.mock.calls[0][2].actor).toBe('real-actor');
   });
 
-  it('refuses to allow a permission while the authoritative risk is unknown', async () => {
+  it('refuses to allow a high-risk permission and still allows deny', async () => {
     const decide = vi.fn().mockResolvedValue(true);
     const router = createApprovalSessionRouter({ listPending: () => [{ requestId: 'r7', sessionId: 's7', toolName: 'Bash', input: {}, context: {}, isElicitation: false }], decidePermission: decide });
     const app = express(); app.use(express.json()); app.use((req, _res, next) => { req.user = { id: 'real-actor' }; next(); }); app.use('/api/approval-session', router);
     const server = await new Promise(resolve => { const s = app.listen(0, () => resolve(s)); });
     const base = `http://127.0.0.1:${server.address().port}/api/approval-session`;
     const allowed = await requestJson(`${base}/requests/r7/decision`, { method: 'POST', body: { sessionId: 's7', decision: 'allow' } });
-    // The risk level belongs to the authoritative backend policy. As long as
-    // the UI server cannot obtain it, an `allow` must not be granted here.
+    // The risk level belongs to the authoritative backend policy. The server
+    // computes it with the very same module the native approval center uses,
+    // so `Bash` is classified as high and `allow` is refused here: a high
+    // risk approval stays in the source session.
     expect(allowed.status).toBe(409);
-    expect(allowed.body.code).toBe('authoritative_risk_unavailable');
+    expect(allowed.body.code).toBe('high_risk_requires_source_session');
     expect(decide).not.toHaveBeenCalled();
     // `deny` always stays available.
     const denied = await requestJson(`${base}/requests/r7/decision`, { method: 'POST', body: { sessionId: 's7', decision: 'deny' } });
@@ -191,20 +193,55 @@ describe('approval session API', () => {
     expect(decide).toHaveBeenCalledWith('r7', 'deny', expect.objectContaining({ sessionId: 's7' }));
   });
 
-  it('shows an unknown risk as high and never returns the concrete payload', async () => {
+  it('reports the authoritative risk and a redacted payload preview', async () => {
     const router = createApprovalSessionRouter({ listPending: () => [{ requestId: 'r8', sessionId: 's8', toolName: 'Bash', input: { note: 'sk-live-1234567890' }, context: { detail: 'super-secret-token' }, isElicitation: false }] });
     const app = express(); app.use(express.json()); app.use('/api/approval-session', router);
     const server = await new Promise(resolve => { const s = app.listen(0, () => resolve(s)); });
     const response = await requestJson(`http://127.0.0.1:${server.address().port}/api/approval-session`);
     server.close();
     expect(response.status).toBe(200);
-    expect(response.body.requests[0].risk).toBe('high');
+    // `Bash` is a high risk tool and the payload carries a credential, so the
+    // authoritative policy lifts the request to `critical`.
+    expect(response.body.requests[0].risk).toBe('critical');
     const serialized = JSON.stringify(response.body);
     expect(serialized).not.toContain('sk-live-1234567890');
     expect(serialized).not.toContain('super-secret-token');
     // Only the structure is reported: field names, never their values.
     expect(response.body.requests[0].input).toEqual({ present: true, type: 'object', fields: ['note'] });
     expect(response.body.requests[0].context).toEqual({ present: true, type: 'object', fields: ['detail'] });
+    // The concrete content is reported through the authoritative redactor:
+    // the reviewer reads the request, the credential stays masked.
+    expect(response.body.requests[0].payloadPreview).toContain('[redacted]');
+    expect(response.body.requests[0].payloadPreview).not.toContain('sk-live-1234567890');
+    expect(response.body.requests[0].payloadRedacted).toBe(true);
+  });
+
+  it('allows a low-risk permission once the authoritative policy classified it', async () => {
+    const decide = vi.fn().mockResolvedValue(true);
+    const router = createApprovalSessionRouter({ listPending: () => [{ requestId: 'r8', sessionId: 's8', toolName: 'read_file', input: { path: 'README.md' }, context: {}, isElicitation: false }], decidePermission: decide });
+    const app = express(); app.use(express.json()); app.use((req, _res, next) => { req.user = { id: 'real-actor' }; next(); }); app.use('/api/approval-session', router);
+    const server = await new Promise(resolve => { const s = app.listen(0, () => resolve(s)); });
+    const base = `http://127.0.0.1:${server.address().port}/api/approval-session`;
+    const listed = await requestJson(base);
+    expect(listed.body.requests[0].risk).toBe('low');
+    const allowed = await requestJson(`${base}/requests/r8/decision`, { method: 'POST', body: { sessionId: 's8', decision: 'allow' } });
+    server.close();
+    expect(allowed.status).toBe(200);
+    expect(decide).toHaveBeenCalledWith('r8', 'allow', expect.objectContaining({ sessionId: 's8', actor: 'real-actor' }));
+  });
+
+  it('keeps the elicitation options readable while masking sensitive values', async () => {
+    const router = createApprovalSessionRouter({ listPending: () => [{ requestId: 'r9', sessionId: 's9', toolName: 'ask_user_question', isElicitation: true, input: { questions: [{ id: 'q1', question: '选择部署环境', options: [{ label: '生产' }, { label: '测试' }] }], token: 'sk-live-1234567890' }, context: {} }] });
+    const app = express(); app.use(express.json()); app.use((req, _res, next) => { req.user = { id: 'real-actor' }; next(); }); app.use('/api/approval-session', router);
+    const server = await new Promise(resolve => { const s = app.listen(0, () => resolve(s)); });
+    const response = await requestJson(`http://127.0.0.1:${server.address().port}/api/approval-session`);
+    server.close();
+    const request = response.body.requests[0];
+    expect(request.kind).toBe('elicitation');
+    expect(request.input.questions[0].question).toBe('选择部署环境');
+    expect(request.input.questions[0].options[0].label).toBe('生产');
+    expect(request.input.token).toBe('[redacted]');
+    expect(JSON.stringify(response.body)).not.toContain('sk-live-1234567890');
   });
 
   it('refuses to enable a binding without approvers', async () => {

@@ -88,6 +88,12 @@ export type ApprovalBindingConfig = {
   projectKeys?: string[];
   /** Only mirror these tools (empty / missing = all). */
   toolNames?: string[];
+  /**
+   * Marks the binding as a dedicated approval session channel. As soon as one
+   * binding carries it, only those bindings receive the prompt: an approval
+   * session never shares a channel with an ordinary session channel.
+   */
+  approvalSession?: string;
 };
 
 export type ApprovalRouterOptions = {
@@ -292,8 +298,12 @@ export class ApprovalRouter {
 
   private selectBindings(projectKey?: string, toolName?: string): ApprovalBinding[] {
     const configs = this.bindingConfigs();
+    // A dedicated approval session channel is exclusive: when one is
+    // configured, the prompt never leaks into an ordinary session channel.
+    const dedicated = configs.filter((config) => Boolean(config.approvalSession));
+    const candidates = dedicated.length > 0 ? dedicated : configs;
     const bindings: ApprovalBinding[] = [];
-    for (const config of configs) {
+    for (const config of candidates) {
       if (!config.channelKey) continue;
       if (config.projectKeys && config.projectKeys.length > 0) {
         if (!projectKey || !config.projectKeys.includes(projectKey)) continue;

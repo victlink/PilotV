@@ -10,13 +10,68 @@ const CHANNELS = new Set(['feishu', 'wecom']);
 const session = { id: 'approval-center', title: '审批会话' };
 
 /**
- * The payload of a pending request is never echoed back verbatim. The
- * authoritative redactor (`redactPayload` in `src/approval/ApprovalPolicy.ts`)
- * lives in the compiled native module and `ui/server/` deliberately runs
- * without that build output (see `utils/pilotPaths.js`), so the redactor
- * cannot be reused here. Instead of a weaker local copy of the rules, the
- * concrete values are hidden and only the structure is reported: a field name
- * never carries the secret itself, a value might.
+ * The authoritative policy module is shared with the native approval center
+ * (`src/approval/ApprovalPolicy.ts`). It is loaded lazily so a runtime that
+ * cannot resolve the TypeScript source keeps serving instead of failing to
+ * boot; in that case the risk stays unknown and `allow` is refused.
+ */
+let policyPromise = null;
+function loadPolicy() {
+  if (!policyPromise) {
+    policyPromise = import('../../../src/approval/ApprovalPolicy.js')
+      .catch((error) => { console.warn('[approval-session] authoritative policy unavailable:', error?.message || error); return null; });
+  }
+  return policyPromise;
+}
+
+/**
+ * The risk of a pending request is owned by the backend policy, never by the
+ * browser. A gateway delivered value wins; otherwise the very same module the
+ * native approval center uses computes it from the tool name and the payload.
+ */
+function authoritativeRisk(entry, policy) {
+  if (entry.risk) return entry.risk;
+  if (!policy) return undefined;
+  return policy.classifyApprovalRisk({ kind: entry.isElicitation ? 'elicitation' : 'permission', toolName: entry.toolName || '', payload: entry.input });
+}
+
+/**
+ * The concrete request content is reported through the authoritative
+ * redactor, so the reviewer sees what is being asked for while credentials
+ * and other sensitive values stay masked. The raw payload is never echoed.
+ */
+function payloadPreviewOf(entry, policy) {
+  if (!policy || entry.input === undefined || entry.input === null) return { preview: '', redacted: false };
+  const result = policy.redactPayload(entry.input);
+  return { preview: result.preview || '', redacted: Boolean(result.redacted) };
+}
+
+/**
+ * A structural copy of the payload where sensitive values are masked. It
+ * reuses the authoritative detectors of the shared policy module, so the
+ * reviewer can read the question and the offered options of an elicitation
+ * while credentials stay masked.
+ */
+function sanitizedInput(value, policy, key = '', depth = 0) {
+  if (!policy || value === null || value === undefined) return undefined;
+  if (depth > 6) return null;
+  if (Array.isArray(value)) return value.slice(0, 50).map(item => sanitizedInput(item, policy, key, depth + 1));
+  if (typeof value === 'object') {
+    const out = {};
+    for (const [childKey, childValue] of Object.entries(value).slice(0, 50)) out[childKey] = sanitizedInput(childValue, policy, childKey, depth + 1);
+    return out;
+  }
+  if (typeof value === 'string') {
+    if (policy.isSensitiveKey(key)) return '[redacted]';
+    if (policy.looksLikeCredential(value)) return '[redacted]';
+    return value.length > 600 ? `${value.slice(0, 600)}…` : value;
+  }
+  return value;
+}
+
+/**
+ * Structure only: the field names of a payload, never their values. It is
+ * used for the request context, which is not part of the reviewed request.
  */
 function safeShape(value, depth = 0) {
   if (value === null || value === undefined) return { present: false };
@@ -39,16 +94,22 @@ function safeTimestamp(value) {
   const date = new Date(value ?? 0);
   return Number.isNaN(date.getTime()) ? new Date(0).toISOString() : date.toISOString();
 }
-async function mapRequest(entry, resolveProject) {
+async function mapRequest(entry, resolveProject, policy) {
   const project = projectOf(entry, await resolveProject?.(entry));
+  const risk = authoritativeRisk(entry, policy);
+  const preview = payloadPreviewOf(entry, policy);
   return { id: entry.requestId, requestId: entry.requestId, sessionId: entry.sessionId, ...project,
     kind: entry.isElicitation ? 'elicitation' : 'permission', toolName: entry.toolName || 'unknown',
     summary: entry.summary || (entry.isElicitation ? '业务确认' : `工具授权：${entry.toolName || 'unknown'}`),
-    input: safeShape(entry.input), context: safeShape(entry.context), createdAt: safeTimestamp(entry.createdAt),
+    // An elicitation is answered by choosing an offered option, so its
+    // structure has to survive; the values are masked by the shared policy.
+    input: entry.isElicitation ? sanitizedInput(entry.input, policy) : safeShape(entry.input), context: safeShape(entry.context),
+    payloadPreview: preview.preview, payloadRedacted: preview.redacted,
+    createdAt: safeTimestamp(entry.createdAt),
     updatedAt: safeTimestamp(entry.updatedAt), state: 'pending',
     // An unknown risk is displayed as `high`: the UI must never suggest a
     // lower risk than the authoritative policy would compute.
-    risk: entry.risk || 'high', expiresAt: safeTimestamp(Number.isFinite(entry.expiresAt) ? entry.expiresAt : Date.parse(safeTimestamp(entry.createdAt)) + 45 * 60 * 1000) };
+    risk: risk || 'high', expiresAt: safeTimestamp(Number.isFinite(entry.expiresAt) ? entry.expiresAt : Date.parse(safeTimestamp(entry.createdAt)) + 45 * 60 * 1000) };
 }
 function validateBinding(body) {
   if (!body || typeof body.enabled !== 'boolean') return 'enabled must be boolean';
@@ -97,7 +158,8 @@ export function createApprovalSessionRouter(deps = {}) {
         ? { enabled: true, channelKey: found.channelKey || '', chatId: found.chatId || '', approverIds }
         : { enabled: false, channelKey: '', chatId: '', approverIds: [] };
     } catch { /* preserve injected/test state when file is absent */ }
-    const requests = await Promise.all(list().map(entry => mapRequest(entry, deps.resolveProject)));
+    const policy = await loadPolicy();
+    const requests = await Promise.all(list().map(entry => mapRequest(entry, deps.resolveProject, policy)));
     return res.json({ session: { ...session, channelBinding: binding }, requests });
   });
   router.put('/channel', async (req, res) => { const error = validateBinding(req.body); if (error) return res.status(400).json({ error }); try { binding = await (deps.saveBinding ? deps.saveBinding(req.body) : writeBinding(req.body)); return res.json({ session: { ...session, channelBinding: binding } }); } catch (e) { return res.status(500).json({ error: '审批绑定保存失败' }); } });
@@ -107,17 +169,17 @@ export function createApprovalSessionRouter(deps = {}) {
     if (body.sessionId !== entry.sessionId) return res.status(409).json({ error: 'sessionId does not match request source' });
     if (body.decision !== 'allow' && body.decision !== 'deny') return res.status(400).json({ error: 'decision must be allow or deny' });
     // The risk level of a permission is owned by the authoritative backend
-    // policy (`src/approval/ApprovalPolicy.ts`). While the UI server cannot
-    // obtain that value, an `allow` must not be granted here: the UI would
-    // decide on a risk level nobody computed. `deny` always stays available.
+    // policy (`src/approval/ApprovalPolicy.ts`), never by the browser. The
+    // risk is computed here from the very same module the native approval
+    // center uses, so an `allow` is granted against a real classification.
+    // High and critical requests stay in the source session, where the
+    // native authorization surface handles them (contract §3). `deny` always
+    // stays available.
     if (body.decision === 'allow') {
-      const risk = entry.risk;
-      if (entry.isElicitation) {
-        if (risk && ['high', 'critical'].includes(risk)) return res.status(409).json({ error: 'high-risk approvals must be handled by the gateway policy' });
-      } else {
-        if (!risk) return res.status(409).json({ error: 'authoritative risk classification is unavailable; allow is refused', code: 'authoritative_risk_unavailable' });
-        if (['high', 'critical'].includes(risk)) return res.status(409).json({ error: 'high-risk approvals must be handled by the gateway policy' });
-      }
+      const policy = await loadPolicy();
+      const risk = authoritativeRisk(entry, policy);
+      if (!risk) return res.status(409).json({ error: 'authoritative risk classification is unavailable; allow is refused', code: 'authoritative_risk_unavailable' });
+      if (['high', 'critical'].includes(risk)) return res.status(409).json({ error: 'high-risk approvals must be handled by the gateway policy', code: 'high_risk_requires_source_session' });
     }
     if (inFlight.has(entry.requestId)) return res.status(409).json({ error: 'approval request is already being decided' });
     if (entry.isElicitation) {

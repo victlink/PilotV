@@ -40,7 +40,8 @@
     "title": "Explore",
     "collapse": "Collapse explore",
     "expand": "Expand explore",
-    "scheduledTasks": "Scheduled Tasks"
+    "scheduledTasks": "Scheduled Tasks",
+    "approvalSession": "Approval session"
   },
   "quickActions": {
     "label": "Quick actions",

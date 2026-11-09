@@ -79,3 +79,58 @@ test("route carries project fields with compatibility fallback", async () => {
   assert.equal(delivered[0]?.projectKey, "p1");
   assert.equal(delivered[0]?.projectName, "Project One");
 });
+
+test("a dedicated approval channel keeps the prompt out of ordinary session channels", async () => {
+  let registered: { bindings?: unknown[] } | undefined;
+  const r = new ApprovalRouter({
+    center: {
+      register: async (input: { bindings?: unknown[] }) => {
+        registered = input;
+        return record({ bindings: (input.bindings ?? []) as never });
+      },
+      auditEvent: async () => undefined,
+      recordDelivery: async () => undefined,
+    } as never,
+    gateway: {} as never,
+    resolveChannel: () => undefined,
+    bindingConfigs: () => [
+      { channelKey: "feishu", chatId: "oc_session" },
+      { channelKey: "feishu", chatId: "oc_approval", approvalSession: "approval-center" },
+    ],
+  });
+  await r.handleEvent({
+    sessionKey: "session/source-1",
+    channelKey: "web",
+    event: { type: "permission_request", requestId: "request-1", toolName: "read_file", payload: { path: "README.md" } },
+  });
+  assert.deepEqual(registered?.bindings, [{ channelKey: "feishu", chatId: "oc_approval" }]);
+});
+
+test("without a dedicated channel every matching binding still receives the prompt", async () => {
+  let registered: { bindings?: unknown[] } | undefined;
+  const r = new ApprovalRouter({
+    center: {
+      register: async (input: { bindings?: unknown[] }) => {
+        registered = input;
+        return record({ bindings: (input.bindings ?? []) as never });
+      },
+      auditEvent: async () => undefined,
+      recordDelivery: async () => undefined,
+    } as never,
+    gateway: {} as never,
+    resolveChannel: () => undefined,
+    bindingConfigs: () => [
+      { channelKey: "feishu", chatId: "oc_session" },
+      { channelKey: "wecom", chatId: "oc_wecom" },
+    ],
+  });
+  await r.handleEvent({
+    sessionKey: "session/source-1",
+    channelKey: "web",
+    event: { type: "permission_request", requestId: "request-2", toolName: "read_file", payload: { path: "README.md" } },
+  });
+  assert.deepEqual(registered?.bindings, [
+    { channelKey: "feishu", chatId: "oc_session" },
+    { channelKey: "wecom", chatId: "oc_wecom" },
+  ]);
+});

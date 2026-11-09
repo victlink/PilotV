@@ -51,6 +51,23 @@ test("valid bindings preserve routing fields", async () => {
   }
 });
 
+test("a dedicated approval session binding keeps its marker", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pilotdeck-approval-"));
+  try {
+    const file = join(dir, "approval-bindings.json");
+    await writeFile(file, JSON.stringify({ bindings: [
+      { channelKey: "feishu", chatId: "oc_session", approverIds: ["ou_session"] },
+      { channelKey: "feishu", chatId: "oc_approval", approverIds: ["ou_approval"], approvalSession: "approval-center" },
+    ] }), "utf8");
+    assert.deepEqual(loadApprovalBindingConfigs(file), [
+      { channelKey: "feishu", chatId: "oc_session", approverIds: ["ou_session"] },
+      { channelKey: "feishu", chatId: "oc_approval", approverIds: ["ou_approval"], approvalSession: "approval-center" },
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("invalid binding is skipped while valid entries remain", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pilotdeck-approval-"));
   try {
