@@ -5,7 +5,7 @@ import { usePendingConfirmations } from './usePendingConfirmations';
 import { FileConversationContext } from '../main-content-v2/fileConversationContext';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, BarChart3, Database, Folder, GitBranch, LayoutGrid, Library, PanelsTopLeft, PanelLeftOpen, PanelRightClose, PanelRightOpen, Radio, ShieldCheck, type LucideIcon } from 'lucide-react';
+import { BarChart3, Database, Folder, GitBranch, LayoutGrid, Library, PanelsTopLeft, PanelLeftOpen, PanelRightClose, PanelRightOpen, Radio, ShieldCheck, X, type LucideIcon } from 'lucide-react';
 import type { ConversationSkill } from '../../contexts/SkillConversationContext';
 import type { AlwaysOnSubTab, AppTab, Project, ProjectSession } from '../../types/app';
 import MainContent from '../main-content/view/MainContent';
@@ -53,19 +53,6 @@ function DedicatedWorkspacePage({ title, isSidebarCollapsed, onOpenSidebar, acti
 }
 function PageFallback() {
   return <div className="flex h-full w-full items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-600 dark:border-neutral-600 dark:border-t-neutral-300" /></div>;
-}
-function ApprovalSessionArea({ isSidebarCollapsed, onOpenSidebar, onBack }: { isSidebarCollapsed?: boolean; onOpenSidebar?: () => void; onBack?: () => void }) {
-  return (
-    <DedicatedWorkspacePage title="审核" isSidebarCollapsed={isSidebarCollapsed} onOpenSidebar={onOpenSidebar}
-      actions={onBack ? (
-        <button type="button" onClick={onBack} aria-label="返回对话" title="返回对话"
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800">
-          <ArrowLeft className="h-4 w-4" aria-hidden />返回对话
-        </button>
-      ) : null}>
-      <ApprovalSessionPanel />
-    </DedicatedWorkspacePage>
-  );
 }
 function ScheduledTasksArea({ isSidebarCollapsed, onOpenSidebar }: { isSidebarCollapsed?: boolean; onOpenSidebar?: () => void }) {
   const { t } = useTranslation();
@@ -152,6 +139,8 @@ function MainAreaContent(props: MainAreaProps) {
   const projectExploreEnabled = Boolean(selectedProject && !generalConversation && selectedProject.capabilities?.explore !== false);
   const activeTabIsUnavailable = (activeTab === 'files' && !projectFilesEnabled) || (DASHBOARD_TABS.some((tab) => tab.id === activeTab) && !projectExploreEnabled);
   const displayActiveTab = activeTab === 'home' || activeTabIsUnavailable ? 'chat' : activeTab;
+  // 审核不再整页替换对话，而是浮在对话窗口上的一扇窗；对话始终挂在下面。
+  const approvalOpen = displayActiveTab === 'approval';
   useEffect(() => {
     if (activeTab === 'home' || activeTabIsUnavailable) setActiveTab('chat');
   }, [activeTab, activeTabIsUnavailable, setActiveTab]);
@@ -174,6 +163,26 @@ function MainAreaContent(props: MainAreaProps) {
     return () => window.removeEventListener('pilotdeck:open-changes', openChangesPage);
   }, [openChangesPage]);
   const leaveReviewPanel = useCallback(() => window.dispatchEvent(new Event(REVIEW_CLOSE_EVENT)), []);
+
+  // 任务和审核是贴在对话上的两块浮窗，同时开会互相压住，所以互斥。
+  const openApproval = useCallback(() => {
+    setTaskMonitorOpen(false);
+    setActiveTab('approval');
+  }, [setActiveTab]);
+  const closeApproval = useCallback(() => setActiveTab('chat'), [setActiveTab]);
+  const toggleTaskMonitor = useCallback(() => {
+    setTaskMonitorOpen(value => {
+      if (value) return false;
+      if (activeTab === 'approval') setActiveTab('chat');
+      return true;
+    });
+  }, [activeTab, setActiveTab]);
+  useEffect(() => {
+    if (!approvalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setActiveTab('chat'); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [approvalOpen, setActiveTab]);
 
   // 点抽屉里的「多窗口」弹布局菜单；点空白、滚轮或 Esc 都收起。
   const toggleMultiWindowMenu = () => {
@@ -284,47 +293,67 @@ function MainAreaContent(props: MainAreaProps) {
               stats drift next to the session breadcrumb. */}
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <TaskSessionStats sessionId={selectedSession?.id ?? null} />
-            <button type="button" onClick={() => setTaskMonitorOpen(value => !value)} aria-expanded={taskMonitorOpen} aria-label={t('sidebar:tasks.toggle')} title={t('sidebar:tasks.toggle')}
+            <button type="button" onClick={toggleTaskMonitor} aria-expanded={taskMonitorOpen}
+              aria-label={t('sidebar:tasks.toggle', { defaultValue: '任务' }) as string}
+              title={t('sidebar:tasks.toggle', { defaultValue: '任务' }) as string}
               className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors ${taskMonitorOpen
                 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-200'
                 : 'border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800'}`}>
-              <PanelsTopLeft className="h-4 w-4" aria-hidden />{t('sidebar:tasks.toggle')}
+              <PanelsTopLeft className="h-4 w-4" aria-hidden />{t('sidebar:tasks.toggle', { defaultValue: '任务' })}
             </button>
             {!isEmbedded ? (
-              <button type="button" onClick={() => setActiveTab('approval')}
+              <button type="button" onClick={openApproval} aria-expanded={approvalOpen}
                 aria-label={t('sidebar:explore.approvalSession', { defaultValue: '审核' }) as string}
                 title={t('sidebar:explore.approvalSession', { defaultValue: '审核' }) as string}
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800">
+                className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors ${approvalOpen
+                  ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-200'
+                  : 'border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800'}`}>
                 <ShieldCheck className="h-4 w-4" aria-hidden />{t('sidebar:explore.approvalSession', { defaultValue: '审核' })}
               </button>
             ) : null}
           </div>
         </div>
       </header>
-      {taskMonitorOpen ? (
-        <TaskMonitorPanel projects={props.projects} processingSessions={props.processingSessions} unreadSessionIds={props.unreadSessionIds} pendingConfirmations={pendingConfirmations} selectedSessionId={selectedSession?.id}
-          onOpenSession={entry => {
-            setTaskMonitorOpen(false);
-            setShowArtifacts(false);
-            if (props.onNavigateToSession) props.onNavigateToSession(entry.session.id);
-            else props.onSelectSession?.(entry.project, entry.session.id);
-          }} onClose={() => setTaskMonitorOpen(false)} />
-      ) : null}
       <div className="relative z-0 flex min-h-0 flex-1 overflow-hidden">
         {showArtifacts && <div className="min-h-0 flex-1 overflow-hidden"><ArtifactsConsolePane sessionId={selectedSession?.id} projectName={selectedProject?.name} onStartNewConversation={startConversationFromInk} /></div>}
         {/* Keep chat mounted so switching views does not discard the composer. */}
         <div hidden={showArtifacts} className={showArtifacts ? 'hidden' : 'relative min-h-0 flex-1 overflow-hidden'}>
           <FileConversationContext.Provider value={{ id: selectedSession?.id, cwd: typeof selectedSession?.cwd === 'string' ? selectedSession.cwd : undefined }}>
-            <MainContent {...props} activeTab={displayActiveTab} reviewOpenRequest={reviewOpenRequest} alwaysOnSubTab={alwaysOnSubTab} onAlwaysOnSubTabChange={setAlwaysOnSubTab} />
+            {/* 审核浮在对话之上，对话本身保持 chat，不被替换也不卸载。 */}
+            <MainContent {...props} activeTab={approvalOpen ? 'chat' : displayActiveTab} reviewOpenRequest={reviewOpenRequest} alwaysOnSubTab={alwaysOnSubTab} onAlwaysOnSubTabChange={setAlwaysOnSubTab} />
           </FileConversationContext.Provider>
+        </div>
+        {/* 任务 / 审核都是浮在对话窗口上的浮窗，不占一行、不挤占内容宽度。 */}
+        <div className="pd-float-layer">
+          {taskMonitorOpen ? (
+            <div className="pd-float-card pd-float-card--tasks" data-testid="task-monitor-float">
+              <TaskMonitorPanel projects={props.projects} processingSessions={props.processingSessions} unreadSessionIds={props.unreadSessionIds} pendingConfirmations={pendingConfirmations} selectedSessionId={selectedSession?.id}
+                onOpenSession={entry => {
+                  setTaskMonitorOpen(false);
+                  setShowArtifacts(false);
+                  if (props.onNavigateToSession) props.onNavigateToSession(entry.session.id);
+                  else props.onSelectSession?.(entry.project, entry.session.id);
+                }} onClose={() => setTaskMonitorOpen(false)} />
+            </div>
+          ) : null}
+          {approvalOpen ? (
+            <section role="dialog" aria-label={t('sidebar:explore.approvalSession', { defaultValue: '审核' }) as string}
+              className="pd-float-card pd-float-card--approval" data-testid="approval-float">
+              <header className="pd-float-card-header">
+                <h2 className="pd-float-card-title">{t('sidebar:explore.approvalSession', { defaultValue: '审核' })}</h2>
+                <button type="button" onClick={closeApproval} aria-label="关闭审核" title="关闭审核" className="pd-float-card-close"><X className="h-4 w-4" strokeWidth={2} /></button>
+              </header>
+              <div className="min-h-0 flex-1 overflow-hidden"><ApprovalSessionPanel /></div>
+            </section>
+          ) : null}
         </div>
         {/* 抽屉不占内容宽度；改动页只保留侧栏事件入口。 */}
         <div className="pd-page-drawer">
           {pageTabsOpen ? (
             <>
               <nav aria-label="页面切换" className="right-rail pd-page-drawer-panel">
-                <button type="button" aria-pressed={!showArtifacts && displayActiveTab === 'chat'} data-pane-state={!showArtifacts && displayActiveTab === 'chat' ? 'on' : 'off'}
-                  onClick={() => { setShowArtifacts(false); setActiveTab('chat'); leaveReviewPanel(); }} className={!showArtifacts && displayActiveTab === 'chat' ? 'active' : ''}><span>对话</span></button>
+                <button type="button" aria-pressed={!showArtifacts && (displayActiveTab === 'chat' || approvalOpen)} data-pane-state={!showArtifacts && (displayActiveTab === 'chat' || approvalOpen) ? 'on' : 'off'}
+                  onClick={() => { setShowArtifacts(false); setActiveTab('chat'); leaveReviewPanel(); }} className={!showArtifacts && (displayActiveTab === 'chat' || approvalOpen) ? 'active' : ''}><span>对话</span></button>
                 {projectFilesEnabled ? (
                   <button type="button" aria-pressed={!showArtifacts && displayActiveTab === FILES_TAB.id} data-pane-state={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'on' : 'off'}
                     onClick={() => { setShowArtifacts(false); setActiveTab(FILES_TAB.id); leaveReviewPanel(); }} className={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'active' : ''}><span>文件</span></button>
@@ -332,19 +361,19 @@ function MainAreaContent(props: MainAreaProps) {
                 <button type="button" aria-pressed={showArtifacts} data-pane-state={showArtifacts ? 'on' : 'off'} onClick={() => { leaveReviewPanel(); setShowArtifacts(true); }} className={showArtifacts ? 'active' : ''}><span>成果</span></button>
                 {!isEmbedded ? (
                   <button type="button" ref={multiWindowButtonRef} aria-haspopup="menu" aria-expanded={Boolean(multiWindowMenu)}
-                    aria-label={t('sidebar:explore.multiWindow', { defaultValue: '多窗口' }) as string}
-                    title={t('sidebar:explore.multiWindow', { defaultValue: '多窗口' }) as string}
+                    aria-label={t('sidebar:explore.multiWindow', { defaultValue: '窗口' }) as string}
+                    title={t('sidebar:explore.multiWindow', { defaultValue: '窗口' }) as string}
                     data-pane-state={multiWindowMenu ? 'on' : 'off'} onClick={toggleMultiWindowMenu}
-                    className={multiWindowMenu ? 'active' : ''}><span>多窗口</span></button>
+                    className={multiWindowMenu ? 'active' : ''}><span>窗口</span></button>
                 ) : null}
                 <span aria-hidden="true" className="pd-page-drawer-divider" />
                 <button type="button" aria-label="收起页面标签" title="收起页面标签" onClick={() => setPageTabsOpen(false)} className="pd-page-drawer-toggle"><PanelRightClose className="h-3.5 w-3.5" strokeWidth={1.9} /></button>
               </nav>
               {multiWindowMenu ? (
-                <div role="menu" aria-label="多窗口布局" className="pd-multiwindow-menu"
+                <div role="menu" aria-label="窗口布局" className="pd-multiwindow-menu"
                   style={{ top: multiWindowMenu.top, right: multiWindowMenu.right }}
                   onPointerDown={event => event.stopPropagation()}>
-                  <p className="pd-multiwindow-menu-title">多窗口</p>
+                  <p className="pd-multiwindow-menu-title">窗口布局</p>
                   {WINDOW_LAYOUTS.map(layout => (
                     <button key={layout} type="button" role="menuitem" onClick={() => enterMultiWindow(layout)}>
                       <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
@@ -378,7 +407,6 @@ export default function MainArea(props: MainAreaProps) {
     isEmbedded={props.isEmbedded}
     onBack={() => props.setActiveTab('chat')}
   />;
-  if (props.activeTab === 'approval') return <ApprovalSessionArea isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} onBack={() => props.setActiveTab('chat')} />;
   if (props.activeTab === 'cron') return <ScheduledTasksArea isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} />;
   if (props.activeTab === 'skills') return <SkillsArea onSkillsProjectChange={props.onSkillsProjectChange} onUseSkill={props.onUseSkill} isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} selectedProject={props.selectedProject} projects={props.projects} />;
   return <ChatHistorySearchControllerProvider><MainAreaContent {...props} /></ChatHistorySearchControllerProvider>;
