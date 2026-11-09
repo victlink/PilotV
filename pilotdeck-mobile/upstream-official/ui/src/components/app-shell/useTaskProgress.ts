@@ -6,6 +6,8 @@ export type TaskPhase = 'idle' | 'starting' | 'working' | 'waiting' | 'compactin
 export type TaskProgress = {
   phase: TaskPhase;
   turnStartedAt?: number;
+  /** Wall-clock time of the terminal event; kept so the header can still show the finished turn's duration. */
+  turnFinishedAt?: number;
   toolsCompleted: number;
   contextRatio?: number;
   contextUsed?: number;
@@ -72,6 +74,7 @@ export function useTaskProgress(): TaskProgressBySession {
           contextTotal: current.contextTotal,
           phase: 'starting',
           turnStartedAt: Number.isFinite(timestamp) ? timestamp : undefined,
+          turnFinishedAt: undefined,
           toolsCompleted: 0,
           completedToolIds: [],
           pendingRequestIds: [],
@@ -82,7 +85,7 @@ export function useTaskProgress(): TaskProgressBySession {
       if (current.phase === 'finished') return previous;
       let next: InternalProgress = budget ? { ...current, ...budget } : current;
       if (kind === 'complete' || (kind === 'error' && message.terminal === true)) {
-        next = { ...next, phase: 'finished', toolsCompleted: 0, completedToolIds: [], pendingRequestIds: [] };
+        next = { ...next, phase: 'finished', turnFinishedAt: Date.now(), toolsCompleted: 0, completedToolIds: [], pendingRequestIds: [] };
       } else if (kind === 'permission_request') {
         const requestId = message.requestId;
         next = { ...next, phase: 'waiting', pendingRequestIds: typeof requestId === 'string' && requestId && !next.pendingRequestIds.includes(requestId)

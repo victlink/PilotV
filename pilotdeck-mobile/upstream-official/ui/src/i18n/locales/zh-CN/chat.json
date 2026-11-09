@@ -371,6 +371,8 @@
       "agentModelConflict": "项目团队配置已被其它改动更新，请重试",
       "agentModelSaveFailed": "保存 {{name}} 的专属模型失败",
       "reasoning": "推理强度",
+      "reasoningNoModel": "选择模型后可设置推理强度",
+      "reasoningUnsupported": "当前模型不支持推理强度设置。",
       "speed": "速度",
       "reasoningLevels": {
         "off": "关闭",

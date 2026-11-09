@@ -388,6 +388,8 @@
       "agentModelConflict": "The project team config changed elsewhere. Please retry.",
       "agentModelSaveFailed": "Failed to save the dedicated model for {{name}}",
       "reasoning": "Reasoning",
+      "reasoningNoModel": "Select a model to set the reasoning strength",
+      "reasoningUnsupported": "The selected model has no reasoning-strength setting.",
       "speed": "Speed",
       "reasoningLevels": {
         "off": "Off",

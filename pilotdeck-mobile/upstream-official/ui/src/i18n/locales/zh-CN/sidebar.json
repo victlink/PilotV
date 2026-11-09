@@ -213,6 +213,7 @@
       "finished": "已结束"
     },
     "contextOccupancy": "上下文占用 {{percent}}%",
+    "elapsedRunning": "本轮执行用时",
     "activity": "任务活动（无完成百分比）",
     "toolsCompleted": "已完成 {{count}} 个工具调用"
   }

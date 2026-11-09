@@ -2732,6 +2732,17 @@
       padding-inline: 4px;
     }
     .pd-composer-container .pd-composer-context-value { display: none; }
+    /* Icon only: the reasoning-strength trigger keeps its icon and drops the
+       label so the dropdowns stay readable. */
+    .pd-composer-container .pd-composer-reasoning-control {
+      min-width: 0;
+      flex-shrink: 0;
+    }
+    .pd-composer-container .pd-composer-reasoning-control > button {
+      min-width: 0;
+      padding-inline: 4px;
+    }
+    .pd-composer-container .pd-composer-reasoning-value { display: none; }
     .pd-composer-container .pd-composer-toolbar-right > button {
       width: 30px;
       min-width: 30px;

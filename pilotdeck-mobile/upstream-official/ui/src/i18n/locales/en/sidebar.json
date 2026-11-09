@@ -213,6 +213,7 @@
       "finished": "Finished"
     },
     "contextOccupancy": "Context {{percent}}%",
+    "elapsedRunning": "Elapsed time for this turn",
     "activity": "Task activity (no completion percentage available)",
     "toolsCompleted": "{{count}} tools completed"
   }

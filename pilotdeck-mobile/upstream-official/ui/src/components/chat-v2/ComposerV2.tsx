@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleGauge,
+  Gauge,
   HelpCircle,
   ListChecks,
   Loader2,
@@ -53,6 +54,7 @@ import type {
 import {
   buildExplicitSelection,
   capabilityValues,
+  readFiniteNumber,
   modelSelectionId,
   paramsFromSelection,
   preserveParamsForModel,
@@ -577,6 +579,8 @@ export default function ComposerV2({
 }: ComposerV2Props) {
   const { t } = useTranslation(["chat", "projectTeam"]);
   const reasoningLabels = useMemo(() => new Map<number, string>([
+    [0, t("input.models.reasoningLevels.off", { defaultValue: "Off" }) as string],
+    [0.2, t("input.models.reasoningLevels.light", { defaultValue: "Light" }) as string],
     [0.4, t("input.models.reasoningLevels.low", { defaultValue: "Low" }) as string],
     [0.6, t("input.models.reasoningLevels.medium", { defaultValue: "Medium" }) as string],
     [0.8, t("input.models.reasoningLevels.high", { defaultValue: "High" }) as string],
@@ -599,6 +603,7 @@ export default function ComposerV2({
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
+  const [isReasoningMenuOpen, setIsReasoningMenuOpen] = useState(false);
   const [advancedModelId, setAdvancedModelId] = useState<string | null>(null);
   const [modelQuery, setModelQuery] = useState("");
   const [skillQuery, setSkillQuery] = useState("");
@@ -609,9 +614,11 @@ export default function ComposerV2({
   const permissionTriggerRef = useRef<HTMLButtonElement>(null);
   const contextTriggerRef = useRef<HTMLButtonElement>(null);
   const agentTriggerRef = useRef<HTMLButtonElement>(null);
+  const reasoningTriggerRef = useRef<HTMLButtonElement>(null);
   const addMenu = useFloatingPanel(isAddMenuOpen, addTriggerRef, () => setIsAddMenuOpen(false), { matchComposer: true });
   const permissionMenu = useFloatingPanel(isPermissionMenuOpen, permissionTriggerRef, () => setIsPermissionMenuOpen(false), { width: 220 });
   const contextMenu = useFloatingPanel(isContextPopoverOpen, contextTriggerRef, () => setIsContextPopoverOpen(false), { width: 256 });
+  const reasoningMenu = useFloatingPanel(isReasoningMenuOpen, reasoningTriggerRef, () => setIsReasoningMenuOpen(false), { width: 200, maxHeight: 260 });
   const agentMenu = useFloatingPanel(isAgentMenuOpen, agentTriggerRef, () => setIsAgentMenuOpen(false), { width: 240, maxHeight: 320 });
   const fileMenu = useFloatingPanel(showFileDropdown, textareaRef, undefined, { matchComposer: true, maxHeight: 320 });
   const permissionSelectorDisabled = runMode === "plan";
@@ -884,6 +891,42 @@ export default function ComposerV2({
     setIsModelMenuOpen(false);
     setAdvancedModelId(null);
     modelMenu.triggerRef.current?.focus();
+  };
+
+  /**
+   * Right-side reasoning-strength control. It edits the same `reasoning`
+   * parameter the model menu's advanced panel used to own, so both stay in
+   * sync through `onModelSelectionChange`. When the selected model has no
+   * reasoning capability the trigger stays visible as a disabled hint.
+   */
+  const reasoningCapability = selectedModel?.capabilities.reasoning;
+  const reasoningOptionValues = reasoningCapability ? capabilityValues(reasoningCapability) : [];
+  const sessionReasoning =
+    modelSelection?.mode === "model" ? readFiniteNumber(modelSelection.reasoning) : undefined;
+  const effectiveReasoning =
+    sessionReasoning !== undefined &&
+    reasoningOptionValues.some((value) => sameCapabilityValue(sessionReasoning, value))
+      ? sessionReasoning
+      : undefined;
+  const reasoningTriggerLabel =
+    reasoningLabels.get(effectiveReasoning!) ??
+    (t("input.models.reasoningLevels.default", { defaultValue: "Default" }) as string);
+  const handleReasoningSelect = (reasoning?: number) => {
+    if (selectedModel) {
+      updateModelParams(selectedModel, { reasoning });
+    } else if (modelSelection?.mode === "model") {
+      // The selection can name a model the catalog has not (or no longer)
+      // lists; write the parameter back onto that explicit selection.
+      onModelSelectionChange(
+        buildExplicitSelection(modelSelection, {
+          ...(reasoning !== undefined ? { reasoning } : {}),
+        }),
+      );
+    } else {
+      return;
+    }
+    setIsReasoningMenuOpen(false);
+    reasoningTriggerRef.current?.focus();
   };
 
   return (
@@ -2089,6 +2132,79 @@ export default function ComposerV2({
                           <div className="text-neutral-500 dark:text-neutral-400">
                             {t("input.contextStatusUnknownBody", {
                               defaultValue: "No token budget has been reported yet. It will appear after the next model response.",
+                            })}
+                          </div>
+                        )}
+                      </div>, document.body
+                    ) : null}
+                  </div>
+
+                  <div className="pd-composer-reasoning-control relative">
+                    <button
+                      ref={reasoningTriggerRef}
+                      type="button"
+                      disabled={!selectedModel}
+                      onClick={() => setIsReasoningMenuOpen((open) => !open)}
+                      className={cn(
+                        "pd-composer-icon-button inline-flex h-8 min-w-[44px] items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] transition",
+                        "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800",
+                        !selectedModel && "cursor-not-allowed opacity-45",
+                        isReasoningMenuOpen &&
+                          "bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100",
+                      )}
+                      title={
+                        selectedModel
+                          ? (`${t("input.models.reasoning", { defaultValue: "Reasoning" })}: ${reasoningTriggerLabel}`)
+                          : (t("input.models.reasoningNoModel", {
+                              defaultValue: "Select a model to set the reasoning strength",
+                            }) as string)
+                      }
+                      aria-label={t("input.models.reasoning", { defaultValue: "Reasoning" }) as string}
+                      aria-haspopup="menu"
+                      aria-expanded={isReasoningMenuOpen}
+                    >
+                      <Gauge className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                      <span className="pd-composer-reasoning-value truncate">
+                        {reasoningTriggerLabel}
+                      </span>
+                    </button>
+                    {isReasoningMenuOpen ? createPortal(
+                      <div
+                        ref={reasoningMenu.panelRef}
+                        style={reasoningMenu.style}
+                        role="menu"
+                        aria-label={t("input.models.reasoning", { defaultValue: "Reasoning" }) as string}
+                        className="overflow-y-auto overscroll-contain rounded-lg border border-[var(--pd-accent-border,#ddd6fe)] bg-white p-[5px] text-left shadow-xl shadow-[var(--pd-accent,#2e1065)]/10 dark:border-violet-900/70 dark:bg-neutral-900"
+                      >
+                        <button
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={effectiveReasoning === undefined}
+                          disabled={!selectedModel || reasoningOptionValues.length === 0}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleReasoningSelect(undefined)}
+                          className={cn(
+                            "grid h-[26px] w-full grid-cols-[1fr_14px] items-center rounded-md border border-transparent bg-transparent px-[7px] text-left text-[12px] text-[#595b67] transition-colors hover:border-[var(--pd-accent-border,#e4e0fb)] hover:bg-[var(--pd-accent-soft,#f7f6ff)] hover:text-[var(--pd-accent-strong,#4742a9)] disabled:cursor-not-allowed disabled:opacity-45 dark:text-neutral-300 dark:hover:border-violet-800 dark:hover:bg-violet-950/40 dark:hover:text-violet-200",
+                            effectiveReasoning === undefined &&
+                              "border-[var(--pd-accent-border,#d6d1ff)] bg-[var(--pd-accent-soft,#eeecff)] font-[650] text-[var(--pd-accent-strong,#393393)] dark:border-violet-700 dark:bg-violet-950/70 dark:text-violet-200",
+                          )}
+                        >
+                          <span>{t("input.models.reasoningLevels.default", { defaultValue: "Default" })}</span>
+                          {effectiveReasoning === undefined ? (
+                            <Check className="h-[10px] w-[10px]" strokeWidth={2} />
+                          ) : null}
+                        </button>
+                        {reasoningOptionValues.length > 0 ? (
+                          <CapabilityOptionList
+                            values={reasoningOptionValues}
+                            labels={reasoningLabels}
+                            currentValue={effectiveReasoning}
+                            onSelect={(reasoning) => handleReasoningSelect(reasoning)}
+                          />
+                        ) : (
+                          <div className="px-[7px] py-2 text-[11px] text-neutral-400 dark:text-neutral-500">
+                            {t("input.models.reasoningUnsupported", {
+                              defaultValue: "The selected model has no reasoning-strength setting.",
                             })}
                           </div>
                         )}

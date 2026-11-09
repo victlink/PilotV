@@ -1,6 +1,7 @@
 import ArtifactsConsolePane from './ArtifactsConsolePane';
 import TaskMonitorPanel from './TaskMonitorPanel';
 import { usePendingConfirmations } from './usePendingConfirmations';
+import TaskSessionStats from './TaskSessionStats';
 import { FileConversationContext } from '../main-content-v2/fileConversationContext';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -182,6 +183,14 @@ function readPageTabsOpen() {
   }
 }
 
+/**
+ * Current-conversation execution time shown next to the header task button.
+ *
+ * Running turns tick from the real turn start (the same WS `started` frame the
+ * task monitor uses); finished turns keep their last duration frozen for a
+ * day, so a just-completed task remains readable. Nothing is invented when no
+ * timestamp was reported.
+ */
 function MainAreaV2Content(props: MainAreaV2Props) {
   const { t } = useTranslation();
   const {
@@ -377,6 +386,7 @@ function MainAreaV2Content(props: MainAreaV2Props) {
             </h1>
           ) : null}
           </div>
+          <TaskSessionStats sessionId={selectedSession?.id ?? null} />
           <button
             type="button"
             onClick={() => setTaskMonitorOpen(value => !value)}
