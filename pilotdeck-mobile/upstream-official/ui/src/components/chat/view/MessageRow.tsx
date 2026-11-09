@@ -531,7 +531,7 @@ function MessageRow({
         </div>
         {!isEditing ? (
           <div
-            data-testid="user-message-actions"
+            data-testid="user-message-actions-row"
             className="pointer-events-none mt-1 flex h-6 items-center justify-end gap-1 pr-1 opacity-0 transition-opacity duration-150 group-focus-within/user-msg:pointer-events-auto group-focus-within/user-msg:opacity-100 group-hover/user-msg:pointer-events-auto group-hover/user-msg:opacity-100"
           >
             {messageTime ? (

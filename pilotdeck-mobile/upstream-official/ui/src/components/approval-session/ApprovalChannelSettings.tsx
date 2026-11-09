@@ -64,8 +64,8 @@ export default function ApprovalChannelSettings() {
         const detail = await res.json().catch(() => null) as { error?: string } | null;
         throw new Error(detail?.error || `保存失败（${res.status}）`);
       }
-      const payload = await res.json().catch(() => null) as { session?: { channelBinding?: ApprovalChannelBinding } } | null;
-      const saved = payload?.session?.channelBinding;
+      const result = (await res.json().catch(() => null)) as { session?: { channelBinding?: ApprovalChannelBinding } } | null;
+      const saved = result?.session?.channelBinding;
       if (saved) setBinding({ enabled: Boolean(saved.enabled), channelKey: saved.channelKey || 'feishu', chatId: saved.chatId || '', approverIds: Array.isArray(saved.approverIds) ? saved.approverIds : [] });
       void refresh();
       setMessage('已保存');
