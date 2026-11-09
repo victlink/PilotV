@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { getProjectParticipants } from './pilotdeck-bridge.js';
 import { createWorkspaceFileUploadHandler, createWorkspaceUploadCheckHandler } from './services/workspaceFileUpload.js';
+import { createPilotVArtifactsProxy } from './services/pilotvArtifactsProxy.js';
 import { createBackgroundSessionForwarder, createSessionActivityRegistry } from './session-activity.js';
 import '../../scripts/check-node-runtime.mjs';
 // Load environment variables before other imports execute
@@ -515,6 +516,15 @@ const wss = new WebSocketServer({
 app.locals.wss = wss;
 
 app.use(cors({ exposedHeaders: ['X-Refreshed-Token'] }));
+
+// PilotV：成果台代理。成果数据在 8799（service/serve_artifacts.py），页面上
+// 请求的是相对路径 /api/artifacts/...。走 PilotV 网关（5186）时网关会把它转给
+// 8799；直接开 3001 时没有这一层，成果台请求全是 404（前端报「成果列表请求
+// 失败（HTTP 404）」）。
+// 必须挂在 express.json / express.urlencoded 之前：那两个解析器会把 POST 的
+// body 吃掉，转发给成果台时就只剩一个空 body 了。
+app.use(createPilotVArtifactsProxy({ authenticate: authenticateToken }));
+
 app.use(express.json({
     limit: '50mb',
     type: (req) => {

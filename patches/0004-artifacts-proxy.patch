@@ -1,0 +1,541 @@
+# 0004-artifacts-proxy.patch —— 直连 3001 也能打开成果台
+#
+# 相对上游 vendor 的本地修复，可重放。
+# 重放：git apply -p1 patches/0004-artifacts-proxy.patch
+# 校验：node scripts/ci/check-upstream-patches.mjs
+#
+# 背景：新风机项目成果台报「成果列表请求失败（HTTP 404）」。前端的成果请求是相对
+# 路径 /api/artifacts/...，页面开在 3001（上游 PilotDeck Web）时上游根本没有这一
+# 层路由，必然 404；成果数据其实一直在 8799（service/serve_artifacts.py）里。
+#
+# 做法：在上游 server 上挂一层薄代理，把 /api/artifacts/* 与 /artifacts-static/* 转
+# 给 8799。必须挂在 express.json / express.urlencoded 之前，否则 POST 的 body
+# 会被解析器吃掉，转过去只剩空 body。
+#
+# 鉴权：回环调用方或出示与配置相同的机器令牌直接放行，其余走上游自己的 JWT 校验。
+# 跨机访问仍然走 PilotV 网关（5186），那里本来就把 /api/artifacts 转给 8799。
+diff --git a/pilotdeck-mobile/upstream-official/ui/server/index.js b/pilotdeck-mobile/upstream-official/ui/server/index.js
+index 9ad32c1..960d683 100644
+--- a/pilotdeck-mobile/upstream-official/ui/server/index.js
++++ b/pilotdeck-mobile/upstream-official/ui/server/index.js
+@@ -1,6 +1,7 @@
+ #!/usr/bin/env node
+ import { getProjectParticipants } from './pilotdeck-bridge.js';
+ import { createWorkspaceFileUploadHandler, createWorkspaceUploadCheckHandler } from './services/workspaceFileUpload.js';
++import { createPilotVArtifactsProxy } from './services/pilotvArtifactsProxy.js';
+ import { createBackgroundSessionForwarder, createSessionActivityRegistry } from './session-activity.js';
+ import '../../scripts/check-node-runtime.mjs';
+ // Load environment variables before other imports execute
+@@ -513,8 +514,17 @@
+ 
+ // Make WebSocket server available to routes
+ app.locals.wss = wss;
++
+ app.use(cors({ exposedHeaders: ['X-Refreshed-Token'] }));
+ 
++// PilotV：成果台代理。成果数据在 8799（service/serve_artifacts.py），页面上
++// 请求的是相对路径 /api/artifacts/...。走 PilotV 网关（5186）时网关会把它转给
++// 8799；直接开 3001 时没有这一层，成果台请求全是 404（前端报「成果列表请求
++// 失败（HTTP 404）」）。
++// 必须挂在 express.json / express.urlencoded 之前：那两个解析器会把 POST 的
++// body 吃掉，转发给成果台时就只剩一个空 body 了。
++app.use(createPilotVArtifactsProxy({ authenticate: authenticateToken }));
++
+ app.use(express.json({
+     limit: '50mb',
+     type: (req) => {
+diff --git a/pilotdeck-mobile/upstream-official/ui/server/services/pilotvArtifactsProxy.js b/pilotdeck-mobile/upstream-official/ui/server/services/pilotvArtifactsProxy.js
+new file mode 100644
+index 0000000..e0d35d6
+--- /dev/null
++++ b/pilotdeck-mobile/upstream-official/ui/server/services/pilotvArtifactsProxy.js
+@@ -0,0 +1,185 @@
++// PilotV 成果台代理 —— 上游 PilotDeck 没有这一层。
++//
++// 背景：成果台的数据在 8799（service/serve_artifacts.py），页面上请求
++// /api/artifacts/... 用的是相对路径。走 PilotV 网关（5186）时网关会把它
++// 转给 8799；但直接用上游的 Web 服务（3001）打开同一个页面时没有这一层，
++// 成果台请求全部 404 —— 前端报「成果列表请求失败（HTTP 404）。请检查成果
++// API 是否可用后刷新」。新风机项目的成果台就是这么打不开的：数据一直在，
++// 只是 3001 上没人把请求转给 8799。
++//
++// 这一层把 3001 上的 /api/artifacts*、/artifacts-static/* 转给本机 8799，
++// 让「本机直接开 3001」和「走网关 5186」两条路看到的成果一致。
++//
++// 鉴权跟成果台自己一套规矩（artifacts_console.py 的 _authorized）：
++// 本机回环放行；其余调用方要么带机器令牌，要么带上游登录态。
++// 不能只套上游的 authenticateToken：成果台前端用的是裸 fetch，不带
++// Authorization 头，只套它会把本机用户也挡在门外。
++
++import fs from 'fs';
++import http from 'http';
++import https from 'https';
++import os from 'os';
++import path from 'path';
++
++const DEFAULT_TARGET = 'http://127.0.0.1:8799';
++
++/**
++ * 上游静默多久算死了（毫秒）。按「静默」而不是「总时长」算：成果台有 SSE
++ * （/api/artifacts/events）和大文件下载，响应中间可以长时间没有输出。
++ */
++const UPSTREAM_IDLE_MS = 120000;
++
++/**
++ * 哪些路径归成果台。别的 /api/* 一律不碰。
++ *
++ * 只收 /artifacts/rooms 这一个页面路径：上游的 SPA 自己也有 /artifacts 路由，
++ * 把 /artifacts/* 整段吃掉会把页面导航弄坏。
++ */
++export function isArtifactsPath(pathname) {
++  if (typeof pathname !== 'string' || !pathname) return false;
++  if (pathname === '/api/artifacts' || pathname.startsWith('/api/artifacts/')) return true;
++  if (pathname.startsWith('/artifacts-static/')) return true;
++  if (pathname === '/artifacts/rooms') return true;
++  return false;
++}
++
++/** 成果台地址。没配就用本机默认端口。 */
++export function resolveArtifactsTarget(env = process.env) {
++  const raw = String(env.PILOTV_ARTIFACTS_TARGET || env.ARTIFACTS_TARGET || DEFAULT_TARGET).trim();
++  try {
++    return new URL(raw).origin;
++  } catch {
++    return DEFAULT_TARGET;
++  }
++}
++
++/**
++ * 机器令牌。优先环境变量，其次令牌文件（start-windows.ps1 用
++ * --token-file 传给成果台进程，令牌就落在 ~/.pilotdeck/artifacts-token）。
++ */
++export function readArtifactsToken(env = process.env) {
++  const inline = String(env.PILOTV_ARTIFACTS_TOKEN || '').trim();
++  if (inline) return inline;
++  const file = String(
++    env.PILOTV_ARTIFACTS_TOKEN_FILE || path.join(os.homedir(), '.pilotdeck', 'artifacts-token'),
++  ).trim();
++  try {
++    return fs.readFileSync(file, 'utf-8').trim();
++  } catch {
++    return '';
++  }
++}
++
++/** 调用方是不是本机回环。 */
++export function isLoopbackRequest(req) {
++  const raw = String((req.socket && req.socket.remoteAddress) || req.ip || '');
++  const address = raw.startsWith('::ffff:') ? raw.slice(7) : raw;
++  return address === '127.0.0.1' || address === '::1' || address.startsWith('127.');
++}
++
++/** 调用方自带的机器令牌。 */
++export function callerToken(req) {
++  const header = req.headers['x-artifacts-token'];
++  if (typeof header === 'string' && header.trim()) return header.trim();
++  const auth = String(req.headers.authorization || '');
++  if (auth.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim();
++  return '';
++}
++
++/**
++ * 造一个成果台代理中间件。
++ *
++ * 目标与令牌默认取环境变量；测试可以自己传进来。
++ *
++ * authenticate 是「非回环调用方又没有机器令牌」时的兜底门禁（上游的
++ * authenticateToken）。不直接 import 是为了这一层不牵进数据库和配置校验，
++ * 单测能单独把它拉起来。
++ */
++export function createPilotVArtifactsProxy(options = {}) {
++  const target = options.target || resolveArtifactsTarget();
++  const token = options.token !== undefined ? options.token : readArtifactsToken();
++  const idleMs = Number(options.idleMs) > 0 ? Number(options.idleMs) : UPSTREAM_IDLE_MS;
++  const authenticate = typeof options.authenticate === 'function' ? options.authenticate : null;
++
++  function forward(req, res) {
++    let upstreamTarget;
++    try {
++      upstreamTarget = new URL(target);
++    } catch {
++      res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
++      res.end(`成果台地址无效：${target}`);
++      return;
++    }
++
++    const headers = { ...req.headers, host: upstreamTarget.host };
++    // 改写 Host 之后上游就不知道用户是从哪个入口来的，成果台拼评审链接要靠
++    // 这两个头（跟网关那边同一套做法）。
++    headers['x-forwarded-host'] = req.headers.host || (req.socket && req.socket.localAddress) || '';
++    headers['x-forwarded-proto'] = upstreamTarget.protocol === 'https:' ? 'https' : 'http';
++    // 调用方自己的凭据不能原样送进成果台：那是跨源凭据外泄面（浏览器的会话
++    // cookie、Bearer 令牌都会跟着进去）。有机器令牌就换成我们的，没有就让
++    // 成果台按它自己的规矩（回环放行）处理。
++    delete headers.authorization;
++    delete headers['x-artifacts-token'];
++    delete headers.cookie;
++    if (token) headers.authorization = `Bearer ${token}`;
++
++    const upstreamIsTls = upstreamTarget.protocol === 'https:';
++    const upstream = (upstreamIsTls ? https : http).request(
++      {
++        hostname: upstreamTarget.hostname,
++        port: upstreamTarget.port || (upstreamIsTls ? 443 : 80),
++        method: req.method,
++        path: req.originalUrl,
++        headers,
++        rejectUnauthorized: false,
++      },
++      (upstreamResponse) => {
++        res.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);
++        upstreamResponse.pipe(res);
++      },
++    );
++
++    upstream.setTimeout(idleMs, () => {
++      if (!res.headersSent) {
++        res.writeHead(504, { 'content-type': 'text/plain; charset=utf-8' });
++      }
++      res.end(`成果台 ${upstreamTarget.host} 超过 ${Math.round(idleMs / 1000)} 秒没有任何响应`);
++      upstream.destroy();
++    });
++    upstream.on('error', (error) => {
++      if (!res.headersSent) {
++        res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
++      }
++      res.end(`成果台 ${upstreamTarget.host} 无响应：${error.code || error.message}`);
++    });
++    req.pipe(upstream);
++  }
++
++  return function pilotvArtifactsProxy(req, res, next) {
++    if (!isArtifactsPath(req.path)) {
++      next();
++      return;
++    }
++
++    // 本机回环放行；其余调用方要么出示机器令牌，要么带上游登录态。
++    const machineOk = Boolean(token) && callerToken(req) === token;
++    if (!isLoopbackRequest(req) && !machineOk) {
++      if (!authenticate) {
++        res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' });
++        res.end('成果台只对本机回环开放；跨机请走 PilotV 网关（5186）。');
++        return;
++      }
++      authenticate(req, res, (error) => {
++        if (error) {
++          next(error);
++          return;
++        }
++        forward(req, res);
++      });
++      return;
++    }
++
++    forward(req, res);
++  };
++}
+diff --git a/pilotdeck-mobile/upstream-official/ui/server/services/pilotvArtifactsProxy.test.js b/pilotdeck-mobile/upstream-official/ui/server/services/pilotvArtifactsProxy.test.js
+new file mode 100644
+index 0000000..f7d02e8
+--- /dev/null
++++ b/pilotdeck-mobile/upstream-official/ui/server/services/pilotvArtifactsProxy.test.js
+@@ -0,0 +1,298 @@
++// @vitest-environment node
++// 成果台代理的回归测试。
++//
++// 这层代理是为了修「新风机项目成果台报 HTTP 404」而加的：页面上请求的是相对
++// 路径 /api/artifacts/...，直接开 3001（上游 PilotDeck Web）时上游没有这一层
++// 路由，必然 404。所以这里盯住三件容易悄悄坏掉的事：
++//   1. 哪些路径归成果台 —— 吃太多会把上游 SPA 的 /artifacts 页面导航弄坏；
++//   2. POST 的 body 会不会被吃掉（挂载位置在 express.json 之前就是为了这个）；
++//   3. 鉴权门禁 —— 本机回环放行，跨机要么机器令牌要么上游登录态。
++
++import http from 'node:http';
++import { Writable } from 'node:stream';
++
++import { afterEach, describe, expect, it } from 'vitest';
++
++import {
++  callerToken,
++  createPilotVArtifactsProxy,
++  isArtifactsPath,
++  isLoopbackRequest,
++  readArtifactsToken,
++  resolveArtifactsTarget,
++} from './pilotvArtifactsProxy.js';
++
++const cleanups = [];
++afterEach(async () => {
++  for (const clean of cleanups.splice(0).reverse()) await clean();
++});
++
++/** 起一个假的成果台服务，把收到的请求原样回显。 */
++async function startUpstream(handler) {
++  const server = http.createServer(handler);
++  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
++  const origin = `http://127.0.0.1:${server.address().port}`;
++  cleanups.push(() => new Promise((resolve) => {
++    server.closeAllConnections();
++    server.close(resolve);
++  }));
++  return { server, origin };
++}
++
++/** 回显型上游：把 method / url / body / 关键请求头回给调用方。 */
++function echoHandler(request, response) {
++  const chunks = [];
++  request.on('data', (chunk) => chunks.push(chunk));
++  request.on('end', () => {
++    response.writeHead(200, { 'content-type': 'application/json' });
++    response.end(JSON.stringify({
++      method: request.method,
++      url: request.url,
++      body: Buffer.concat(chunks).toString('utf-8'),
++      authorization: request.headers.authorization || '',
++      cookie: request.headers.cookie || '',
++      artifactsToken: request.headers['x-artifacts-token'] || '',
++      host: request.headers.host || '',
++      forwardedHost: request.headers['x-forwarded-host'] || '',
++    }));
++  });
++}
++
++/** 假的请求对象：socket 地址可以随便定，用来区分回环和跨机。 */
++function fakeRequest(options = {}) {
++  const {
++    method = 'GET',
++    path = '/api/artifacts/workspace',
++    headers = {},
++    remoteAddress = '127.0.0.1',
++    body = null,
++  } = options;
++  return {
++    method,
++    path,
++    originalUrl: path,
++    headers,
++    socket: { remoteAddress },
++    pipe(upstream) {
++      if (body) upstream.write(body);
++      upstream.end();
++      return upstream;
++    },
++  };
++}
++
++/** 假的响应对象：能接住上游 pipe 过来的字节。 */
++function fakeResponse() {
++  const chunks = [];
++  let resolveDone;
++  const done = new Promise((resolve) => { resolveDone = resolve; });
++  const response = new Writable({
++    write(chunk, encoding, callback) {
++      chunks.push(Buffer.from(chunk));
++      callback();
++    },
++    final(callback) {
++      resolveDone();
++      callback();
++    },
++  });
++  response.statusCode = 200;
++  response.headers = {};
++  response.writeHead = (statusCode, headers) => {
++    response.statusCode = statusCode;
++    response.headers = headers || {};
++    return response;
++  };
++  response.bodyText = () => Buffer.concat(chunks).toString('utf-8');
++  response.done = done;
++  return response;
++}
++
++describe('isArtifactsPath', () => {
++  it('认得成果台自己的路径', () => {
++    expect(isArtifactsPath('/api/artifacts')).toBe(true);
++    expect(isArtifactsPath('/api/artifacts/workspace')).toBe(true);
++    expect(isArtifactsPath('/api/artifacts/rooms')).toBe(true);
++    expect(isArtifactsPath('/artifacts-static/vendor/model-viewer.min.js')).toBe(true);
++    expect(isArtifactsPath('/artifacts/rooms')).toBe(true);
++  });
++
++  it('不吃上游 SPA 自己的 /artifacts 页面路由，也不碰别的 API', () => {
++    expect(isArtifactsPath('/artifacts')).toBe(false);
++    expect(isArtifactsPath('/artifacts/some-page')).toBe(false);
++    expect(isArtifactsPath('/api/sessions')).toBe(false);
++    expect(isArtifactsPath('/api/artifactsfoo')).toBe(false);
++    expect(isArtifactsPath('')).toBe(false);
++    expect(isArtifactsPath(undefined)).toBe(false);
++  });
++});
++
++describe('resolveArtifactsTarget', () => {
++  it('优先用环境变量里的成果台地址', () => {
++    expect(resolveArtifactsTarget({ PILOTV_ARTIFACTS_TARGET: 'http://127.0.0.1:9999' })).toBe('http://127.0.0.1:9999');
++    expect(resolveArtifactsTarget({ ARTIFACTS_TARGET: 'https://example.test:8443' })).toBe('https://example.test:8443');
++  });
++
++  it('没配或配错了就回本机默认端口', () => {
++    expect(resolveArtifactsTarget({})).toBe('http://127.0.0.1:8799');
++    expect(resolveArtifactsTarget({ PILOTV_ARTIFACTS_TARGET: '不是地址' })).toBe('http://127.0.0.1:8799');
++  });
++});
++
++describe('readArtifactsToken', () => {
++  it('先用环境变量里的令牌，其次读令牌文件', () => {
++    expect(readArtifactsToken({ PILOTV_ARTIFACTS_TOKEN: ' abc ' })).toBe('abc');
++    expect(readArtifactsToken({ PILOTV_ARTIFACTS_TOKEN_FILE: '不存在的文件' })).toBe('');
++  });
++});
++
++describe('isLoopbackRequest', () => {
++  it('认得本机回环，认不得跨机地址', () => {
++    expect(isLoopbackRequest({ socket: { remoteAddress: '127.0.0.1' } })).toBe(true);
++    expect(isLoopbackRequest({ socket: { remoteAddress: '::1' } })).toBe(true);
++    expect(isLoopbackRequest({ socket: { remoteAddress: '::ffff:127.0.0.1' } })).toBe(true);
++    expect(isLoopbackRequest({ socket: { remoteAddress: '100.120.169.61' } })).toBe(false);
++    expect(isLoopbackRequest({ socket: {} })).toBe(false);
++  });
++});
++
++describe('callerToken', () => {
++  it('从 X-Artifacts-Token 或 Bearer 里取', () => {
++    expect(callerToken({ headers: { 'x-artifacts-token': ' t1 ' } })).toBe('t1');
++    expect(callerToken({ headers: { authorization: 'Bearer t2' } })).toBe('t2');
++    expect(callerToken({ headers: {} })).toBe('');
++  });
++});
++
++describe('成果台代理', () => {
++  it('把成果台请求转给 8799，状态码和内容原样带回', async () => {
++    const upstream = await startUpstream(echoHandler);
++    const proxy = createPilotVArtifactsProxy({ target: upstream.origin, token: '' });
++    const response = fakeResponse();
++    proxy(fakeRequest({ path: '/api/artifacts/workspace?limit=2000' }), response, () => {
++      throw new Error('成果台路径不该落到下一个中间件');
++    });
++    await response.done;
++    expect(response.statusCode).toBe(200);
++    const payload = JSON.parse(response.bodyText());
++    expect(payload.url).toBe('/api/artifacts/workspace?limit=2000');
++  });
++
++  it('POST 的 body 要原样送到上游（挂载在 express.json 之前就是为了这个）', async () => {
++    const upstream = await startUpstream(echoHandler);
++    const proxy = createPilotVArtifactsProxy({ target: upstream.origin, token: '' });
++    const response = fakeResponse();
++    proxy(fakeRequest({
++      method: 'POST',
++      path: '/api/artifacts/import',
++      headers: { 'content-type': 'application/json' },
++      body: JSON.stringify({ path: 'a.png' }),
++    }), response, () => {
++      throw new Error('成果台路径不该落到下一个中间件');
++    });
++    await response.done;
++    const payload = JSON.parse(response.bodyText());
++    expect(payload.method).toBe('POST');
++    expect(JSON.parse(payload.body)).toEqual({ path: 'a.png' });
++  });
++
++  it('不是成果台的路径就交给下一个中间件', async () => {
++    const upstream = await startUpstream(echoHandler);
++    const proxy = createPilotVArtifactsProxy({ target: upstream.origin, token: '' });
++    let handedOver = false;
++    proxy(fakeRequest({ path: '/api/sessions' }), fakeResponse(), () => { handedOver = true; });
++    expect(handedOver).toBe(true);
++  });
++
++  it('调用方自己的凭据不外泄，改送我们自己的机器令牌', async () => {
++    const upstream = await startUpstream(echoHandler);
++    const proxy = createPilotVArtifactsProxy({ target: upstream.origin, token: 'machine-token' });
++    const response = fakeResponse();
++    proxy(fakeRequest({
++      headers: { authorization: 'Bearer 上游的JWT', cookie: 'sid=abc', 'x-artifacts-token': '调用方的令牌' },
++    }), response, () => {
++      throw new Error('成果台路径不该落到下一个中间件');
++    });
++    await response.done;
++    const payload = JSON.parse(response.bodyText());
++    expect(payload.authorization).toBe('Bearer machine-token');
++    expect(payload.cookie).toBe('');
++    expect(payload.artifactsToken).toBe('');
++  });
++
++  it('本机回环直接放行，不问登录态', async () => {
++    const upstream = await startUpstream(echoHandler);
++    let authenticateCalled = false;
++    const proxy = createPilotVArtifactsProxy({
++      target: upstream.origin,
++      token: '',
++      authenticate: (req, res, next) => { authenticateCalled = true; next(new Error('不该走到这里')); },
++    });
++    const response = fakeResponse();
++    proxy(fakeRequest({ remoteAddress: '127.0.0.1' }), response, () => {
++      throw new Error('成果台路径不该落到下一个中间件');
++    });
++    await response.done;
++    expect(authenticateCalled).toBe(false);
++    expect(response.statusCode).toBe(200);
++  });
++
++  it('跨机访问没有凭据就 401，并提示走网关', async () => {
++    const upstream = await startUpstream(echoHandler);
++    const proxy = createPilotVArtifactsProxy({ target: upstream.origin, token: '' });
++    const response = fakeResponse();
++    proxy(fakeRequest({ remoteAddress: '100.120.169.61' }), response, () => {
++      throw new Error('未通过鉴权不该落到下一个中间件');
++    });
++    await response.done;
++    expect(response.statusCode).toBe(401);
++    expect(response.bodyText()).toContain('5186');
++  });
++
++  it('跨机访问带对了机器令牌就放行', async () => {
++    const upstream = await startUpstream(echoHandler);
++    const proxy = createPilotVArtifactsProxy({ target: upstream.origin, token: 'machine-token' });
++    const response = fakeResponse();
++    proxy(fakeRequest({
++      remoteAddress: '100.120.169.61',
++      headers: { 'x-artifacts-token': 'machine-token' },
++    }), response, () => {
++      throw new Error('成果台路径不该落到下一个中间件');
++    });
++    await response.done;
++    expect(response.statusCode).toBe(200);
++  });
++
++  it('跨机访问没有机器令牌时，交给上游自己的登录态校验', async () => {
++    const upstream = await startUpstream(echoHandler);
++    let nextError = null;
++    let resolveNext;
++    const nextCalled = new Promise((resolve) => { resolveNext = resolve; });
++    const proxy = createPilotVArtifactsProxy({
++      target: upstream.origin,
++      token: 'machine-token',
++      authenticate: (req, res, next) => next(new Error('未登录')),
++    });
++    const response = fakeResponse();
++    proxy(fakeRequest({ remoteAddress: '100.120.169.61' }), response, (error) => {
++      nextError = error;
++      resolveNext();
++    });
++    await nextCalled;
++    expect(nextError).toBeTruthy();
++    expect(nextError.message).toBe('未登录');
++  });
++
++  it('成果台没起来的时候回 502，而不是 404', async () => {
++    const upstream = await startUpstream(echoHandler);
++    const origin = upstream.origin;
++    await new Promise((resolve) => upstream.server.close(resolve));
++    const proxy = createPilotVArtifactsProxy({ target: origin, token: '' });
++    const response = fakeResponse();
++    proxy(fakeRequest(), response, () => {
++      throw new Error('成果台路径不该落到下一个中间件');
++    });
++    await response.done;
++    expect(response.statusCode).toBe(502);
++  });
++});

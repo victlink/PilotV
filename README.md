@@ -51,6 +51,38 @@ pip install -r requirements.txt                              # 只有 aiohttp
 | 8765 | `pilotdeck-mobile/gateway` 的 MCP 中继（独立 PWA 项目，见其 README） | `PORT` |
 | 8899 | `scripts/serve_test.py` 联调端口 —— **不是** console，任何指向 console 的地址都该写 8799 | — |
 
+## 成果台在 3001 上的接线（2026-11-09 修）
+
+成果页的前端请求是**相对路径** `/api/artifacts/...`，所以请求发到哪台机器取决于页面从哪儿打开：
+
+| 入口 | 成果请求去哪 | 结果 |
+|---|---|---|
+| 网关 `5186`（`start.sh` 默认） | 网关自己把 `/api/artifacts*` 转给 `8799` | ✅ |
+| 直接开 `3001`（上游 PilotDeck Web） | 上游本身**没有** `/api/artifacts` 这层路由 | ❌ 404「成果列表请求失败（HTTP 404）」 |
+
+修之前只有走网关能看成果。直接开 3001（新风机项目就是这么打开的）必然 404 —— 数据一直在
+8799，只是没人替它转。
+
+现在 3001 的 server 上挂了一层代理（`pilotdeck-mobile/upstream-official/ui/server/services/pilotvArtifactsProxy.js`，
+改动记录在 `patches/0004-artifacts-proxy.patch`）：
+
+- 只接管 `/api/artifacts`、`/api/artifacts/*`、`/artifacts-static/*`、`/artifacts/rooms`；
+  上游 SPA 自己的 `/artifacts/*` 页面路由不碰。
+- 挂在 `express.json` / `express.urlencoded` **之前** —— 否则 POST 的 body 会被解析器吃掉，
+  转发过去只剩空 body。
+- 鉴权：本机回环放行；跨机要么带机器令牌（`~/.pilotdeck/artifacts-token`），要么带上游登录态。
+  跨机的正常用法仍然走网关 `5186`。
+- 上游地址可用 `PILOTV_ARTIFACTS_TARGET` 改（默认 `http://127.0.0.1:8799`）。
+
+改了 `upstream-official/ui/server/` 之后要重启 3001 才生效（另开一个窗口）：
+
+```
+C:\Users\music\projects\pilotv\.run\web-3001.cmd
+```
+
+自检：`http://127.0.0.1:3001/api/artifacts/workspace?limit=2000` 应返回 200。
+回归测试：`cd pilotdeck-mobile/upstream-official/ui && node_modules\.bin\vitest run server/services/pilotvArtifactsProxy.test.js`
+
 ## 目录结构
 
 ```
