@@ -139,6 +139,15 @@ export class GatewayWsConnection {
     const { correlationId, sessionKey } = scope;
     try {
       if (frame.method === "submit_turn") {
+        const params = frame.params as Parameters<Gateway["submitTurn"]>[0];
+        const runId = params?.runId ?? randomUUID();
+        // Keep every request's identity: a busy duplicate must not release the
+        // original request, and disconnect must never abort a later run.
+        if (this.inFlightRequests.has(frame.id)) throw new Error("A stream with this request id is already active.");
+        const controller = new AbortController();
+        let resolveDone!: () => void;
+        const done = new Promise<void>(resolve => { resolveDone = resolve; });
+        this.inFlightRequests.set(frame.id, { controller, done });
         const turnSessionKey = sessionKey || undefined;
         if (turnSessionKey) this.inFlightSessions.add(turnSessionKey);
         let seq = 0;
@@ -156,6 +165,7 @@ export class GatewayWsConnection {
         } finally {
           this.inFlightRequests.delete(frame.id);
           resolveDone();
+          if (turnSessionKey) this.inFlightSessions.delete(turnSessionKey);
         }
         const usage = lastCompleted?.type === "turn_completed" ? lastCompleted.usage : {};
         const finishReason = lastCompleted?.type === "turn_completed" ? lastCompleted.finishReason : "completed";
