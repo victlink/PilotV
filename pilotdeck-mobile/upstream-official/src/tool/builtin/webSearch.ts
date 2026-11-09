@@ -14,7 +14,7 @@ import type {
 } from "../protocol/types.js";
 
 /**
- * `web_search` is a local PilotDeck tool backed by exactly one configured
+ * `web_search` is a local PilotV tool backed by exactly one configured
  * provider. The model still sees one stable tool surface; provider-specific
  * request/response shapes stay behind this adapter.
  */

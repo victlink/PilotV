@@ -1029,7 +1029,7 @@
     },
     "panels": {
       "advancedPage": {
-        "configFilePrefix": "PILOTDECK configuration is stored at",
+        "configFilePrefix": "PilotV configuration is stored at",
         "configFileSuffix": " and can be edited directly when needed."
       },
       "advancedRetry": {

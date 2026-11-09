@@ -992,7 +992,7 @@ function CronCreateView({
             onChange={(event) => setMessage(event.target.value)}
             rows={5}
             className="pd-form-field mt-1.5"
-            placeholder={t('cron.create.placeholders.prompt', { defaultValue: 'Describe what PilotDeck should do when this task runs.' })}
+            placeholder={t('cron.create.placeholders.prompt', { defaultValue: 'Describe what PilotV should do when this task runs.' })}
           />
         </label>
 

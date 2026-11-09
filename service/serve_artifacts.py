@@ -2,7 +2,7 @@
 """PilotV 成果台服务：让本项目不依赖 PilotCode 里的 console_server 也能独立跑。
 
 背景（为什么需要这个文件）：
-  成果台的 API 与页面本来由 PilotDeck 的宿主 console（console_server.py）挂载。
+  成果台的 API 与页面本来由 PilotV 的宿主 console（console_server.py）挂载。
   那样部署等于「本项目 + 一个外部宿主」两处代码，换机器就得对着别的目录猜路径。
   这里提供最小可用的自宿主：挂同一套 artifacts_console，挂同一批静态资源，
   数据、密钥、端口都可用环境变量指定 —— 只装本项目就能起。

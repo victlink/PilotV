@@ -39,7 +39,7 @@ PROTOCOL_VERSION = "1.1"
 CLIENT_NAME = "cli"
 CLIENT_VERSION = "pilotv-room/1"
 
-# 18789 是 PilotDeck 自带的 gateway server 端口（upstream GatewayServer.ts:54
+# 18789 是 PilotV 自带的 gateway server 端口（upstream GatewayServer.ts:54
 # 的默认值，只绑 127.0.0.1）。3001 是应用/UI 那个 server —— 它的 /ws 是聊天
 # 通道，HTTP 升级就要鉴权，会直接 401。两边路径都叫 /ws，别混。
 DEFAULT_WS_URL = "ws://127.0.0.1:18789/ws"

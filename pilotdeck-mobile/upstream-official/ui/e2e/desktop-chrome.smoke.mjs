@@ -296,7 +296,7 @@ try {
   await command('chat');
   await page.goto('http://127.0.0.1:5187/p/demo/c/chrome-review');
   await expect(page.locator('.workspace-actions').getByRole('button', { name: 'Search current conversation', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Search PilotDeck', exact: true }).click();
+  await page.getByRole('button', { name: 'Search PilotV', exact: true }).click();
   await expect(page.locator('[data-global-search]')).toBeVisible();
   await page.getByRole('combobox', { name: 'Search chats and files' }).fill('Native');
   await expect.poll(() => searchRequests.at(-1)?.query).toBe('Native');

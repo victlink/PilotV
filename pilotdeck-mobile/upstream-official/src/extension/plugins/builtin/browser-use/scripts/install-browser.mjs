@@ -29,7 +29,7 @@ function findRuntimeRoot() {
 function assertRuntimeRoot(candidate, source) {
   if (isRuntimeRoot(candidate)) return candidate;
   throw new Error(
-    `PilotDeck runtime root from ${source} is incomplete: ${candidate}. ` +
+    `PilotV runtime root from ${source} is incomplete: ${candidate}. ` +
       "Expected node_modules/@playwright/mcp/cli.js, node_modules/playwright-core/browsers.json, " +
       "and dist/src/cli/pilotdeck.js.",
   );

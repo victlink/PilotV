@@ -145,7 +145,7 @@ test("没有 sessionKey 的事件、不相关的事件都直接放过", () => {
 
 test("外部可以显式登记降级（例如 bridge 发现网关不可用）", () => {
   const tracker = createSessionHealthTracker();
-  tracker.markDegraded("s1", "external", "PilotDeck gateway is unavailable.");
+  tracker.markDegraded("s1", "external", "PilotV gateway is unavailable.");
   assert.equal(tracker.get("s1").state, "degraded");
   assert.match(tracker.get("s1").reason ?? "", /unavailable/);
   tracker.markRecovered("s1");

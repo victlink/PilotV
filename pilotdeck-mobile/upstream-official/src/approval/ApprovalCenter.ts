@@ -443,7 +443,7 @@ export class ApprovalCenter {
     };
     this.persistChain = this.persistChain
       .then(async () => {
-        // A per-process temp name: two PilotDeck processes must never write
+        // A per-process temp name: two PilotV processes must never write
         // to the same temporary file and clobber each other's snapshot.
         const tmp = `${this.statePath}.tmp-${process.pid}-${randomUUID()}`;
         // The state file is created for the owner only (0600); the rename

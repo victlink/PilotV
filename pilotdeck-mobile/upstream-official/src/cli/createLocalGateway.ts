@@ -131,7 +131,7 @@ import type { ApprovalRuntime } from "./approval/approvalRuntime.js";
 export type CreateLocalGatewayOptions = {
   projectRoot?: string;
   pilotHome?: string;
-  /** Read-only skills shipped with this PilotDeck build. Auto-discovered when omitted. */
+  /** Read-only skills shipped with this PilotV build. Auto-discovered when omitted. */
   builtinSkillsRoot?: string;
   env?: Record<string, string | undefined>;
   permissionMode?: AgentRuntimeConfig["permissionMode"];

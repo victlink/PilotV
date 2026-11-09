@@ -144,7 +144,7 @@ async function assertSafeLocation(candidate, env) {
     for (const installation of installationPaths.filter(Boolean)) {
         const realInstallation = await realPlannedPath(path.resolve(installation));
         if (isPathInsideOrEqual(plannedCandidate, realInstallation) || isPathInsideOrEqual(realInstallation, plannedCandidate)) {
-            throw Object.assign(new Error('General workspace overlaps the PilotDeck installation.'), { code: 'GENERAL_WORKSPACE_UNSAFE' });
+            throw Object.assign(new Error('General workspace overlaps the PilotV installation.'), { code: 'GENERAL_WORKSPACE_UNSAFE' });
         }
     }
 }

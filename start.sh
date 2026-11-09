@@ -10,7 +10,7 @@
 #   ARTIFACTS_DATA_DIR   成果存储目录，默认 <项目根>/.artifacts-data
 #   ARTIFACTS_BIND       成果台监听地址，默认 127.0.0.1（只有回环）。
 #                        改成 0.0.0.0 必须同时设 ARTIFACTS_TOKEN，否则服务拒绝启动。
-#   PILOTV_ARTIFACTS_HOST  service（默认，本项目自带）| console（挂 PilotDeck 宿主 console）
+#   PILOTV_ARTIFACTS_HOST  service（默认，本项目自带）| console（挂 PilotV 宿主 console）
 #   ARTIFACTS_WATCH_DIRS   分号分隔的目录列表，watcher 自动盯这些目录的新文件并发布成果
 #                          默认盯 design/，即设计产物一落地就进成果台
 #   PILOTV_WEKNORA_PORT    「资料」页打开的 WeKnora 端口，默认 8080
@@ -94,7 +94,7 @@ start_console() {
       python3 "$HERE/service/serve_artifacts.py" --host "${ARTIFACTS_BIND:-127.0.0.1}" --port "$port" \
       </dev/null >"$RUN_DIR/console.log" 2>&1 & echo $! > /tmp/art-console.pid)
   elif [ -f "$HOST_CONSOLE_DIR/console_server.py" ]; then
-    # 退路：挂到 PilotDeck 宿主 console 上。三个鉴权变量必须显式传入 ——
+    # 退路：挂到 PilotV 宿主 console 上。三个鉴权变量必须显式传入 ——
     # console 不读自己的 env 文件，漏一个就全员掉线。
     export ARTIFACTS_CONSOLE_DIR="$HERE"
     (cd "$HOST_CONSOLE_DIR" && setsid nohup python3 console_server.py --config "$CONSOLE_CONFIG" \

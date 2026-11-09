@@ -1,4 +1,4 @@
-// PilotV 网关的实机验收：对着真的 PilotDeck 后端跑一遍关键路径。
+// PilotV 网关的实机验收：对着真的 PilotV 后端跑一遍关键路径。
 // 用法：node pilotdeck-mobile/scripts/gateway-live-check.mjs [网关地址]
 // 默认检查 http://127.0.0.1:5199（先起一个测试实例），传 5186 就查线上那套。
 

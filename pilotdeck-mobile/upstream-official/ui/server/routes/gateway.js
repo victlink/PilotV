@@ -433,7 +433,7 @@ router.post('/weixin/qr-begin', async (_req, res) => {
       return res.json({
         ok: false,
         requestedAt,
-        error: '当前 gateway 不支持准备微信扫码登录，请重启 PilotDeck 后重试',
+        error: '当前 gateway 不支持准备微信扫码登录，请重启 PilotV 后重试',
       });
     }
 
@@ -442,7 +442,7 @@ router.post('/weixin/qr-begin', async (_req, res) => {
       return res.json({
         ok: false,
         requestedAt: result?.requestedAt || requestedAt,
-        error: '微信后台通道无法启动，请确认 PilotDeck gateway 正在运行',
+        error: '微信后台通道无法启动，请确认 PilotV gateway 正在运行',
       });
     }
 

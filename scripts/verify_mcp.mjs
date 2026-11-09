@@ -1,7 +1,7 @@
 /**
- * M1 ⑦ 端到端验证：PilotDeck 本体 McpClient → artifacts-mcp 侧车 → console REST → 回环。
+ * M1 ⑦ 端到端验证：PilotV 本体 McpClient → artifacts-mcp 侧车 → console REST → 回环。
  *
- * 客户端不是模拟的，是 PilotDeck 编译产物里的真实 McpClient，
+ * 客户端不是模拟的，是 PilotV 编译产物里的真实 McpClient，
  * 走的是插件声明 streamable_http 时完全相同的代码路径。
  *
  * 跑法：
@@ -44,7 +44,7 @@ const section = (t) => console.log(`\n[${t}]`);
 const { McpClient } = await import(pathToFileURL(DIST).href);
 
 // ---------------------------------------------------------- [1] 连接
-section("1 侧车连接（PilotDeck 本体客户端）");
+section("1 侧车连接（PilotV 本体客户端）");
 const client = new McpClient({ id: "artifacts", transport: "streamable_http", url: MCP_URL });
 await client.start();
 check(client.getStatus() === "ready", "客户端状态 ready", client.getStatus());

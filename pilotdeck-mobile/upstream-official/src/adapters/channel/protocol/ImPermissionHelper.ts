@@ -527,7 +527,7 @@ function resolveMirroredPrompt(entry: PendingPermission): string {
     if (hasTool && hasExpiry) return entry.prompt;
   }
   return [
-    `【PilotDeck 授权请求】${entry.toolName}`,
+    `【PilotV 授权请求】${entry.toolName}`,
     `有效期至：${entry.expiresAt === undefined ? "未知" : formatExpiry(entry.expiresAt)}`,
     `请求编号：${entry.requestId}`,
     `会话：${entry.sessionKey}`,

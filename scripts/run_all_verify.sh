@@ -114,7 +114,7 @@ run "设置 改口令后端" python3 scripts/verify_settings.py
 run "成果 同目录素材"  python3 scripts/verify_sibling_assets.py --base "$API"
 run "成果 评审链接"    python3 scripts/verify_review_url.py
 # 需求 1-5（只显示最终成果 / 部件树 / 手势标注 / 就地编辑 / 回原会话）的新验收。
-# 这两套自带隔离服务与隔离 PilotDeck 家目录，不跟上面共用 $API —— 尤其返工单
+# 这两套自带隔离服务与隔离 PilotV 家目录，不跟上面共用 $API —— 尤其返工单
 # 验收要写假会话目录，共用服务会让它污染真实环境。
 run "需求1-5 成果交付与返工单" bash scripts/run_deliverables_verify.sh
 

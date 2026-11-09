@@ -130,7 +130,7 @@ describe('global search', () => {
   it('uses Control/Command+F everywhere, taking precedence over local file search', () => {
     const localFind = vi.fn(); mount({ localFind });
     fireEvent.keyDown(screen.getByText('File surface'), { key: 'f', ctrlKey: true });
-    expect(screen.getByRole('dialog', { name: 'Search PilotDeck' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Search PilotV' })).toBeTruthy();
     expect(localFind).not.toHaveBeenCalled();
     fireEvent.keyDown(screen.getByRole('combobox', { name: /Search chats/ }), { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();

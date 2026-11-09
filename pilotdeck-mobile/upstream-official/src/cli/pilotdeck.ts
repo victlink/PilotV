@@ -272,7 +272,6 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
 
     // --- Adapter hot-reload ---
 
-    let serverRef: Awaited<ReturnType<typeof startPilotDeckServer>> | undefined;
     /**
      * Config fingerprint of every channel started via loadEnabledChannels
      * (Slack, Telegram, …). Hot reload stops the ones that were disabled and
@@ -473,7 +472,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     });
     bindServer(server);
     deferredBroadcast = (name, payload) => server.broadcastNotification(name, payload);
-    console.log(`PilotDeck server listening: ${server.url}`);
+    console.log(`PilotV server listening: ${server.url}`);
     console.log(`WebSocket: ${server.wsUrl}`);
     if (process.send && process.connected) {
       process.send({ type: 'pilotdeck:gateway-ready', port: server.port }, () => {});
@@ -706,7 +705,7 @@ function parseSkillMigrationSources(value: string | undefined): Array<Exclude<Sk
 
 function printSkillMigrationReport(report: Awaited<ReturnType<typeof migrateSkillsToPilotDeck>>): void {
   const mode = report.mode === "execute" ? "EXECUTED" : "DRY RUN";
-  console.log(`PilotDeck skills migration (${mode})`);
+  console.log(`PilotV skills migration (${mode})`);
   console.log(`Target: ${report.targetRoot}`);
   console.log(
     `Summary: migrated=${report.summary.migrated} would_migrate=${report.summary.would_migrate} ` +
@@ -786,7 +785,7 @@ function createFallbackGateway(): Gateway {
     yield {
       type: "error",
       code: "local_gateway_unavailable",
-      message: `No PilotDeck server is available and local config could not start session ${input.sessionKey}.`,
+      message: `No PilotV server is available and local config could not start session ${input.sessionKey}.`,
       recoverable: false,
     };
   }

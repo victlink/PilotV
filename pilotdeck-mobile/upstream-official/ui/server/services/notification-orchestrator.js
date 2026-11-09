@@ -32,7 +32,7 @@ const KIND_TO_PREF_KEY = {
 
 const PROVIDER_LABELS = {
   claude: 'Claude',
-  pilotdeck: 'PilotDeck',
+  pilotdeck: 'PilotV',
   cursor: 'Cursor',
   codex: 'Codex',
   gemini: 'Gemini',
@@ -149,7 +149,7 @@ function buildPushBody(event) {
   const message = CODE_MAP[event.code] || 'You have a new notification';
 
   return {
-    title: sessionName || 'PilotDeck',
+    title: sessionName || 'PilotV',
     body: `${providerLabel}: ${message}`,
     data: {
       sessionId: event.sessionId || null,

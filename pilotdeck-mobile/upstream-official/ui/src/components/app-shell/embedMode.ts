@@ -17,9 +17,33 @@ export function isEmbeddedView(search?: string): boolean {
   return new URLSearchParams(currentSearch(search)).get(EMBED_QUERY_KEY) === '1';
 }
 
+/** 多窗口窗格里的右侧悬浮按钮只有这三种视图，用 URL 记住，避免共享 localStorage。 */
+export type PaneView = 'chat' | 'files' | 'artifacts';
+
+export function readPaneView(search?: string): PaneView {
+  const value = new URLSearchParams(currentSearch(search)).get(VIEW_QUERY_KEY);
+  return value === 'artifacts' || value === 'files' ? value : 'chat';
+}
+
 /** 成果台没有独立路由，用 ?view=artifacts 让内嵌实例直达成果台面板。 */
 export function shouldOpenArtifacts(search?: string): boolean {
-  return new URLSearchParams(currentSearch(search)).get(VIEW_QUERY_KEY) === 'artifacts';
+  return readPaneView(search) === 'artifacts';
+}
+
+/** 内嵌窗格把当前视图回写到自己的 URL：刷新/切设备后仍是用户刚选的那一页。 */
+export function syncEmbeddedPaneView(view: PaneView, href?: string): string | null {
+  if (typeof window === 'undefined') return null;
+  const source = href ?? window.location.href;
+  const url = new URL(source, window.location.origin);
+  if (!isEmbeddedView(url.search)) return null;
+  // 始终显式写值（chat 也写），避免「删掉参数」被路由的补参逻辑又加回来。
+  url.searchParams.set(VIEW_QUERY_KEY, view);
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  if (href === undefined && next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+    try { window.history.replaceState(window.history.state, '', next); }
+    catch { /* 历史 API 不可用时忽略：本窗格仍可正常切换视图。 */ }
+  }
+  return next;
 }
 
 /**

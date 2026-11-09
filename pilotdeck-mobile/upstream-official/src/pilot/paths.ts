@@ -26,7 +26,7 @@ export function ensurePilotProjectGitIgnore(projectRoot: string, createDirectory
     if (lastRule === "*") return;
     // Append so existing comments and rules remain intact; the final rule ignores
     // this file too. Later session reads do not change its content or timestamps.
-    appendFileSync(ignorePath, `${content && !content.endsWith("\n") ? "\n" : ""}# PilotDeck internal files\n*\n`, "utf8");
+    appendFileSync(ignorePath, `${content && !content.endsWith("\n") ? "\n" : ""}# PilotV internal files\n*\n`, "utf8");
   } catch (error) {
     // Session history and Git status remain readable in read-only workspaces.
     if (!["EACCES", "EPERM", "EROFS"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;

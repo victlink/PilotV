@@ -45,7 +45,7 @@ ALLOWED_TRANSITIONS = {
 
 RING_SIZE = 500
 
-# 项目室（room）：成员 = PilotDeck 会话，转录 = append-only 明文日志。
+# 项目室（room）：成员 = PilotV 会话，转录 = append-only 明文日志。
 #
 # respond_policy 的含义（编排器按这个决定谁会被叫醒）：
 #   mentions  只有被 @ 的成员会收到指令（默认）
@@ -986,7 +986,7 @@ class ArtifactStore:
 
     # -------------------------------------------------------------- 项目室
     # 房间 = 一条 append-only 明文转录 + 一组可 @ 寻址的成员。
-    # 成员对应 PilotDeck 会话（session_key），投递走 gateway 的 steer/submit。
+    # 成员对应 PilotV 会话（session_key），投递走 gateway 的 steer/submit。
     # 明文由发言者自己盖章（post_room_message），这里只管路由与记账。
 
     def create_room(self, payload: dict) -> dict:

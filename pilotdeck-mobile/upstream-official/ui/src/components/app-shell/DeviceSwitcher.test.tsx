@@ -211,7 +211,7 @@ describe('选择设备＝切换后端，而不是跳去对方官方页面', () =
   });
 
   it('服务端拒绝时显示它给出的原因，而不是假装存好了', async () => {
-    server.error = '10.0.0.5 不是内网地址，网关只代理内网里的 PilotDeck';
+    server.error = '10.0.0.5 不是内网地址，网关只代理内网里的 PilotV';
     render(<DeviceSwitcher compact={false} />);
     await waitFor(() => expect(options()).toContain('jx88'));
     openDeviceSettings();

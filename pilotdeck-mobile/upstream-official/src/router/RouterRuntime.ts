@@ -832,7 +832,7 @@ export function createRouterRuntime(
               ? Math.min(outcome.error.retryAfterMs, transientMaxDelayMs)
               : calculateLiteLLMRetryDelay(transientRetryCount, transientBaseDelayMs, transientMaxDelayMs);
             console.warn(
-              `[PilotDeck] transientRetry: ${outcome.error.code} (attempt ${transientRetryCount + 1}/${transientRetryMax}, delay=${Math.round(delay)}ms)`,
+              `[PilotV] transientRetry: ${outcome.error.code} (attempt ${transientRetryCount + 1}/${transientRetryMax}, delay=${Math.round(delay)}ms)`,
             );
             events.emit({
               type: "pilotdeck_router_transient_retry",
@@ -889,7 +889,7 @@ export function createRouterRuntime(
           zeroUsageAttempt < zeroUsageMax
         ) {
           console.warn(
-            `[PilotDeck] zeroUsageRetry: empty response from ${attempt.provider}/${attempt.model} ` +
+            `[PilotV] zeroUsageRetry: empty response from ${attempt.provider}/${attempt.model} ` +
             `(attempt ${zeroUsageAttempt}/${zeroUsageMax}, session=${ctx.sessionId})`,
           );
           events.emit({

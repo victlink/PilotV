@@ -34,7 +34,7 @@ export async function exportRuntimeLogs(logPath: string, destination: string): P
   };
   try {
     await once(output, 'open');
-    await write(`PilotDeck runtime logs — ${new Date().toISOString()}\n`);
+    await write(`PilotV runtime logs — ${new Date().toISOString()}\n`);
     for (const file of files.sort()) {
       await write(`\n===== ${path.relative(directory, file)} =====\n`);
       let input: fs.ReadStream | undefined;

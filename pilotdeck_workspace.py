@@ -1,7 +1,7 @@
 """PilotV 成果台 —— 左栏「项目目录 / 会话目录」的数据源。
 
 为什么要单独一个模块：
-    左栏要跟 PilotDeck 自己的项目、会话目录**长得一样**，那就不能自己另造一套
+    左栏要跟 PilotV 自己的项目、会话目录**长得一样**，那就不能自己另造一套
     目录 —— 事实源只有一个：`$PILOTDECK_HOME/projects/`。本模块按 PilotDeck
     自己的规则读同一批文件，产出同样的字段形状：
 
@@ -11,10 +11,10 @@
                  firstPrompt（与 SessionList.ts 的 `summary` 同规则）
       · 排序   = 项目按 lastActivity 降序；会话按 lastModified 降序
 
-    这么对齐的后果是：PilotDeck 里新开一个会话，成果台左栏不用改代码就会多一行。
+    这么对齐的后果是：PilotV 里新开一个会话，成果台左栏不用改代码就会多一行。
 
 「大文件不要整读」：会话 JSONL 能到几十 MB，整读会把 console 主进程拖死。
-和 PilotDeck 一样只读头尾各 64KB（SessionLiteReader 的做法），并按
+和 PilotV 一样只读头尾各 64KB（SessionLiteReader 的做法），并按
 (路径, mtime, size) 缓存 —— 正在被写的会话每次内容都变，没有缓存会退化成
 每请求扫几十 MB。
 
@@ -29,10 +29,10 @@ import os
 import re
 import time
 
-# 与 PilotDeck 的 isInternalSession() 保持一致：always-on 的辅助会话不进左栏
+# 与 PilotV 的 isInternalSession() 保持一致：always-on 的辅助会话不进左栏
 INTERNAL_SESSION_RE = re.compile(r"^always-on-(discovery|workspace|report)[:\-]")
 
-# 头尾各读这么多字节找 session_metadata。比 PilotDeck 的 64KB 更省：
+# 头尾各读这么多字节找 session_metadata。比 PilotV 的 64KB 更省：
 # /vol3 是网络盘，整库读一遍要好几秒；session_metadata 每轮都会追加，
 # 尾部 32KB 基本总能命中，头部只为兜底「刚开的会话还没有 metadata」。
 HEAD_READ_BYTES = int(os.environ.get("ARTIFACTS_SESSION_HEAD_BYTES", 16 * 1024))
@@ -206,7 +206,7 @@ def _project_entry(project_dir: str, project_id: str, session_limit: int) -> dic
     except OSError:
         cwd = ""
     if not cwd:
-        # 没有 .cwd 的目录不是 PilotDeck 认的项目（可能是残留），不进左栏
+        # 没有 .cwd 的目录不是 PilotV 认的项目（可能是残留），不进左栏
         return None
 
     chat_dir = os.path.join(project_dir, "chats")
@@ -233,7 +233,7 @@ def _project_entry(project_dir: str, project_id: str, session_limit: int) -> dic
             stub["paused"] = True
         sessions.append(stub)
 
-    # 与 PilotDeck 一致：会话按 lastModified 降序
+    # 与 PilotV 一致：会话按 lastModified 降序
     sessions.sort(key=lambda s: s["last_modified"], reverse=True)
 
     latest = max((s["last_modified"] for s in sessions), default=0.0)
@@ -264,7 +264,7 @@ def _project_entry(project_dir: str, project_id: str, session_limit: int) -> dic
 
 
 def scan_projects(session_limit: int = 20) -> dict:
-    """扫出 PilotDeck 的全部项目与会话。带短 TTL 缓存，别把每请求变成全盘 stat。"""
+    """扫出 PilotV 的全部项目与会话。带短 TTL 缓存，别把每请求变成全盘 stat。"""
     now = time.monotonic()
     cached = _tree_cache.get("value")
     if (cached and _tree_cache.get("session_limit") == session_limit
@@ -285,7 +285,7 @@ def scan_projects(session_limit: int = 20) -> dict:
         if entry:
             projects.append(entry)
 
-    # 与 PilotDeck 的 getProjects() 一致：项目按 lastActivity 降序
+    # 与 PilotV 的 getProjects() 一致：项目按 lastActivity 降序
     projects.sort(key=lambda p: p["last_activity_ts"], reverse=True)
     for p in projects:
         p.pop("last_activity_ts", None)

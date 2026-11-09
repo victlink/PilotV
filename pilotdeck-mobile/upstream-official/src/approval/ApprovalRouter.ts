@@ -266,7 +266,7 @@ export class ApprovalRouter {
       // the permission wording ("1 = allow once"), otherwise the reply would
       // be read as a permission decision.
       return [
-        `【PilotDeck 业务确认】${record.toolName}`,
+        `【PilotV 业务确认】${record.toolName}`,
         `项目：${project}`,
         `项目标识：${record.projectKey ?? "未关联项目"}`,
         `请求编号：${record.requestId}`,
@@ -281,7 +281,7 @@ export class ApprovalRouter {
     }
     const riskLabel = record.risk === "high" ? "高" : record.risk === "medium" ? "中" : "低";
     return [
-      `【PilotDeck 授权请求】${record.toolName}`,
+      `【PilotV 授权请求】${record.toolName}`,
       `项目：${project}`,
       `项目标识：${record.projectKey ?? "未关联项目"}`,
       `风险等级：${riskLabel}`,

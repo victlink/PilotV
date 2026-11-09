@@ -17,7 +17,7 @@ import { isGeneralProject } from './appShellSelection';
 import { REVIEW_CLOSE_EVENT } from '../chat-review/reviewEvents';
 import ApprovalSessionPanel from '../approval-session/ApprovalSessionPanel';
 import MultiWindowArea from './MultiWindowArea';
-import { shouldOpenArtifacts } from './embedMode';
+import { shouldOpenArtifacts, syncEmbeddedPaneView } from './embedMode';
 
 const CronPanel = lazy(() => import('../cron/view/CronPanel'));
 const SkillsPanel = lazy(() => import('../skills/view/SkillsPanel'));
@@ -116,7 +116,10 @@ type MainAreaProps = MainContentProps & {
   isEmbedded?: boolean;
 };
 const PAGE_TABS_STORAGE_KEY = 'pilotdeck:pageTabsOpen';
-function readPageTabsOpen() {
+function readPageTabsOpen(isEmbedded: boolean) {
+  // 内嵌窗格靠右侧悬浮按钮切换「对话 / 文件 / 成果」，必须始终展开；
+  // 而且不能读写共享的 localStorage，否则一格收起会把所有窗格一起收起。
+  if (isEmbedded) return true;
   try { return localStorage.getItem(PAGE_TABS_STORAGE_KEY) !== 'collapsed'; }
   catch { return true; }
 }
@@ -127,7 +130,7 @@ function MainAreaContent(props: MainAreaProps) {
   const [alwaysOnSubTab, setAlwaysOnSubTab] = useState<AlwaysOnSubTab>('dashboard');
   // 多窗口窗格可以用 ?view=artifacts 直接落在成果台上。
   const [showArtifacts, setShowArtifacts] = useState(() => shouldOpenArtifacts());
-  const [pageTabsOpen, setPageTabsOpen] = useState(readPageTabsOpen);
+  const [pageTabsOpen, setPageTabsOpen] = useState(() => readPageTabsOpen(isEmbedded));
   const [taskMonitorOpen, setTaskMonitorOpen] = useState(false);
   const pendingConfirmations = usePendingConfirmations();
   const [reviewOpenRequest, setReviewOpenRequest] = useState<MainContentProps['reviewOpenRequest']>();
@@ -135,9 +138,10 @@ function MainAreaContent(props: MainAreaProps) {
   const [sessionTitleDraft, setSessionTitleDraft] = useState('');
   const sessionTitleInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
+    if (isEmbedded) return;
     try { localStorage.setItem(PAGE_TABS_STORAGE_KEY, pageTabsOpen ? 'expanded' : 'collapsed'); }
     catch { /* Storage may be unavailable. */ }
-  }, [pageTabsOpen]);
+  }, [pageTabsOpen, isEmbedded]);
   const generalConversation = Boolean(selectedProject && isGeneralProject(selectedProject));
   const projectFilesEnabled = Boolean(selectedProject && !generalConversation && selectedProject.capabilities?.files !== false);
   const projectExploreEnabled = Boolean(selectedProject && !generalConversation && selectedProject.capabilities?.explore !== false);
@@ -146,6 +150,13 @@ function MainAreaContent(props: MainAreaProps) {
   useEffect(() => {
     if (activeTab === 'home' || activeTabIsUnavailable) setActiveTab('chat');
   }, [activeTab, activeTabIsUnavailable, setActiveTab]);
+
+  // 右侧悬浮按钮切换视图时把结果写进本窗格自己的 URL。这样刷新、切设备或
+  // 弹出独立窗口后仍是用户刚选的那一页，也不需要多窗口父页再做一个内容下拉。
+  useEffect(() => {
+    if (!isEmbedded) return;
+    syncEmbeddedPaneView(showArtifacts ? 'artifacts' : displayActiveTab === FILES_TAB.id ? 'files' : 'chat');
+  }, [showArtifacts, displayActiveTab, isEmbedded]);
 
   // 评审面板在对话子树中，重复点击仍应产生新的打开请求。
   const openChangesPage = useCallback(() => {

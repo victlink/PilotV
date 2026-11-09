@@ -837,7 +837,7 @@ class SessionIngester:
                 with open(os.path.join(pdir, ".cwd"), "r", encoding="utf-8") as fh:
                     cwd = fh.read().strip()
             except OSError:
-                continue          # 没有 .cwd 的不是 PilotDeck 认的项目，跳过
+                continue          # 没有 .cwd 的不是 PilotV 认的项目，跳过
             if not cwd:
                 continue
             chat_dir = os.path.join(pdir, "chats")
@@ -1470,12 +1470,12 @@ async def api_delete_annotation(request):
 async def api_workspace(request):
     """GET /api/artifacts/workspace —— 左栏「项目目录 / 会话目录」+ 挂在下面的成果。
 
-    左栏要和 PilotDeck 自己的项目、会话目录一致，所以这里的项目与会话不是成果台
+    左栏要和 PilotV 自己的项目、会话目录一致，所以这里的项目与会话不是成果台
     自己编的，而是照着 ~/.pilotdeck/projects/ 原样搬过来（见 pilotdeck_workspace.py）。
     成果台只负责把「成果」挂到对应会话底下。
 
     归属规则：
-      1. agent 发布时带 run_id（就是 PilotDeck 的会话 id）→ 精确落到那个会话
+      1. agent 发布时带 run_id（就是 PilotV 的会话 id）→ 精确落到那个会话
       2. 没带 run_id → 不猜。只可能落到该项目「直属」（该项目下没有任何会话）
          或者「未归属」，**绝不会**落到某个具体会话
       3. 两条都不满足 → 进「未归属」，保证成果不会因为归不了属就从左栏消失
@@ -1622,7 +1622,7 @@ async def api_workspace(request):
         sessions.sort(key=lambda s: (0 if s.get("live") else 1,
                                      -_ts_key(s.get("updated_at"))))
         project["live"] = any(s.get("live") for s in sessions)
-    # 有正在实时会话的项目置顶；其余保持 PilotDeck 的 lastActivity 倒序（稳定排序）
+    # 有正在实时会话的项目置顶；其余保持 PilotV 的 lastActivity 倒序（稳定排序）
     projects.sort(key=lambda p: 0 if p.get("live") else 1)
 
     return _json({"pilot_home": tree["pilot_home"],
@@ -1648,7 +1648,7 @@ _TS_RE = re.compile(
 def _ts_key(iso) -> float:
     """ISO 串 → epoch 秒，用来排序。
 
-    不能直接按字符串比：PilotDeck 写的是 +0800、成果库写的是 +08:00，
+    不能直接按字符串比：PilotV 写的是 +0800、成果库写的是 +08:00，
     同一个时刻的字典序会不同。这里统一换算成绝对时间。
     """
     import calendar
@@ -1975,7 +1975,7 @@ async def api_apply(request):
 
     三条通道各自独立成败，明确汇报哪条通了：
       · 原项目目录：按会话分文件夹写返工单（人可直接翻）
-      · 对应会话：排进 PilotDeck 的会话输入队列（对话里能看见）
+      · 对应会话：排进 PilotV 的会话输入队列（对话里能看见）
       · agent：走既有 dispatch，唤醒挂着 wait_artifact_rework 的 agent
     """
     import artifacts_deliver
@@ -2040,7 +2040,7 @@ async def api_apply(request):
     except (KeyError, ValueError) as exc:
         channels["agent_wake"] = {"ok": False, "reason": str(exc)}
 
-    # PilotDeck 的 pending-inputs 是「一次性载入」的旁挂文件：运行中的会话
+    # PilotV 的 pending-inputs 是「一次性载入」的旁挂文件：运行中的会话
     # 不会重读它（sessionState.queueLoaded 一旦置位就不再读），所以这条通道
     # 是交接而不是即时送达。这里如实说明，别让界面把「写进去了」说成
     # 「agent 已经在处理」。真正即时的唤醒是第三条 wait_artifact_rework。
@@ -2540,7 +2540,7 @@ async def api_events(request):
 
 
 # --------------------------------------------------------------------- 项目室
-# 房间 = 一条 append-only 明文转录 + 一组可 @ 寻址的成员（成员 = PilotDeck 会话）。
+# 房间 = 一条 append-only 明文转录 + 一组可 @ 寻址的成员（成员 = PilotV 会话）。
 # 全部走 _guard：人和 agent 用同一套凭据，权限模型不分人机。
 
 

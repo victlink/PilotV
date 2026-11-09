@@ -63,7 +63,7 @@ try {
   out.steps.tokens = tokenState;
   check('令牌不放在全局共用键里', tokenState.shared === null, JSON.stringify(tokenState));
 
-  // 4. 成果台。远端设备本身不带成果台（上游 PilotDeck 没有这个功能），
+  // 4. 成果台。远端设备本身不带成果台（上游 PilotV 没有这个功能），
   //    成果台由 PilotV 本机的独立服务提供。所以这里接受两种结果：
   //      - 200 且正文是真正的成果 JSON；
   //      - 诚实的 404（这台设备没部署成果台）。

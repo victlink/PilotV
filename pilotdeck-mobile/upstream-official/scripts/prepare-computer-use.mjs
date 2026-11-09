@@ -77,8 +77,8 @@ async function stageMacApp(directory, productionHost) {
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>pilotdeck-computer-use</string>
 <key>CFBundleIdentifier</key><string>${productionHost ? MAC_HOST_ID : MAC_DEV_HOST_ID}</string>
-<key>CFBundleName</key><string>PilotDeck Computer Use${productionHost ? '' : ' Dev'}</string>
-<key>CFBundleDisplayName</key><string>PilotDeck Computer Use${productionHost ? '' : ' Dev'}</string>
+<key>CFBundleName</key><string>PilotV Computer Use${productionHost ? '' : ' Dev'}</string>
+<key>CFBundleDisplayName</key><string>PilotV Computer Use${productionHost ? '' : ' Dev'}</string>
 <key>PilotDeckPermissionProbeVersion</key><integer>1</integer>
 <key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>CFBundleIconFile</key><string>computer-use.icns</string>
@@ -88,8 +88,8 @@ async function stageMacApp(directory, productionHost) {
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
-<key>NSScreenCaptureUsageDescription</key><string>PilotDeck captures the screen to perform computer tasks you request.</string>
-<key>NSAppleEventsUsageDescription</key><string>PilotDeck communicates with applications to perform computer tasks you request.</string>
+<key>NSScreenCaptureUsageDescription</key><string>PilotV captures the screen to perform computer tasks you request.</string>
+<key>NSAppleEventsUsageDescription</key><string>PilotV communicates with applications to perform computer tasks you request.</string>
 </dict></plist>\n`);
   mkdirSync(join(contents, 'Resources'));
   copyFileSync(join(directory, 'LICENSE.txt'), join(contents, 'Resources/LICENSE.txt'));

@@ -661,7 +661,7 @@ router.post('/clawhub/inspect', async (req, res) => {
   }
 });
 
-// Import author-qualified packages into PilotDeck's flat skill namespace.
+// Import author-qualified packages into PilotV's flat skill namespace.
 async function installPublishedSkill(req, res) {
   const { slug, owner, version, force, scope, projectPath } = req.body;
   if (!safeSlug(slug) || !safeSlug(owner))

@@ -20,7 +20,7 @@ export const REPO_ROOT = path.resolve(HERE, '..');
 
 /** 这台机器上四个必需服务 + 两个可选。端口是唯一事实来源。 */
 export const EXPECTED_PORTS = [
-  { port: 3001, name: 'PilotDeck 后端', required: true },
+  { port: 3001, name: 'PilotV 后端', required: true },
   { port: 18789, name: 'agent gateway', required: true },
   { port: 5186, name: '前端网关', required: true },
   { port: 8799, name: '成果台', required: true },

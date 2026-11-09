@@ -59,7 +59,7 @@ export type SkillManagerOptions = {
   /** Resolved `~/.pilotdeck` root. Required. */
   pilotHome: string;
   env?: Record<string, string | undefined>;
-  /** Read-only skills shipped with the active PilotDeck build. */
+  /** Read-only skills shipped with the active PilotV build. */
   builtinSkillsRoot?: string;
   /**
    * "General chat" cwds we treat as not-a-real-project. Defaults to
@@ -76,7 +76,7 @@ export type SkillManagerOptions = {
  * owns the editable layouts under `~/.pilotdeck/skills/` (user scope) and
  * `<projectRoot>/.pilotdeck/skills/` (project scope). Legacy third-party skill
  * directories are intentionally not consulted — conflating them with
- * PilotDeck's layout caused the UI/agent skill drift the migration fixes.
+ * PilotV's layout caused the UI/agent skill drift the migration fixes.
  */
 export class SkillManager {
   private readonly pilotHome: string;

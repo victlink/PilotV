@@ -22,13 +22,15 @@ afterEach(() => {
 });
 
 describe('多窗口工作区', () => {
-  it('默认 2 窗，iframe 带设备标记与 embed 开关，第二格直达成果台', () => {
+  it('默认 2 窗，iframe 带设备标记与 embed 开关，视图交给窗格内悬浮按钮', () => {
     const view = renderWorkspace();
     const frames = Array.from(view.container.querySelectorAll('iframe'));
     expect(frames).toHaveLength(2);
     expect(frames[0].getAttribute('src')).toContain('embed=1');
     expect(frames[0].getAttribute('src')).toContain(`d=${encodeURIComponent(BACKEND)}`);
-    expect(frames[1].getAttribute('src')).toContain('view=artifacts');
+    expect(frames[0].getAttribute('src')).not.toContain('view=');
+    expect(screen.queryByRole('combobox', { name: '窗口 1 内容' })).toBeNull();
+    expect(view.container.textContent).toContain('用每个窗口右侧的悬浮按钮切换对话 / 文件 / 成果台');
   });
 
   it('可以在 2 / 4 / 6 之间切换', () => {
@@ -78,13 +80,12 @@ describe('多窗口工作区', () => {
     expect(view.container.querySelector('iframe')?.getAttribute('src')).not.toContain('sidebar=1');
   });
 
-  it('切换窗格内容会重写 iframe 地址', () => {
-    const view = renderWorkspace();
-    const selector = screen.getByRole('combobox', { name: '窗口 1 内容' });
-    fireEvent.change(selector, { target: { value: 'artifacts' } });
-    expect(view.container.querySelector('iframe')?.getAttribute('src')).toContain('view=artifacts');
-    fireEvent.change(selector, { target: { value: 'custom' } });
-    fireEvent.change(screen.getByRole('textbox', { name: '窗口 1 路径' }), { target: { value: '/p/demo' } });
-    expect(view.container.querySelector('iframe')?.getAttribute('src')).toContain('/p/demo');
+  it('窗格工具条只保留设备、会话与侧栏，不再有内容下拉', () => {
+    renderWorkspace();
+    expect(screen.getAllByRole('combobox')).toHaveLength(4); // 每格两个：设备 + 会话
+    expect(screen.queryByRole('combobox', { name: '窗口 1 内容' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: '窗口 1 路径' })).toBeNull();
+    expect(screen.getAllByRole('combobox', { name: '窗口 1 会话' })).toHaveLength(1);
+    expect(screen.getAllByRole('combobox', { name: '窗口 2 会话' })).toHaveLength(1);
   });
 });

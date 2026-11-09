@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync the reviewed project-team runtime files into a live PilotDeck checkout.
+"""Sync the reviewed project-team runtime files into a live PilotV checkout.
 
 The vendored copy under ``pilotdeck-mobile/upstream-official`` carries the
 reviewed implementation.  This script copies that reviewed set into a live

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * pilotv MCP 侧车 —— 把 doctor / verify / export 暴露给 PilotDeck 里的 agent。
+ * pilotv MCP 侧车 —— 把 doctor / verify / export 暴露给 PilotV 里的 agent。
  *
  * 与 artifacts-mcp.mjs 是同一个套路：极薄的一层，只做「MCP 工具调用 → 本地 CLI」
  * 翻译，所有判断仍住在 cli/ 里。两个侧车不合并：成果台的工具走 REST、生命体征的

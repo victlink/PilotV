@@ -31,7 +31,7 @@ export function ensurePilotProjectGitIgnore(projectRoot, createDirectory = true)
         catch (error) { if (error.code !== 'ENOENT') throw error; }
         const lastRule = content.split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith('#')).at(-1);
         if (lastRule === '*') return;
-        appendFileSync(ignorePath, `${content && !content.endsWith('\n') ? '\n' : ''}# PilotDeck internal files\n*\n`, 'utf8');
+        appendFileSync(ignorePath, `${content && !content.endsWith('\n') ? '\n' : ''}# PilotV internal files\n*\n`, 'utf8');
     } catch (error) {
         if (!['EACCES', 'EPERM', 'EROFS'].includes(error.code)) throw error;
     }
@@ -44,7 +44,7 @@ function normalizeHomePath(p) {
 }
 
 /**
- * Resolve the active PilotDeck home directory. Honors `PILOT_HOME` so
+ * Resolve the active PilotV home directory. Honors `PILOT_HOME` so
  * tests / multi-instance setups can isolate state. Defaults to
  * `~/.pilotdeck`.
  *
@@ -104,7 +104,7 @@ export function createCollisionResistantProjectId(projectRoot) {
  * unregistered workspaces.
  *
  * @param {string} projectRoot Absolute filesystem path.
- * @param {string} [pilotHome] Active PilotDeck home directory.
+ * @param {string} [pilotHome] Active PilotV home directory.
  * @returns {string} Project directory name under `<pilotHome>/projects`.
  */
 export function resolveProjectStorageId(projectRoot, pilotHome = resolvePilotHome()) {

@@ -155,7 +155,7 @@ it('continues desktop progress after navigation and updates without showing inte
 
 it.each([
   ['PD_RUNTIME_OUT_OF_MEMORY', 'There was not enough memory to start the service.'],
-  ['PD_RESOURCE_NOT_FOUND', 'A required application file is missing. Reinstall PilotDeck and try again.'],
+  ['PD_RESOURCE_NOT_FOUND', 'A required application file is missing. Reinstall PilotV and try again.'],
   ['PD_NETWORK_PORT_IN_USE', 'A port required by the local service is already in use.'],
 ])('shows a concise reason for %s and delegates save/cancel to the native dialog', async (code, reason) => {
   const saveRuntimeLogs = vi.fn().mockResolvedValue({ canceled: true }), retry = vi.fn();

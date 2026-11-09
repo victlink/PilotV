@@ -107,7 +107,7 @@ export class PromptAssembler {
 
   private buildDefaultSystemPrompt(input: PromptAssemblerInput, contributions: PromptContributions): string[] {
     const lines: string[] = [
-      "You are PilotDeck, an AI agent runtime. You execute tasks across CLI, TUI, web, and chat channels by calling structured tools and reasoning over their results.",
+      "You are PilotV, an AI agent runtime. You execute tasks across CLI, TUI, web, and chat channels by calling structured tools and reasoning over their results.",
       "Operate decisively: prefer using available tools to gather facts before answering, prefer concise replies, and surface uncertainty when present.",
       "",
       ...toolGuidance(input.tools),

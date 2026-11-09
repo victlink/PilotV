@@ -1,4 +1,4 @@
-// pilotv MCP 工具面 —— 让 PilotDeck 里的 agent 能自查自检，而不是只会改代码。
+// pilotv MCP 工具面 —— 让 PilotV 里的 agent 能自查自检，而不是只会改代码。
 //
 // 为什么要这一层：doctor / verify / export 已经能在终端一条命令跑完，但仓库里的
 // agent 看不到它们。它的「验证」只剩「我改了代码，编译过了」，于是把没验证过的

@@ -1029,7 +1029,7 @@
     },
     "panels": {
       "advancedPage": {
-        "configFilePrefix": "PILOTDECK 的配置文件存放于",
+        "configFilePrefix": "PilotV 的配置文件存放于",
         "configFileSuffix": "，若有需求可直接编辑。"
       },
       "advancedRetry": {

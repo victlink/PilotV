@@ -9,24 +9,24 @@
 //     屏塞一整套导航，也会无限嵌套出新的多窗口页。
 //  3. 登录令牌按后端 origin 分开存（deviceTokens.ts），runtime 来自网关注入，
 //     所以不同设备的窗格各自用自己的令牌，不会互相顶掉登录态。
+//  4. 不再由父页决定每格显示「对话 / 文件 / 成果台」：窗格内本来就有右侧
+//     悬浮按钮，用户直接在那儿切。父页只负责设备、会话、侧栏和布局，视图
+//     由 iframe 自己的 ?view= 记住；父页重建 iframe 时把这个参数带过去。
 // 这些约定值得有单元测试盯着，不要塞进组件里。
+
+import type { PaneView } from './embedMode';
 
 export type WindowLayout = 2 | 4 | 6;
 export const WINDOW_LAYOUTS: readonly WindowLayout[] = [2, 4, 6];
 export const MAX_PANES = 6;
 export const MULTI_WINDOW_STORAGE_KEY = 'pilotv-multi-window-v1';
 
-export type PaneView = 'home' | 'session' | 'artifacts' | 'custom';
-
 export interface PaneConfig {
   id: string;
   /** 后端 origin；空串表示跟随顶层页面当前设备。 */
   device: string;
-  view: PaneView;
   /** 空串表示「当前对话」，由调用方把 currentSessionId 补进来。 */
   sessionId: string;
-  /** view === 'custom' 时使用的站内路径。 */
-  path: string;
   /** 是否在这个窗格里展开该设备自己的侧栏（用于挑它的会话）。 */
   sidebar: boolean;
 }
@@ -36,12 +36,8 @@ export interface MultiWindowState {
   panes: PaneConfig[];
 }
 
-const VIEWS: readonly PaneView[] = ['home', 'session', 'artifacts', 'custom'];
-
 export function defaultPane(index: number): PaneConfig {
-  // 默认第一格跟当前对话、第二格看成果台，打开 2 分屏就有内容，不用先配置。
-  const view: PaneView = index === 0 ? 'session' : index === 1 ? 'artifacts' : 'home';
-  return { id: `pane-${index + 1}`, device: '', view, sessionId: '', path: '', sidebar: false };
+  return { id: `pane-${index + 1}`, device: '', sessionId: '', sidebar: false };
 }
 
 export function defaultState(): MultiWindowState {
@@ -55,7 +51,7 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-/** 读回本地配置时逐项校验：坏数据不能让整个工作区白屏。 */
+/** 读回本地配置时逐项校验：坏数据不能让整个工作区白屏。旧版的 view/path 字段会被忽略。 */
 export function normalizeState(raw: unknown): MultiWindowState {
   const fallback = defaultState();
   if (!raw || typeof raw !== 'object') return fallback;
@@ -69,14 +65,11 @@ export function normalizeState(raw: unknown): MultiWindowState {
     const item = stored[index];
     if (!item || typeof item !== 'object') return base;
     const pane = item as Partial<PaneConfig>;
-    const view = VIEWS.includes(pane.view as PaneView) ? pane.view as PaneView : base.view;
     const device = asString(pane.device).trim();
     return {
       id: base.id,
       device: /^https?:\/\//i.test(device) ? device.replace(/\/$/, '') : '',
-      view,
       sessionId: asString(pane.sessionId).trim(),
-      path: asString(pane.path).trim(),
       sidebar: pane.sidebar === true,
     };
   });
@@ -93,13 +86,6 @@ export function writeState(state: MultiWindowState): void {
   catch { /* 存储不可用时不该影响使用，只是不记住布局 */ }
 }
 
-/** 只允许站内绝对路径，挡掉协议相对 URL 和外部地址。 */
-export function normalizeCustomPath(path: string): string {
-  const raw = (path || '').trim();
-  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\')) return '/';
-  return raw;
-}
-
 export interface BuildPaneUrlOptions {
   origin: string;
   /** 网关注入的当前后端；没有网关时传 null，就不要画蛇添足地加 ?d=。 */
@@ -107,21 +93,18 @@ export interface BuildPaneUrlOptions {
   currentSessionId?: string | null;
   /** 窗格内嵌时精简 UI；弹出独立窗口时去掉它。 */
   embed?: boolean;
+  /** 窗格里当前选中的视图（右侧悬浮按钮）；重建 iframe 时用它保持原样。 */
+  view?: PaneView | null;
 }
 
 export function buildPaneUrl(pane: PaneConfig, options: BuildPaneUrlOptions): string {
-  const { origin, currentDevice = null, currentSessionId = null, embed = true } = options;
+  const { origin, currentDevice = null, currentSessionId = null, embed = true, view = null } = options;
   const sessionId = pane.sessionId.trim() || (currentSessionId ?? '').trim();
-  let path = '/';
-  if (pane.view === 'custom') path = normalizeCustomPath(pane.path);
-  else if ((pane.view === 'session' || pane.view === 'artifacts') && sessionId) {
-    path = `/session/${encodeURIComponent(sessionId)}`;
-  }
-  const url = new URL(path, origin);
+  const url = new URL(sessionId ? `/session/${encodeURIComponent(sessionId)}` : '/', origin);
   if (currentDevice) url.searchParams.set('d', pane.device || currentDevice);
   if (embed) url.searchParams.set('embed', '1');
   if (embed && pane.sidebar) url.searchParams.set('sidebar', '1');
-  if (pane.view === 'artifacts') url.searchParams.set('view', 'artifacts');
+  if (view) url.searchParams.set('view', view);
   return url.toString();
 }
 

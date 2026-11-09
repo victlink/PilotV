@@ -329,7 +329,7 @@ def main():
               "成果台里拿不到越权的文件内容")
 
         section("5b 成果归属到真项目/会话时的三条通道")
-        # 用一个假 PilotDeck 家目录跑：项目 .cwd + chats/<sid>.jsonl，
+        # 用一个假 PilotV 家目录跑：项目 .cwd + chats/<sid>.jsonl，
         # 跟 pilotdeck_workspace.scan_projects 读的布局一致。
         # 必须落在服务真正读的那个家目录里，否则是在自己搭的假目录里自说自话
         fake_home = os.environ.get("PILOTDECK_HOME") or ""
@@ -340,7 +340,7 @@ def main():
         pstore = os.path.join(fake_home, "projects", pid)
         os.makedirs(os.path.join(pstore, "chats"), exist_ok=True)
         open(os.path.join(pstore, ".cwd"), "w").write(proj_dir)
-        # 会话 id 就是去掉 .jsonl 后的文件名（含 `cli:` 前缀），和 PilotDeck 一致
+        # 会话 id 就是去掉 .jsonl 后的文件名（含 `cli:` 前缀），和 PilotV 一致
         sid = "cli:fake-sess-1"
         chat = os.path.join(pstore, "chats", f"{sid}.jsonl")
         with open(chat, "w", encoding="utf-8") as fh:

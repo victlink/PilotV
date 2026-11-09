@@ -19,7 +19,7 @@
  * 环境变量：
  *   ARTIFACTS_API   console REST 根（默认 http://127.0.0.1:8799）
  *   ARTIFACTS_PORT  侧车监听端口（默认 8801）
- *   ARTIFACTS_HOST  侧车监听地址（默认 127.0.0.1，只给本机 PilotDeck 用）
+ *   ARTIFACTS_HOST  侧车监听地址（默认 127.0.0.1，只给本机 PilotV 用）
  *   PILOTDECK_SRC   MCP SDK 所在仓库（默认 /home/Marc/PilotDeck-src）
  */
 import http from "node:http";

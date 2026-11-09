@@ -22,7 +22,7 @@ export function createComputerUseRouter({ service, env = process.env }) {
           || frontend.port !== String(env.VITE_PORT || 5173)) throw new Error('Invalid origin');
       }
       next();
-    } catch { res.status(403).json({ error: 'Computer use requests must come from this PilotDeck instance.' }); }
+    } catch { res.status(403).json({ error: 'Computer use requests must come from this PilotV instance.' }); }
   });
   const handle = action => async (req, res) => {
     try { res.json(await action(req)); }

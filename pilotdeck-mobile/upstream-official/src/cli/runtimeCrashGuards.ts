@@ -18,7 +18,7 @@ export type RuntimeCrashGuardOptions = {
  * CLI's original fail-fast policy was wrong for it: an unhandledRejection from
  * one turn's secondary promise (a compaction summary, a telemetry write) used
  * to call shutdownAndExit(1) and drop every live WebSocket, which the UI
- * reported as "PilotDeck gateway is unavailable." A rejection is now logged
+ * reported as "PilotV gateway is unavailable." A rejection is now logged
  * with its full cause and the process keeps serving.
  *
  * The stack must reach the logs. During the 2026-11-05 investigation the

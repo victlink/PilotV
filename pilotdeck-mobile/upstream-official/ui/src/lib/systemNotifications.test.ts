@@ -2,15 +2,15 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { clearWebNotificationBadge } from './systemNotifications';
 
-afterEach(() => { window.pilotdeckDesktop = undefined; vi.restoreAllMocks(); document.title = 'PilotDeck'; });
+afterEach(() => { window.pilotdeckDesktop = undefined; vi.restoreAllMocks(); document.title = 'PilotV'; });
 it('removes legacy web title counts and clears PWA badges without publishing a new count', async () => {
-  document.title = '(9) PilotDeck';
+  document.title = '(9) PilotV';
   const clear = vi.fn(async () => {});
   const set = vi.fn(async () => {});
   Object.defineProperty(navigator, 'clearAppBadge', { value: clear, configurable: true });
   Object.defineProperty(navigator, 'setAppBadge', { value: set, configurable: true });
   await clearWebNotificationBadge();
-  expect(document.title).toBe('PilotDeck');
+  expect(document.title).toBe('PilotV');
   expect(clear).toHaveBeenCalledOnce();
   expect(set).not.toHaveBeenCalled();
   delete (navigator as any).clearAppBadge;

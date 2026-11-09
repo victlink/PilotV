@@ -338,7 +338,7 @@ describe("usePilotDeckConfig saves", () => {
         if (url === "/api/config" && options?.method === "PUT") {
           return Promise.resolve(
             response({
-              error: "Invalid PilotDeck config",
+              error: "Invalid PilotV config",
               validation: {
                 valid: false,
                 errors: ["model.providers.provider1.apiKey is required"],

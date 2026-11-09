@@ -15,38 +15,37 @@ export function normalizeAppearance(value: unknown, locale = 'en'): DesktopAppea
 }
 
 const STARTUP_ZH: Record<string, string> = {
-  "Preparing PilotDeck runtime...": "正在准备 PilotV 运行环境…",
+  "Preparing PilotV runtime...": "正在准备 PilotV 运行环境…",
   "Checking local configuration...": "正在检查本地配置…",
   "Starting Web UI server...": "正在启动网页服务…",
-  "PilotDeck is ready for model setup.": "PilotV 已就绪，请配置模型。",
-  "PilotDeck runtime stopped.": "PilotV 运行环境已停止。",
+  "PilotV is ready for model setup.": "PilotV 已就绪，请配置模型。",
+  "PilotV runtime stopped.": "PilotV 运行环境已停止。",
   "Gateway exited unexpectedly. The Web UI is still available.": "Gateway 意外退出，网页界面仍可使用。",
   "Model configuration needs attention.": "模型配置需要修复。",
   "Starting local gateway...": "正在启动本地 Gateway…",
-  "PilotDeck is ready.": "PilotV 已就绪。",
+  "PilotV is ready.": "PilotV 已就绪。",
   "Gateway failed to start. The Web UI is still available.": "Gateway 启动失败，网页界面仍可使用。",
   "server exited unexpectedly. See runtime log for details.": "网页服务意外退出，请查看运行日志。",
   "gateway exited unexpectedly. See runtime log for details.": "Gateway 意外退出，请查看运行日志。",
-  "PilotDeck failed to start.": "PilotV 启动失败。",
-  "PilotDeck failed to restore window.": "PilotV 无法恢复窗口。",
+  "PilotV failed to start.": "PilotV 启动失败。",
+  "PilotV failed to restore window.": "PilotV 无法恢复窗口。",
   "Retry": "重试",
   "Open Log": "打开日志",
-  "Starting PilotDeck...": "正在启动 PilotV…",
+  "Starting PilotV...": "正在启动 PilotV…",
   "Log: ": "日志：",
   "Unknown startup error.": "未知的启动错误。",
-  "PilotDeck could not stop": "PilotV 无法停止"
+  "PilotV could not stop": "PilotV 无法停止"
 };
 
 export function startupText(message: string, language: DesktopAppearance['language']): string {
-  // Runtime messages retain upstream keys; accept PilotV-branded callers too.
-  const key = message.replace(/PilotV/g, 'PilotDeck');
-  return language === 'zh-CN' ? STARTUP_ZH[key] || message.replace(/PilotDeck/g, 'PilotV') : message.replace(/PilotDeck/g, 'PilotV');
+  // 上游旧消息偶尔还带着旧品牌名，先归一成 PilotV 再查中文表。
+  const branded = message.replace(/PilotDeck/g, 'PilotV');
+  return language === 'zh-CN' ? STARTUP_ZH[branded] ?? branded : branded;
 }
 
 export function renderLoadingHtml(appearance: DesktopAppearance, web = false): string {
-  const brandLabels = (language: DesktopAppearance['language']) => Object.fromEntries(
-    Object.entries(startupLabels(language)).map(([key, value]) => [key, typeof value === 'string' ? value.replace(/PilotDeck/g, 'PilotV') : value]),
-  );
+  // startupLabels 已经是 PilotV 定稿文案，不需要再做品牌替换。
+  const brandLabels = (language: DesktopAppearance['language']) => startupLabels(language);
   const labels = brandLabels(appearance.language);
   const light = normalizeLightAppearance(appearance.lightAppearance);
   const canvas = light.preset === 'default' ? '#ffffff' : deriveLightColors(light).background;
@@ -60,7 +59,7 @@ ${startupStyle}
 .pd-startup-brand{display:flex;align-items:center;justify-content:center;gap:12px}
 .pilotv-startup-mark{width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;background:var(--startup-fg);color:var(--startup-bg);flex:0 0 auto}
 #failure{display:none}#startup[data-error=true] #loading{display:none}#startup[data-error=true] #failure{display:block}#saveStatus:empty{display:none}
-</style></head><body style="margin:0"><div class="pd-startup-screen" id="startup"><main><h1 class="pd-startup-brand"><span class="pilotv-startup-mark" aria-hidden="true"><svg viewBox="0 0 512 512" width="23" height="23" fill="currentColor"><path d="M154.0 144 H218.0 L256.0 213.3 L294.0 144 H358.0 L256.0 330.0 Z"/></svg></span><span>PilotV</span></h1>
+</style></head><body style="margin:0"><div class="pd-startup-screen" id="startup"><main><h1 class="pd-startup-brand"><span class="pilotv-startup-mark" aria-hidden="true"><svg viewBox="0 0 512 512" width="23" height="23"><path d="M154 144 H218 L256 213.3 L294 144 H358 L256 330 Z" fill="#e55a09"/><rect x="154" y="362" width="204" height="24" rx="12" fill="#297cc0"/></svg></span><span>Pilot<span style="color:#e55a09">V</span></span></h1>
 <div id="loading" role="status"><div class="pd-startup-track" role="progressbar" aria-label="PilotV" aria-valuemin="0" aria-valuemax="100" aria-valuenow="8"><div class="pd-startup-bar" id="bar" style="width:8%"></div></div><p class="pd-startup-message" id="message">${labels.starting}</p></div>
 <section class="pd-startup-failure" id="failure" role="alert"><h2>${labels.failed}</h2><p class="reason" id="reason"></p><div class="pd-startup-meta" id="code"></div><p class="pd-startup-meta" id="log"></p><div class="pd-startup-actions"><button id="retry">${labels.restart}</button><button id="saveLog" class="secondary">${labels.save}</button></div><p class="pd-startup-meta" id="saveStatus" role="status"></p></section>
 </main></div><script>(()=>{

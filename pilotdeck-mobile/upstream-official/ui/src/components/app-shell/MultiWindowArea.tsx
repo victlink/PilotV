@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ExternalLink, LayoutGrid, Maximize2, Minimize2, PanelLeftOpen, RefreshCw } from 'lucide-react';
 import type { Project, ProjectSession } from '../../types/app';
 import { projectDisplayName, sessionDisplayTitle } from '../../lib/customNames';
 import { decodeDeviceDefaults, type Device } from './deviceRegistry';
 import { getPilotVRuntime } from './pilotvRuntime';
+import { readPaneView, type PaneView } from './embedMode';
 import {
   buildPaneUrl,
   layoutGridClass,
@@ -12,7 +13,6 @@ import {
   writeState,
   type MultiWindowState,
   type PaneConfig,
-  type PaneView,
   type WindowLayout,
 } from './multiWindow';
 
@@ -27,13 +27,6 @@ type Props = {
 };
 
 type SessionOption = { value: string; label: string };
-
-const VIEW_OPTIONS: { value: PaneView; label: string }[] = [
-  { value: 'home', label: '设备首页' },
-  { value: 'session', label: '对话' },
-  { value: 'artifacts', label: '成果台' },
-  { value: 'custom', label: '自定义路径' },
-];
 
 const SELECT_CLASS = 'h-6 max-w-[9rem] shrink-0 rounded border border-neutral-200 bg-white px-1 text-[11px] text-neutral-700 outline-none focus:border-indigo-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200';
 const ICON_BUTTON_CLASS = 'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100';
@@ -51,7 +44,6 @@ function PaneToolbar({
   onFocus: () => void;
   onPopout: () => void;
 }) {
-  const needsSession = pane.view === 'session' || pane.view === 'artifacts';
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-neutral-200 bg-neutral-50 px-1.5 text-[11px] dark:border-neutral-800 dark:bg-neutral-900">
       <span className="shrink-0 tabular-nums text-neutral-400" aria-label={`窗口 ${index + 1}`}>{index + 1}</span>
@@ -60,22 +52,11 @@ function PaneToolbar({
         <option value="">当前设备</option>
         {devices.map((device) => <option key={device.origin} value={device.origin}>{device.name}</option>)}
       </select>
-      <select aria-label={`窗口 ${index + 1} 内容`} title="选择显示内容" className={SELECT_CLASS}
-        value={pane.view} onChange={(event) => onUpdate({ view: event.target.value as PaneView })}>
-        {VIEW_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      <select aria-label={`窗口 ${index + 1} 会话`} title="选择会话" className={SELECT_CLASS}
+        value={pane.sessionId} onChange={(event) => onUpdate({ sessionId: event.target.value })}>
+        <option value="">当前对话</option>
+        {sessionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
-      {needsSession ? (
-        <select aria-label={`窗口 ${index + 1} 会话`} title="选择会话" className={SELECT_CLASS}
-          value={pane.sessionId} onChange={(event) => onUpdate({ sessionId: event.target.value })}>
-          <option value="">当前对话</option>
-          {sessionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-      ) : null}
-      {pane.view === 'custom' ? (
-        <input aria-label={`窗口 ${index + 1} 路径`} title="站内路径，例如 /p/我的项目" placeholder="/p/我的项目"
-          value={pane.path} onChange={(event) => onUpdate({ path: event.target.value })}
-          className="h-6 w-32 shrink-0 rounded border border-neutral-200 bg-white px-1.5 text-[11px] outline-none focus:border-indigo-400 dark:border-neutral-700 dark:bg-neutral-900" />
-      ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <button type="button" aria-pressed={pane.sidebar}
           aria-label={pane.sidebar ? '隐藏此窗口侧栏' : '显示此窗口侧栏'}
@@ -102,12 +83,18 @@ function PaneToolbar({
  * 每个窗格是一个同源 iframe，靠 ?d= 让网关把请求转发到各自的后端设备，
  * 靠 ?embed=1 让里面的壳精简成纯工作区。登录令牌按设备分开存，所以不同
  * 设备的窗格可以同时保持登录，不会像单个标签页切换设备那样互相顶掉。
+ *
+ * 「对话 / 文件 / 成果台」不在父页做下拉：窗格里本来就有一列右侧悬浮按钮，
+ * 切换结果由 iframe 自己记在 ?view= 上。父页只在必须重建 iframe（换设备、
+ * 换会话、切侧栏、刷新、弹出）之前读一次该窗格当前的 view，再带回新地址。
  */
 export default function MultiWindowArea({ projects, selectedSession, isSidebarCollapsed, onOpenSidebar, isEmbedded = false, onBack }: Props) {
   const [state, setState] = useState<MultiWindowState>(readState);
   const [devices, setDevices] = useState<Device[]>([]);
   const [focused, setFocused] = useState<string | null>(null);
   const [reloadTokens, setReloadTokens] = useState<Record<string, number>>({});
+  const frames = useRef<Record<string, HTMLIFrameElement | null>>({});
+  const viewOverrides = useRef<Record<string, PaneView>>({});
   const runtime = getPilotVRuntime();
   const currentDevice = runtime?.backend ?? null;
   const currentSessionId = selectedSession?.id ?? null;
@@ -137,22 +124,45 @@ export default function MultiWindowArea({ projects, selectedSession, isSidebarCo
       label: `${projectDisplayName(project)} / ${sessionDisplayTitle(session)}`,
     }))), [projects]);
 
+  const livePaneView = (id: string): PaneView | null => {
+    try {
+      const href = frames.current[id]?.contentWindow?.location.href;
+      if (!href) return null;
+      const url = new URL(href, origin);
+      if (url.origin !== origin) return null;
+      return readPaneView(url.search);
+    } catch { return null; }
+  };
+  const capturePaneView = (id: string) => {
+    const view = livePaneView(id);
+    if (view) viewOverrides.current[id] = view;
+  };
+  const withView = (url: string, view: PaneView): string => {
+    const target = new URL(url, origin);
+    target.searchParams.set('view', view);
+    return target.toString();
+  };
+
   const updatePane = (id: string, patch: Partial<PaneConfig>) => {
+    capturePaneView(id);
     setState((previous) => ({
       ...previous,
       panes: previous.panes.map((pane) => (pane.id === id ? { ...pane, ...patch } : pane)),
     }));
   };
   const setLayout = (layout: WindowLayout) => { setState((previous) => ({ ...previous, layout })); setFocused(null); };
-  const refresh = (id: string) => setReloadTokens((previous) => ({ ...previous, [id]: (previous[id] ?? 0) + 1 }));
+  const refresh = (id: string) => { capturePaneView(id); setReloadTokens((previous) => ({ ...previous, [id]: (previous[id] ?? 0) + 1 })); };
   const paneUrl = (pane: PaneConfig, embed: boolean) => buildPaneUrl(pane, {
     origin,
     currentDevice,
     currentSessionId,
     embed,
+    view: viewOverrides.current[pane.id] ?? null,
   });
   const popout = (pane: PaneConfig) => {
-    window.open(paneUrl(pane, false), '_blank', 'noopener,noreferrer');
+    const base = paneUrl(pane, false);
+    const view = livePaneView(pane.id);
+    window.open(view ? withView(base, view) : base, '_blank', 'noopener,noreferrer');
   };
 
   const visible = focused
@@ -171,7 +181,7 @@ export default function MultiWindowArea({ projects, selectedSession, isSidebarCo
         <div className="workspace-title flex min-w-0 flex-1 items-center gap-2">
           <LayoutGrid className="h-4 w-4 shrink-0 text-neutral-400" aria-hidden />
           <h1 className="shrink-0 text-[15px] font-semibold leading-5 text-neutral-950 dark:text-neutral-50">多窗口</h1>
-          <span className="hidden shrink-0 text-[11px] text-neutral-400 sm:inline">布局与每台窗口的设备、会话会自动保存</span>
+          <span className="hidden shrink-0 text-[11px] text-neutral-400 sm:inline">布局、设备与会话自动保存；用每个窗口右侧的悬浮按钮切换对话 / 文件 / 成果台</span>
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             {WINDOW_LAYOUTS.map((layout) => (
               <button key={layout} type="button" aria-pressed={state.layout === layout} aria-label={`${layout} 窗口布局`} title={`${layout} 窗口布局`}
@@ -211,7 +221,8 @@ export default function MultiWindowArea({ projects, selectedSession, isSidebarCo
                 onFocus={() => setFocused((previous) => previous === pane.id ? null : pane.id)}
                 onPopout={() => popout(pane)} />
               <div className="min-h-0 flex-1">
-                <iframe key={`${pane.id}:${url}:${reloadTokens[pane.id] ?? 0}`} src={url} title={`窗口 ${index + 1}`}
+                <iframe ref={(node) => { frames.current[pane.id] = node; }}
+                  key={`${pane.id}:${url}:${reloadTokens[pane.id] ?? 0}`} src={url} title={`窗口 ${index + 1}`}
                   className="h-full w-full border-0 bg-white dark:bg-neutral-950" />
               </div>
             </section>

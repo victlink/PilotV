@@ -1,5 +1,5 @@
 /**
- * M1 ⑥⑦ 插件清单验证：用 PilotDeck 本体的解析函数跑一遍 plugin.json，
+ * M1 ⑥⑦ 插件清单验证：用 PilotV 本体的解析函数跑一遍 plugin.json，
  * 再拿解析出来的 spec 真连一次侧车，证明「装上就能用」。
  *
  * 验证的是真实代码路径：
@@ -44,7 +44,7 @@ check(!!manifest.mcpServers && typeof manifest.mcpServers === "object", "声明�
    McpClient 就会去连一个没人监听的地址，报 "fetch failed" —— 这个失败跟
    插件代码无关，纯粹是测试连错了端口。
    这里把清单里的 url 换成回归端口，再走真实的 parsePluginMcpServers：
-   测的仍然是「清单 → PilotDeck 解析 → McpClient 真连」这条完整链路，
+   测的仍然是「清单 → PilotV 解析 → McpClient 真连」这条完整链路，
    而且不用写坏用户家目录里那份已安装的插件清单。
    没设 ARTIFACTS_MCP_URL 时保持原样，仍按安装时的端口测。 */
 const ENV_URL = process.env.ARTIFACTS_MCP_URL;
@@ -54,7 +54,7 @@ if (ENV_URL && manifest.mcpServers?.artifacts) {
 }
 
 // ---------------------------------------------------------- [2] 解析不被丢
-section("2 PilotDeck 解析");
+section("2 PilotV 解析");
 const parsed = parsePluginMcpServers(manifest.mcpServers);
 console.log(`      diagnostics: ${JSON.stringify(parsed.diagnostics)}`);
 check(parsed.servers.length === 1, "解析出 1 个 server", String(parsed.servers.length));
@@ -88,7 +88,7 @@ await client.stop?.();
 
 console.log("\n" + "=".repeat(56));
 console.log(fail === 0
-  ? `结果：全部通过 ✓（${pass} 项）— 装上 plugin.json 即可用，无需改 PilotDeck 源码`
+  ? `结果：全部通过 ✓（${pass} 项）— 装上 plugin.json 即可用，无需改 PilotV 源码`
   : `结果：${fail} 项失败（共 ${pass + fail} 项）`);
 console.log("=".repeat(56));
 process.exit(fail === 0 ? 0 : 1);

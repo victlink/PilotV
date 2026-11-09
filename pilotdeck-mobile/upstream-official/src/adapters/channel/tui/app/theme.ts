@@ -14,7 +14,8 @@ export type PilotDeckTuiTheme = {
 
 export const pilotDeckDarkBlueTheme: PilotDeckTuiTheme = {
   brand: "rgb(238,234,218)",
-  brandAccent: "rgb(125,180,255)",
+  // V 必须和 Web / 桌面字标一致用品牌橙（#e55a09），不要用旧的蓝色强调色。
+  brandAccent: "rgb(229,90,9)",
   background: "rgb(7,15,28)",
   panel: "rgb(10,25,47)",
   text: "rgb(230,237,247)",

@@ -17,7 +17,7 @@
 
 3. **点了「应用」之后意见去哪**（需求 5）
    返工单要落两处：原项目目录（按会话分文件夹，人能直接翻到），
-   以及对应 PilotDeck 会话的输入队列（对话里能看见、agent 能接着改）；
+   以及对应 PilotV 会话的输入队列（对话里能看见、agent 能接着改）；
    同时走既有 dispatch 通道唤醒挂着 wait_artifact_rework 的 agent。
    三个通道各自成败独立汇报，不做「看起来成功了」的静默降级。
 
@@ -589,12 +589,12 @@ def _append_index(folder: str, entry: dict) -> None:
         pass
 
 
-# ---- 对话注入：写进 PilotDeck 的会话输入队列 --------------------------------
+# ---- 对话注入：写进 PilotV 的会话输入队列 --------------------------------
 
 def sanitize_session_id(session_id: str) -> str:
-    r"""与 PilotDeck 的 sanitizeSessionIdForPath 逐字对齐（ui/server/utils/pilotPaths.js:110）。
+    r"""与 PilotV 的 sanitizeSessionIdForPath 逐字对齐（ui/server/utils/pilotPaths.js:110）。
 
-    **必须对齐**：会话队列的文件名是 PilotDeck 自己算的，我们算出的名字
+    **必须对齐**：会话队列的文件名是 PilotV 自己算的，我们算出的名字
     只要差一个字符，它就永远读不到我们写的返工单 —— 而且不报错，只是
     静默不生效。POSIX 下它只把 `/` `\` 换成 `-`，`web:s_xxx` 里的冒号原样
     保留（只有 Windows 才连 `:` 一起换）。这里照抄，包括去首尾横线和
@@ -615,7 +615,7 @@ def enqueue_session_input(project_slug: str, session_id: str, item: dict,
                           pilot_home: str) -> dict:
     """把返工单排进对应会话的输入队列。
 
-    只写 pending-inputs 的磁盘态；这是 PilotDeck 自己恢复队列时读的那份。
+    只写 pending-inputs 的磁盘态；这是 PilotV 自己恢复队列时读的那份。
     会话正在实时跑时不写 —— 那份文件正被 gateway 持有内存态并随时整体覆写，
     我们写进去会被无声抹掉，不如明说没成功。
     """

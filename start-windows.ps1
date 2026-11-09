@@ -10,7 +10,7 @@
 
   进程拓扑（五个进程，缺一不可）：
     8799   成果台 API（service/serve_artifacts.py，用项目内 .venv；房间编排器随它启动）
-    18789  PilotDeck Agent 网关（upstream-official，tsx 跑 src/cli/pilotdeck.ts server）
+    18789  PilotV Agent 网关（upstream-official，tsx 跑 src/cli/pilotdeck.ts server）
     3001   Web/API 服务（upstream-official/ui/server/index.js）—— 页面上所有 /api/* 都由它提供
     5186   前端 + 反向代理（service/pilotv_gateway.mjs，把 /api、/ws 转发到 3001）
     8801   成果台 MCP 侧车（artifacts-mcp.mjs，房间成员回写转录要用）

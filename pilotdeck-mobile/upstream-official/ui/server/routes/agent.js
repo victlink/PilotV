@@ -936,7 +936,7 @@ router.post('/', validateExternalApiKey, requestLimiters.model, async (req, res)
       });
     }
 
-    console.log(`🛫 Starting PilotDeck gateway session (provider=${provider})`);
+    console.log(`🛫 Starting PilotV gateway session (provider=${provider})`);
 
     await runChatViaGateway(
       message.trim(),
@@ -1092,7 +1092,7 @@ router.post('/', validateExternalApiKey, requestLimiters.model, async (req, res)
           } else {
             prBody += `Agent task: ${message}`;
           }
-          prBody += '\n\n---\n*This pull request was automatically created by PilotDeck Agent.*';
+          prBody += '\n\n---\n*This pull request was automatically created by PilotV Agent.*';
 
           console.log(`📝 PR Title: ${prTitle}`);
 

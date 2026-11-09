@@ -91,7 +91,7 @@ router.get('/:sessionId/messages', async (req, res) => {
       return res.status(503).json({
         error: {
           code: 'gateway_unavailable',
-          message: 'PilotDeck Gateway is restarting. Retry shortly.',
+          message: 'PilotV Gateway is restarting. Retry shortly.',
         },
       });
     }
@@ -174,7 +174,7 @@ router.get('/:sessionId/subagent/:subagentId/messages', async (req, res) => {
       return res.status(503).json({
         error: {
           code: 'gateway_unavailable',
-          message: 'PilotDeck Gateway is restarting. Retry shortly.',
+          message: 'PilotV Gateway is restarting. Retry shortly.',
         },
       });
     }

@@ -1,4 +1,4 @@
-// PilotV 成果台代理 —— 上游 PilotDeck 没有这一层。
+// PilotV 成果台代理 —— 上游 PilotV 没有这一层。
 //
 // 背景：成果台的数据在 8799（service/serve_artifacts.py），页面上请求
 // /api/artifacts/... 用的是相对路径。走 PilotV 网关（5186）时网关会把它

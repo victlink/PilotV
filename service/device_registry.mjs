@@ -81,7 +81,7 @@ export function validateDeviceTarget(value) {
   // 先查网段再查端口：URL 会把 80/443 这类默认端口抹掉，先查端口的话
   // 公网地址会先报「没写端口」，把更该说清楚的问题盖掉。
   if (!isPrivateHost(url.hostname)) {
-    return { ok: false, reason: `${url.hostname} 不是内网地址，网关只代理内网里的 PilotDeck` };
+    return { ok: false, reason: `${url.hostname} 不是内网地址，网关只代理内网里的 PilotV` };
   }
   if (!url.port) return { ok: false, reason: '要写明端口，例如 http://192.168.1.5:3001' };
   return { ok: true, origin };

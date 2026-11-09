@@ -32,7 +32,7 @@ export async function showSystemNotification(payload: SystemNotification) {
 /** Web/PWA has no global counter. Clear badges left by an older deployment. */
 export async function clearWebNotificationBadge() {
   if (window.pilotdeckDesktop) return;
-  document.title = 'PilotDeck';
+  document.title = 'PilotV';
   const badge = navigator as Navigator & { clearAppBadge?: () => Promise<void> };
   await badge.clearAppBadge?.();
 }

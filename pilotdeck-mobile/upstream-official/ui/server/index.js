@@ -176,7 +176,7 @@ const VALID_PROVIDERS = ['pilotdeck'];
 const requireRealProjectFilesystem = createProjectFilesystemMiddleware();
 
 // File-system watchers for the chat transcript root maintained by
-// PilotDeck. Provider-specific watchers (.pilotdeck) were dropped along with the four provider adapters.
+// PilotV. Provider-specific watchers (.pilotdeck) were dropped along with the four provider adapters.
 // .gemini) were dropped along with the four provider adapters.
 const PROVIDER_WATCH_PATHS = [
     {
@@ -646,7 +646,7 @@ app.use('/api/commands', authenticateToken, commandsRoutes);
 
 // Skills API Routes (protected) — list/edit/install skills surfaced in the
 // top-right Skills tab. Backed by bundled skills, ~/.pilotdeck/skills/, and
-// project-level .pilotdeck/skills/ via PilotDeck plugin runtime.
+// project-level .pilotdeck/skills/ via PilotV plugin runtime.
 app.use('/api/skills', authenticateToken, skillsRoutes);
 app.use('/api/uploads', authenticateToken, uploadsRoutes);
 app.use('/api/video-generation', authenticateToken, videoGenerationRoutes);
@@ -667,10 +667,10 @@ app.use('/api/approval-session', authenticateToken, approvalSessionRoutes({
 }));
 app.use('/api/usage', authenticateToken, createUsageRouter());
 
-// PilotDeck unified YAML config routes (protected)
+// PilotV unified YAML config routes (protected)
 app.use('/api/config', authenticateToken, configRoutes);
 app.get('/api/diagnostics/logs', authenticateToken, (_req, res, next) => {
-  res.download(webRuntimeLogging.logPath, 'PilotDeck-runtime.log', error => { if (error) next(error); });
+  res.download(webRuntimeLogging.logPath, 'PilotV-runtime.log', error => { if (error) next(error); });
 });
 app.get('/api/diagnostics/location', authenticateToken, (_req, res) => res.json({ logPath: webRuntimeLogging.logPath }));
 app.post('/api/diagnostics/ui', authenticateToken, (req, res) => {
@@ -707,7 +707,7 @@ app.use('/api/agent', agentRoutes);
 app.use('/api/update', authenticateToken, updateRoutes);
 
 // Legacy four-provider config endpoints have been removed. The runtime
-// model is read from PilotDeck config; fall back to a static stub so any
+// model is read from PilotV config; fall back to a static stub so any
 // older frontend code paths render without crashing.
 app.get('/api/agents/runtime-config', authenticateToken, (_req, res) => {
     const permSettings = readPermissionSettings();
@@ -728,12 +728,12 @@ for (const removedPrefix of PROVIDER_REMOVED_PATHS) {
     app.use(removedPrefix, (_req, res) => {
         res.status(410).json({
             error: 'endpoint_removed',
-            message: `Provider endpoint ${removedPrefix} was removed during the PilotDeck-only migration.`,
+            message: `Provider endpoint ${removedPrefix} was removed during the PilotV-only migration.`,
         });
     });
 }
 
-// PilotDeck routing dashboard. The `/api/ccr/*` URL family was kept for
+// PilotV routing dashboard. The `/api/ccr/*` URL family was kept for
 // frontend back-compat (Dashboard tab + useRouterSettings) but the data
 // now comes from `src/router/stats/TokenStatsCollector` via the
 
@@ -865,7 +865,7 @@ app.get('/api/ccr/health', authenticateToken, (_req, res) => {
 
 app.get('/api/ccr/config', authenticateToken, (_req, res) => {
     // The legacy CCR YAML schema is no longer the source of truth for
-    // model routing — that lives in PilotDeck config now. Return null so
+    // model routing — that lives in PilotV config now. Return null so
     // the legacy useRouterSettings hook simply renders the "no config"
     // empty state instead of a config editor.
     res.json(null);
@@ -897,14 +897,14 @@ app.post('/api/ccr/stats/reset', authenticateToken, (_req, res) => {
     // of silently no-oping.
     res.status(501).json({
         error: 'not_implemented',
-        message: 'Per-project router stats reset is not exposed yet; restart the PilotDeck server to clear in-memory state.',
+        message: 'Per-project router stats reset is not exposed yet; restart the PilotV server to clear in-memory state.',
     });
 });
 
 app.put('/api/ccr/config', authenticateToken, (_req, res) => {
     res.status(501).json({
         error: 'not_implemented',
-        message: 'Routing configuration is owned by PilotDeck config (~/.pilotdeck/pilotdeck.yaml). Edit it directly via /api/config.',
+        message: 'Routing configuration is owned by PilotV config (~/.pilotdeck/pilotdeck.yaml). Edit it directly via /api/config.',
     });
 });
 
@@ -929,7 +929,7 @@ memoryDashboardRouter.use(authenticateToken, express.static(MEMORY_DASHBOARD_DIR
 
 // Hard 404 boundary: anything still asking for /memory-dashboard/* after the
 // static middleware is a missing asset. Without this, the request would fall
-// through to the SPA wildcard below and return the PilotDeck shell index.html,
+// through to the SPA wildcard below and return the PilotV shell index.html,
 // which the MemoryPanel iframe then renders — recursively nesting the entire
 // app inside itself (see bug: "嵌套显示 + general memory 多次出现").
 memoryDashboardRouter.use((_req, res) => {
@@ -971,7 +971,7 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
             return res.status(503).json({
                 error: {
                     code: 'gateway_unavailable',
-                    message: 'PilotDeck Gateway is restarting. Retry shortly.',
+                    message: 'PilotV Gateway is restarting. Retry shortly.',
                 },
             });
         }
@@ -990,7 +990,7 @@ app.get('/api/projects/:projectName/sessions', authenticateToken, async (req, re
             return res.status(503).json({
                 error: {
                     code: 'gateway_unavailable',
-                    message: 'PilotDeck Gateway is restarting. Retry shortly.',
+                    message: 'PilotV Gateway is restarting. Retry shortly.',
                 },
             });
         }
@@ -2417,7 +2417,7 @@ function handleChatConnection(ws, request) {
     const userId = request?.user?.id ?? request?.user?.userId ?? null;
     ws.__pilotdeckUserId = userId;
     connectedClients.add(ws);
-    // PilotDeck's cron manager lives inside `pilotdeck server`;
+    // PilotV's cron manager lives inside `pilotdeck server`;
     // no legacy daemon lease is needed.
     let cleanedUp = false;
 
@@ -2707,7 +2707,7 @@ function handleChatConnection(ws, request) {
                 const ids = getActiveSessionIdsViaGateway();
                 // Keep the four-provider keys so the legacy UI store does
                 // not need to change shape; everything routes through
-                // PilotDeck under the hood.
+                // PilotV under the hood.
                 writer.send({
                     type: 'active-sessions',
                     sessions: { claude: ids, cursor: [], codex: [], gemini: [], pilotdeck: ids },
@@ -2849,7 +2849,7 @@ function handleShellConnection(ws) {
                 if (isPlainShell) {
                     welcomeMsg = `\x1b[36mStarting terminal in: ${projectPath}\x1b[0m\r\n`;
                 } else {
-                    const providerName = provider === 'pilotdeck' ? 'PilotDeck' : (provider === 'cursor' ? 'Cursor' : (provider === 'codex' ? 'Codex' : (provider === 'gemini' ? 'Gemini' : 'Claude')));
+                    const providerName = provider === 'pilotdeck' ? 'PilotV' : (provider === 'cursor' ? 'Cursor' : (provider === 'codex' ? 'Codex' : (provider === 'gemini' ? 'Gemini' : 'Claude')));
                     welcomeMsg = hasSession ?
                         `\x1b[36mResuming ${providerName} session ${sessionId} in: ${projectPath}\x1b[0m\r\n` :
                         `\x1b[36mStarting new ${providerName} session in: ${projectPath}\x1b[0m\r\n`;
@@ -3373,7 +3373,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
         const { provider = 'pilotdeck' } = req.query;
         const homeDir = os.homedir();
 
-        // PilotDeck sessions use `web:s_<uuid>` keys; Windows-safe sessions
+        // PilotV sessions use `web:s_<uuid>` keys; Windows-safe sessions
         // may use `web-s_<uuid>` because ':' is illegal in Windows filenames.
         if (provider === 'pilotdeck' || /^web[:_-]s_/.test(sessionId)) {
             return res.json(getSessionTokenBudget(sessionId));
@@ -3759,7 +3759,7 @@ async function startServer() {
                 const distIndexPath = path.join(__dirname, '../dist/index.html');
                 const isProduction = fs.existsSync(distIndexPath);
 
-                console.log(`${c.info('[INFO]')} Chat execution routed through PilotDeck gateway (src/gateway).`);
+                console.log(`${c.info('[INFO]')} Chat execution routed through PilotV gateway (src/gateway).`);
                 console.log('');
 
                 if (isProduction) {
@@ -3784,7 +3784,7 @@ async function startServer() {
 
                     console.log('');
                     console.log(c.dim('═'.repeat(63)));
-                    console.log(`  ${c.bright('PilotDeck Server - Ready')}`);
+                    console.log(`  ${c.bright('PilotV Server - Ready')}`);
                     console.log(c.dim('═'.repeat(63)));
                     console.log('');
                     console.log(`${c.info('[INFO]')} Server URL:  ${c.bright('http://' + DISPLAY_HOST + ':' + boundPort)}`);
@@ -3852,7 +3852,7 @@ async function startServer() {
                         stopChromeHealthCheck();
                         shutdownGlobalChrome();
                     } catch { /* Chrome may not have been started */ }
-                    // PilotDeck cron is owned by `pilotdeck server` and shuts
+                    // PilotV cron is owned by `pilotdeck server` and shuts
                     // down with it; ui/server never spawns its own daemon.
                 } finally {
                     process.exit(0);

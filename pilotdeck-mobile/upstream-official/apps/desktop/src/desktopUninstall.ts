@@ -14,8 +14,8 @@ export function createDesktopUninstaller(deps: Dependencies) {
   const supported = () => deps.platform === 'linux' && deps.packaged && deps.exists('/usr/bin/pkexec');
   const execute = async () => {
     const chinese = deps.chinese();
-    if (!supported()) throw new Error(chinese ? '请使用系统包管理器卸载 PilotDeck，个人数据将保留。' : 'Use the system package manager to uninstall PilotDeck. Personal data will be retained.');
-    const answer = await deps.confirm({ type: 'question', title: chinese ? '卸载 PilotDeck' : 'Uninstall PilotDeck',
+    if (!supported()) throw new Error(chinese ? '请使用系统包管理器卸载 PilotV，个人数据将保留。' : 'Use the system package manager to uninstall PilotV. Personal data will be retained.');
+    const answer = await deps.confirm({ type: 'question', title: chinese ? '卸载 PilotV' : 'Uninstall PilotV',
       message: chinese ? '卸载后是否清理个人数据？' : 'Remove personal data when uninstalling?',
       detail: chinese ? '清理会删除 .pilotdeck 目录中的配置、会话、密钥和全部文件，以及当前用户的客户端设置与缓存。请提前备份。系统稍后会请求卸载权限。' : 'Cleanup deletes configuration, conversations, credentials and all files in .pilotdeck, plus this user’s client settings and caches. Back up files you want to keep. The system will then request permission to uninstall.',
       buttons: chinese ? ['卸载并保留数据', '卸载并清理数据', '取消'] : ['Uninstall and keep data', 'Uninstall and remove data', 'Cancel'], defaultId: 0, cancelId: 2, noLink: true });

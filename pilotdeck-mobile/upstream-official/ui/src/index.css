@@ -131,7 +131,7 @@
     background: var(--pd-accent-tint, #eef0f8);
     font-synthesis: none;
 
-    /* PilotDeck brand palette */
+    /* PilotV brand palette */
     --brand: var(--pd-accent, #5b5ce2);
     --brand-strong: var(--pd-accent-strong, #4948cf);
     --violet: var(--pd-accent, #7c5bf1);
@@ -1298,34 +1298,6 @@
     padding: 0 12px;
     border-bottom: 1px solid rgba(var(--pd-accent-rgb, 100, 86, 189), 0.12);
   }
-
-  .brand-wordmark {
-    /* Original artwork: 5810px wide; the lettering starts at x=1482.
-       Scale the 165px lockup down slightly, then clip only the emblem/gap. */
-    --wordmark-image-width: 152px;
-    position: relative;
-    display: block;
-    width: calc(var(--wordmark-image-width) * 4330 / 5810);
-    margin-inline-start: 12px;
-    height: 24px;
-    max-width: 100%;
-    overflow: hidden;
-  }
-
-  .brand-wordmark-image {
-    position: absolute;
-    left: calc(var(--wordmark-image-width) * -1480 / 5810);
-    top: 50%;
-    width: var(--wordmark-image-width);
-    height: auto;
-    max-width: none;
-    transform: translateY(-50%);
-    pointer-events: none;
-  }
-
-  .brand-wordmark-dark { display: none; }
-  .dark .brand-wordmark-light { display: none; }
-  .dark .brand-wordmark-dark { display: block; }
 
   .primary-actions {
     display: grid;

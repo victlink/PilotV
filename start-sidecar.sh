@@ -35,7 +35,7 @@ EOF
 }
 
 # PID 文件里的进程还活着 **且** 真的在听端口，才算在运行。
-# 只看 PID 会误认：PilotDeck 也会用 stdio 方式拉起同一个 artifacts-mcp.mjs
+# 只看 PID 会误认：PilotV 也会用 stdio 方式拉起同一个 artifacts-mcp.mjs
 # （那个进程不监听端口、还可能带着错的 ARTIFACTS_API），PID 文件一旦指向它，
 # 就会出现「侧车在运行」但工具调用全 fetch failed 的假象。
 running_pid() {

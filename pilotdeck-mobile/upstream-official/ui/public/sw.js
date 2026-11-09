@@ -5,7 +5,7 @@
 // The activate handler below purges every cache whose name doesn't match,
 // so existing PWAs pick up the new visuals on the next page load.
 // New token invalidates both upstream v2 and PilotV v3 branded assets.
-const CACHE_NAME = 'pilotdeck-v4';
+const CACHE_NAME = 'pilotv-v5';
 const urlsToCache = [
   '/manifest.json'
 ];

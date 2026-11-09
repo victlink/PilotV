@@ -17,7 +17,7 @@ const large = path.join(profile, 'large.bin');
 const largeFile = await fs.open(large, 'w'); await largeFile.truncate(256 * 1024 * 1024); await largeFile.close();
 const imported = path.join(profile, 'settings.json');
 await fs.writeFile(imported, '{"test":true}');
-const html = `<!doctype html><html><head><title>PilotDeck file picker test</title></head><body style="padding:70px 16px">
+const html = `<!doctype html><html><head><title>PilotV file picker test</title></head><body style="padding:70px 16px">
 <label>Files <input id="files" type="file" multiple></label>
 <label>Directory <input id="directory" type="file" webkitdirectory multiple></label>
 <label>Images <input id="images" type="file" accept="image/png,image/jpeg,image/webp"></label>

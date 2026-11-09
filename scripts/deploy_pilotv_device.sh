@@ -141,7 +141,7 @@ python3 -c 'import serve_artifacts; print("  import 自检通过")'
 echo "  部署目录：~/$DEPLOY_SUBDIR"
 EOF
 
-say "6. 装 PilotDeck 插件清单"
+say "6. 装 PilotV 插件清单"
 run <<EOF
 set -e
 cd "$DEV_DIR"

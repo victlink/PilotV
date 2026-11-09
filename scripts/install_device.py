@@ -94,7 +94,7 @@ def check_deps(verbose: bool) -> bool:
 
 
 def write_plugin(port: int, host: str = "127.0.0.1") -> str:
-    """写本机 PilotDeck 的插件清单。每台设备各装一套，所以地址固定回环。"""
+    """写本机 PilotV 的插件清单。每台设备各装一套，所以地址固定回环。"""
     base = os.path.expanduser("~/.pilotdeck/plugins/artifacts")
     os.makedirs(base, exist_ok=True)
     path = os.path.join(base, "plugin.json")
@@ -162,7 +162,7 @@ def main() -> int:
         print("\n".join("# " + ln for ln in unit.splitlines()))
         print("\n然后：systemctl --user daemon-reload && systemctl --user enable --now artifacts-console")
 
-    print("\n还差一步：验证插件真能连上（用 PilotDeck 本体的解析器和 McpClient）")
+    print("\n还差一步：验证插件真能连上（用 PilotV 本体的解析器和 McpClient）")
     print(f"  node artifacts-mcp.mjs &")
     print(f"  PILOTDECK_SRC=<你的 PilotDeck 源码目录> node scripts/verify_plugin.mjs {path}")
     return 0

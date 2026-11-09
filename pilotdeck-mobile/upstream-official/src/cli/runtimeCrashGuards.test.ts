@@ -6,7 +6,7 @@ import { installRuntimeCrashGuards } from "./runtimeCrashGuards.js";
 // The gateway serves many concurrent sessions and then parks forever, but it
 // inherited the CLI's fail-fast policy: an unhandledRejection from one turn's
 // secondary promise called shutdownAndExit(1), ending every live WebSocket and
-// surfacing as "PilotDeck gateway is unavailable." in the UI.
+// surfacing as "PilotV gateway is unavailable." in the UI.
 
 type Listener = (error: unknown) => void;
 

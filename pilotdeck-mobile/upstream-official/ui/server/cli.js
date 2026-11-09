@@ -92,7 +92,7 @@ Usage:
   pilotdeck [command] [options]
 
 Commands:
-  start          Start the PilotDeck web UI (default)
+  start          Start the PilotV web UI (default)
   status         Show configuration and data locations
   help           Show this help information
   version        Show version information
@@ -110,7 +110,7 @@ Examples:
   pilotdeck status
 
 Configuration:
-  PilotDeck reads ~/.pilotdeck/pilotdeck.yaml by default.
+  PilotV reads ~/.pilotdeck/pilotdeck.yaml by default.
   First run opens the onboarding UI if no usable config exists.
 `);
 }

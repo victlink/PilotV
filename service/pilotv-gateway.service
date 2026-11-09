@@ -1,5 +1,5 @@
 [Unit]
-Description=PilotV Gateway (PilotDeck UI on __PORT__)
+Description=PilotV Gateway (PilotV UI on __PORT__)
 Documentation=file://__REPO_ROOT__/service/pilotv_gateway.mjs
 After=network-online.target
 Wants=network-online.target

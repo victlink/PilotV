@@ -144,7 +144,7 @@ export function createExecuteCodeTool(
       "Only the script's final stdout/stderr summary is returned to the model; intermediate tool results stay inside the script. " +
       `Available helper functions: ${availableHelpers.join(", ")}. ` +
       "Use normal Python control flow to orchestrate tools: loops for batch work, conditionals for branching, data structures for aggregation, and try/except around individual helper calls when one failure should not abort the whole script. Helper failures raise RuntimeError. You can chain helper results, e.g. grep -> read_file -> edit_file. Print only the concise final result needed by the agent. " +
-      "Before modifying an existing file, call read_file first so PilotDeck can verify freshness. Prefer edit_file for targeted changes and write_file for new files or complete rewrites. " +
+      "Before modifying an existing file, call read_file first so PilotV can verify freshness. Prefer edit_file for targeted changes and write_file for new files or complete rewrites. " +
       "Notebook edits, agent, task tools, MCP tools, and execute_code itself are not available.",
     kind: "custom",
     inputSchema: {
@@ -166,7 +166,7 @@ export function createExecuteCodeTool(
         },
         max_tool_calls: {
           type: "integer",
-          description: "Maximum number of PilotDeck tool calls the script may make. Defaults to 50; maximum 50.",
+          description: "Maximum number of PilotV tool calls the script may make. Defaults to 50; maximum 50.",
         },
       },
     },
@@ -670,7 +670,7 @@ def bash(command, timeout_ms=None, workdir=None):
 `;
 }
 
-const UDS_PYTHON_TRANSPORT_HEADER = `"""Auto-generated PilotDeck execute_code RPC helpers."""
+const UDS_PYTHON_TRANSPORT_HEADER = `"""Auto-generated PilotV execute_code RPC helpers."""
 import json
 import os
 import shlex
@@ -695,7 +695,7 @@ def _call(tool_name, args):
     while True:
         chunk = conn.recv(65536)
         if not chunk:
-            raise RuntimeError("PilotDeck RPC server disconnected")
+            raise RuntimeError("PilotV RPC server disconnected")
         chunks.append(chunk)
         if chunk.endswith(b"\\n"):
             break
@@ -705,7 +705,7 @@ def _call(tool_name, args):
     return response
 `;
 
-const TCP_PYTHON_TRANSPORT_HEADER = `"""Auto-generated PilotDeck execute_code RPC helpers."""
+const TCP_PYTHON_TRANSPORT_HEADER = `"""Auto-generated PilotV execute_code RPC helpers."""
 import json
 import os
 import shlex
@@ -732,7 +732,7 @@ def _call(tool_name, args):
     while True:
         chunk = conn.recv(65536)
         if not chunk:
-            raise RuntimeError("PilotDeck RPC server disconnected")
+            raise RuntimeError("PilotV RPC server disconnected")
         chunks.append(chunk)
         if chunk.endswith(b"\\n"):
             break

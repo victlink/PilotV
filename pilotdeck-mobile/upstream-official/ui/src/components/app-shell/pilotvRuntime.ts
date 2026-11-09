@@ -1,5 +1,6 @@
 // 网关注入的运行时信息。没有网关时（比如直接用 vite preview）全部退回浏览器默认值，
 // 前端因此不需要为两种部署方式写两套逻辑。
+import { EMBED_QUERY_KEY, SIDEBAR_QUERY_KEY, VIEW_QUERY_KEY } from './embedMode';
 
 export interface PilotVRuntime {
   /** 当前这次会话实际连接的后端 origin。 */
@@ -100,6 +101,7 @@ export function keepDeviceInUrl(): void {
   const runtime = getPilotVRuntime();
   if (!runtime || history.__pilotvPatched) return;
 
+  const CARRIED_QUERY_KEYS = ['d', EMBED_QUERY_KEY, SIDEBAR_QUERY_KEY, VIEW_QUERY_KEY] as const;
   const decorate = (method: 'pushState' | 'replaceState') => {
     const original = history[method];
     history[method] = function patchedHistoryMethod(
@@ -108,13 +110,21 @@ export function keepDeviceInUrl(): void {
       unused: string,
       url?: string | URL | null,
     ) {
+      // 路由跳转常常只给 pathname，会把 ?d= 连同 embed/sidebar/view 一起丢掉。
+      // 先在跳转前把这些参数抄下来，再在跳转后补回去。
+      const previous = new URL(window.location.href);
       const result = original.call(this, state, unused, url);
       try {
         const backend = getPilotVRuntime()?.backend;
         if (!backend) return result;
         const target = new URL(String(url || window.location.href), window.location.origin);
-        if (target.searchParams.get('d') === backend) return result;
-        target.searchParams.set('d', backend);
+        let changed = false;
+        for (const key of CARRIED_QUERY_KEYS) {
+          if (target.searchParams.has(key)) continue;
+          const value = key === 'd' ? backend : previous.searchParams.get(key);
+          if (value) { target.searchParams.set(key, value); changed = true; }
+        }
+        if (!changed) return result;
         original.call(history, state, '', `${target.pathname}${target.search}${target.hash}`);
       } catch {
         // 换不动就算了：设备本身已经记在 Cookie 里，功能不会坏。

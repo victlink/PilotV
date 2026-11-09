@@ -91,7 +91,7 @@ describe('ProtectedRoute runtime states', () => {
     expect(screen.getByText('PD_RUNTIME_PROCESS_FAILED')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Restart' }));
     expect(retryGateway).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('PilotDeck could not start')).toBeTruthy();
+    expect(screen.getByText('PilotV could not start')).toBeTruthy();
     if (desktop) {
       fireEvent.click(screen.getByRole('button', { name: 'Download runtime logs' }));
       expect(saveRuntimeLogs).toHaveBeenCalledTimes(1);

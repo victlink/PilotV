@@ -1,5 +1,5 @@
 {
-  "_comment": "设备清单模板。复制为 ui/public/devices.json 后填真实地址。网关（5186）启动时会自动把它同步到 ui/dist/devices.json，不必手工复制；改完仍需重启 5186（loadConfigFromEnv 只在启动时读取）。协议要与设备后端实际监听的协议一致：目前 PilotDeck 后端是明文 HTTP（只在 Tailscale 私网内），写 https 会让网关拿明文去敲 TLS 端口，表现为「切过去打不开」。地址优先用 MagicDNS 域名（<host>.tail<net>.ts.net），Tailscale 换 IP 时不用改清单。请勿把真实地址提交进公共仓库。",
+  "_comment": "设备清单模板。复制为 ui/public/devices.json 后填真实地址。网关（5186）启动时会自动把它同步到 ui/dist/devices.json，不必手工复制；改完仍需重启 5186（loadConfigFromEnv 只在启动时读取）。协议要与设备后端实际监听的协议一致：目前 PilotV 后端是明文 HTTP（只在 Tailscale 私网内），写 https 会让网关拿明文去敲 TLS 端口，表现为「切过去打不开」。地址优先用 MagicDNS 域名（<host>.tail<net>.ts.net），Tailscale 换 IP 时不用改清单。请勿把真实地址提交进公共仓库。",
   "devices": [
     { "name": "REPLACE_WITH_DEVICE_NAME", "origin": "http://REPLACE_TAILSCALE_MAGICDNS:3001", "artifactsPort": 8799 },
     { "name": "REPLACE_WITH_SECOND_DEVICE", "origin": "http://REPLACE_TAILSCALE_MAGICDNS:3002", "artifactsPort": 8799 }

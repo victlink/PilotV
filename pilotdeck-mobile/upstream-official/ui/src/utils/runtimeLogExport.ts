@@ -4,7 +4,7 @@ export async function saveRuntimeLogs(description = 'Runtime logs'): Promise<{ c
   if (window.pilotdeckDesktop?.saveRuntimeLogs) return window.pilotdeckDesktop.saveRuntimeLogs();
   type Handle = { createWritable(): Promise<{ write(value: Blob): Promise<void>; close(): Promise<void>; abort(): Promise<void> }> };
   const picker = (window as Window & { showSaveFilePicker?: (options: object) => Promise<Handle> }).showSaveFilePicker;
-  const filename = `PilotDeck-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.log`;
+  const filename = `PilotV-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.log`;
   let handle: Handle | undefined;
   if (picker) {
     try { handle = await picker.call(window, { suggestedName: filename, types: [{ description, accept: { 'text/plain': ['.log'] } }] }); }

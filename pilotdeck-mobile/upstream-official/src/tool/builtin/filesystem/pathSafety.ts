@@ -84,7 +84,7 @@ export function resolvePilotDeckWorkspacePath(
 
     return {
       ok: false,
-      error: toolError("path_not_allowed", `Path ${inputPath} is outside the PilotDeck workspace.`),
+      error: toolError("path_not_allowed", `Path ${inputPath} is outside the PilotV workspace.`),
     };
   }
 
@@ -99,7 +99,7 @@ export function resolvePilotDeckWorkspacePath(
   if (realWritePath && !findRealRoot(realWritePath, roots) && !options?.allowOutsideWorkspace) {
     return {
       ok: false,
-      error: toolError("path_not_allowed", `Path ${inputPath} resolves outside the PilotDeck workspace.`),
+      error: toolError("path_not_allowed", `Path ${inputPath} resolves outside the PilotV workspace.`),
     };
   }
 
@@ -116,7 +116,7 @@ export function resolvePilotDeckWorkspacePath(
     if (!isPathWithinRoot(real, realRoot)) {
       return {
         ok: false,
-        error: toolError("path_not_allowed", `Path ${inputPath} resolves outside the PilotDeck workspace.`),
+        error: toolError("path_not_allowed", `Path ${inputPath} resolves outside the PilotV workspace.`),
       };
     }
   }

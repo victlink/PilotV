@@ -1,4 +1,4 @@
-// PilotV 网关：把「同一个前端」接到任意一台 PilotDeck 后端。
+// PilotV 网关：把「同一个前端」接到任意一台 PilotV 后端。
 //
 // 为什么需要它：官方前端的 REST 与 WebSocket 全部走同源相对路径
 // （/api、/ws、/shell、/memory-dashboard），所以只要把这些前缀转发到
@@ -231,7 +231,7 @@ export function resolveBackend(request, config, devices) {
 /**
  * 成果台上游：每台设备各跑一份独立成果台（默认 8799），本机则用本机那一份。
  *
- * 注意端口是「每台设备单独配的」，不是 PilotDeck 的 3001：实测各版本 PilotDeck
+ * 注意端口是「每台设备单独配的」，不是 PilotV 的 3001：实测各版本 PilotDeck
  * 都不带成果台（/artifacts/api 只是 SPA 回退页），成果台是我们自己部署的独立服务。
  * 设备没显式配置 artifactsPort 就说明它没部署，如实返回 null，让网关回 503，
  * ���不是把它甩到设备的 3001 上换一个来路不明的 404。
@@ -253,8 +253,8 @@ export function resolveArtifactsOrigin(backendOrigin, config, devices) {
 /**
  * 成果台 API 的路径在两种后端里不一样：
  *   - 独立成果台服务（8799）：/api/artifacts
- *   - PilotDeck 自带成果台：  /artifacts/api
- * 但实测新版本 PilotDeck 上并没有这个自带成果台——/artifacts/api 和随便乱写的路径
+ *   - PilotV 自带成果台：  /artifacts/api
+ * 但实测新版本 PilotV 上并没有这个自带成果台——/artifacts/api 和随便乱写的路径
  * 返回完全一样（SPA 回退的 HTML），所以不能改写过去，那会把诚实的 404 变成
  * 一个内容类型错误的假 200。保持原样：远端设备没有成果台就如实报 404。
  */
@@ -311,7 +311,7 @@ export function readDevices(jsonText, fallbackOrigin) {
     const name = typeof item?.name === 'string' && item.name.trim() ? item.name.trim() : '';
     if (!origin || !name) continue;
     if (devices.some(device => device.origin === origin)) continue;
-    // artifactsPort 要一起带出来：成果台跑在它自己部署的端口上，不是 PilotDeck 的端口。
+    // artifactsPort 要一起带出来：成果台跑在它自己部署的端口上，不是 PilotV 的端口。
     // 这里漏掉它，后面 resolveArtifactsOrigin 就会把每台远端设备都判成「没部署成果台」。
     const port = Number(item?.artifactsPort);
     const device = { name, origin, backend: origin };
@@ -522,7 +522,7 @@ function readJsonBody(request, limit = 64 * 1024) {
 }
 
 /**
- * 网关自己的设备管理接口。这一段永远不转发给 PilotDeck 后端。
+ * 网关自己的设备管理接口。这一段永远不转发给 PilotV 后端。
  *
  * 这是「在悬浮窗里加一台设备就能切过去」和「换个浏览器还能看到别人改过的名字」
  * 两件事的落点：用户改的清单存服务端，网关每次请求都重新读，
