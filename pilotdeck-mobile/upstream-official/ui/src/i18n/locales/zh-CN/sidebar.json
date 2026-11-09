@@ -41,7 +41,8 @@
     "collapse": "折叠探索",
     "expand": "展开探索",
     "scheduledTasks": "定时",
-    "approvalSession": "审批会话"
+    "approvalSession": "审批会话",
+    "multiWindow": "多窗口"
   },
   "quickActions": {
     "label": "快捷操作",

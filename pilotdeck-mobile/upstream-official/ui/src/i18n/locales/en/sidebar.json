@@ -41,7 +41,8 @@
     "collapse": "Collapse explore",
     "expand": "Expand explore",
     "scheduledTasks": "Scheduled Tasks",
-    "approvalSession": "Approval session"
+    "approvalSession": "Approval session",
+    "multiWindow": "Multi-window"
   },
   "quickActions": {
     "label": "Quick actions",

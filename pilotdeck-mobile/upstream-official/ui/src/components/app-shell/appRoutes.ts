@@ -3,6 +3,7 @@ import { useMatch } from 'react-router-dom';
 export const SCHEDULED_TASKS_PATH = '/cron';
 export const SKILLS_PATH = '/skills';
 export const APPROVAL_SESSION_PATH = '/approval-session';
+export const WINDOWS_PATH = '/windows';
 export const SETTINGS_PATH = '/settings';
 export const SETTINGS_SECTION_PATH = '/settings/:section';
 
@@ -24,6 +25,7 @@ export const DEDICATED_TAB_PATHS = {
   cron: SCHEDULED_TASKS_PATH,
   skills: SKILLS_PATH,
   approval: APPROVAL_SESSION_PATH,
+  windows: WINDOWS_PATH,
 } as const;
 
 export type DedicatedTab = keyof typeof DEDICATED_TAB_PATHS;
@@ -45,7 +47,7 @@ export function resolveDedicatedTab(
 ): DedicatedTab | null {
   // `approval` must be included: otherwise /approval-session is navigated to
   // but never resolved as a dedicated tab, so MainArea falls back to chat.
-  for (const tab of ['skills', 'cron', 'approval'] as const) {
+  for (const tab of ['skills', 'cron', 'approval', 'windows'] as const) {
     if (matched[tab]) return tab;
   }
   return null;

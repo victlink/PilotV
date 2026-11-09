@@ -5,7 +5,7 @@ import { usePendingConfirmations } from './usePendingConfirmations';
 import { FileConversationContext } from '../main-content-v2/fileConversationContext';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, BarChart3, Database, Folder, GitBranch, Library, PanelsTopLeft, PanelLeftOpen, PanelRightClose, PanelRightOpen, Radio, ShieldCheck, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, BarChart3, Database, Folder, GitBranch, LayoutGrid, Library, PanelsTopLeft, PanelLeftOpen, PanelRightClose, PanelRightOpen, Radio, ShieldCheck, type LucideIcon } from 'lucide-react';
 import type { ConversationSkill } from '../../contexts/SkillConversationContext';
 import type { AlwaysOnSubTab, AppTab, Project, ProjectSession } from '../../types/app';
 import MainContent from '../main-content/view/MainContent';
@@ -16,6 +16,8 @@ import { isImeEnterEvent } from '../../utils/ime';
 import { isGeneralProject } from './appShellSelection';
 import { REVIEW_CLOSE_EVENT } from '../chat-review/reviewEvents';
 import ApprovalSessionPanel from '../approval-session/ApprovalSessionPanel';
+import MultiWindowArea from './MultiWindowArea';
+import { shouldOpenArtifacts } from './embedMode';
 
 const CronPanel = lazy(() => import('../cron/view/CronPanel'));
 const SkillsPanel = lazy(() => import('../skills/view/SkillsPanel'));
@@ -110,6 +112,8 @@ type MainAreaProps = MainContentProps & {
   isSidebarCollapsed?: boolean;
   onOpenSidebar?: () => void;
   onNavigateToSession?: (sessionId: string) => void;
+  /** 多窗口窗格里的 iframe：隐藏侧栏开关和会递归打开的入口。 */
+  isEmbedded?: boolean;
 };
 const PAGE_TABS_STORAGE_KEY = 'pilotdeck:pageTabsOpen';
 function readPageTabsOpen() {
@@ -119,9 +123,10 @@ function readPageTabsOpen() {
 
 function MainAreaContent(props: MainAreaProps) {
   const { t } = useTranslation();
-  const { selectedProject, selectedSession, activeTab, setActiveTab, isSidebarCollapsed, onOpenSidebar, onStartNewSession } = props;
+  const { selectedProject, selectedSession, activeTab, setActiveTab, isSidebarCollapsed, onOpenSidebar, onStartNewSession, isEmbedded = false } = props;
   const [alwaysOnSubTab, setAlwaysOnSubTab] = useState<AlwaysOnSubTab>('dashboard');
-  const [showArtifacts, setShowArtifacts] = useState(false);
+  // 多窗口窗格可以用 ?view=artifacts 直接落在成果台上。
+  const [showArtifacts, setShowArtifacts] = useState(() => shouldOpenArtifacts());
   const [pageTabsOpen, setPageTabsOpen] = useState(readPageTabsOpen);
   const [taskMonitorOpen, setTaskMonitorOpen] = useState(false);
   const pendingConfirmations = usePendingConfirmations();
@@ -194,7 +199,7 @@ function MainAreaContent(props: MainAreaProps) {
   return (
     <div className="pd-workspace-content flex h-full min-w-0 flex-col bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
       <header className="workspace-header relative z-[80] shrink-0 overflow-visible">
-        {isSidebarCollapsed ? (
+        {isSidebarCollapsed && !isEmbedded ? (
           // PilotV 标识留在侧栏，折叠后这里只显示打开侧栏按钮。
           <button type="button" onClick={onOpenSidebar}
             aria-label={t('sidebar:tooltips.showSidebar', { defaultValue: 'Show sidebar' }) as string}
@@ -238,12 +243,22 @@ function MainAreaContent(props: MainAreaProps) {
                 : 'border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800'}`}>
               <PanelsTopLeft className="h-4 w-4" aria-hidden />{t('sidebar:tasks.toggle')}
             </button>
-            <button type="button" onClick={() => setActiveTab('approval')}
-              aria-label={t('sidebar:explore.approvalSession', { defaultValue: '审批会话' }) as string}
-              title={t('sidebar:explore.approvalSession', { defaultValue: '审批会话' }) as string}
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800">
-              <ShieldCheck className="h-4 w-4" aria-hidden />{t('sidebar:explore.approvalSession', { defaultValue: '审批会话' })}
-            </button>
+            {!isEmbedded ? (
+              <>
+                <button type="button" onClick={() => setActiveTab('approval')}
+                  aria-label={t('sidebar:explore.approvalSession', { defaultValue: '审批会话' }) as string}
+                  title={t('sidebar:explore.approvalSession', { defaultValue: '审批会话' }) as string}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800">
+                  <ShieldCheck className="h-4 w-4" aria-hidden />{t('sidebar:explore.approvalSession', { defaultValue: '审批会话' })}
+                </button>
+                <button type="button" onClick={() => setActiveTab('windows')}
+                  aria-label={t('sidebar:explore.multiWindow', { defaultValue: '多窗口' }) as string}
+                  title={t('sidebar:explore.multiWindow', { defaultValue: '多窗口' }) as string}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800">
+                  <LayoutGrid className="h-4 w-4" aria-hidden />{t('sidebar:explore.multiWindow', { defaultValue: '多窗口' })}
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
       </header>
@@ -288,6 +303,15 @@ function MainAreaContent(props: MainAreaProps) {
 }
 
 export default function MainArea(props: MainAreaProps) {
+  if (props.activeTab === 'windows') return <MultiWindowArea
+    projects={props.projects}
+    selectedProject={props.selectedProject}
+    selectedSession={props.selectedSession}
+    isSidebarCollapsed={props.isSidebarCollapsed}
+    onOpenSidebar={props.onOpenSidebar}
+    isEmbedded={props.isEmbedded}
+    onBack={() => props.setActiveTab('chat')}
+  />;
   if (props.activeTab === 'approval') return <ApprovalSessionArea isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} onBack={() => props.setActiveTab('chat')} />;
   if (props.activeTab === 'cron') return <ScheduledTasksArea isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} />;
   if (props.activeTab === 'skills') return <SkillsArea onSkillsProjectChange={props.onSkillsProjectChange} onUseSkill={props.onUseSkill} isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} selectedProject={props.selectedProject} projects={props.projects} />;

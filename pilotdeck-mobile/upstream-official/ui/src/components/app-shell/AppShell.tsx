@@ -48,8 +48,10 @@ import {
   SCHEDULED_TASKS_PATH,
   SETTINGS_PATH,
   SKILLS_PATH,
+  WINDOWS_PATH,
   useSettingsRouteMatch,
 } from './appRoutes';
+import { isEmbeddedView } from './embedMode';
 
 type TypedSettingsProps = {
   onClose: () => void;
@@ -80,13 +82,18 @@ function AppShellContent() {
   const matchScheduledTasks = useMatch(SCHEDULED_TASKS_PATH);
   const matchSkills = useMatch(SKILLS_PATH);
   const matchApprovalSession = useMatch(APPROVAL_SESSION_PATH);
+  const matchWindows = useMatch(WINDOWS_PATH);
   const settingsRouteMatch = useSettingsRouteMatch();
   const isSettingsRoute = Boolean(settingsRouteMatch);
   const settingsSection = settingsRouteMatch?.params.section;
+  // 多窗口工作区的每个窗格都是同源 iframe。嵌进去的实例不渲染侧栏，
+  // 也不再提供「多窗口」入口，否则窄格里会无限嵌套出新的工作区。
+  const isEmbedded = isEmbeddedView();
   const dedicatedTab = resolveDedicatedTab({
     skills: Boolean(matchSkills),
     cron: Boolean(matchScheduledTasks),
     approval: Boolean(matchApprovalSession),
+    windows: Boolean(matchWindows),
   });
   const isDedicatedRoute = dedicatedTab !== null || isSettingsRoute;
   const projectNameParam = matchProjectChat?.params.projectName ?? matchProject?.params.projectName ?? undefined;
@@ -517,18 +524,19 @@ function AppShellContent() {
         {isSettingsRoute ? (
           <SettingsComponent onClose={onCloseSettings} projects={sidebarSharedProps.projects.map(normalizeProjectForSettings)} section={settingsSection} />
         ) : null}
-        <div className={`app-shell min-h-0 flex-1 ${!isMobile && desktopSidebarOpen ? '' : 'sidebar-hidden'}${isSettingsRoute ? ' hidden' : ''}`} aria-hidden={isSettingsRoute}>
-          {!isMobile ? (desktopSidebarOpen ? sidebar : null) : (
+        <div className={`app-shell min-h-0 flex-1 ${!isMobile && desktopSidebarOpen && !isEmbedded ? '' : 'sidebar-hidden'}${isSettingsRoute ? ' hidden' : ''}`} aria-hidden={isSettingsRoute}>
+          {!isEmbedded ? (!isMobile ? (desktopSidebarOpen ? sidebar : null) : (
             <div className={`mobile-sidebar-drawer fixed inset-0 z-50 flex transition-opacity duration-150 ease-out ${sidebarOpen ? 'visible opacity-100' : 'invisible opacity-0'}`}>
               <button type="button" className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} aria-label={t('uiText.closeSidebar')} />
               <div className={`relative h-full w-[85vw] max-w-sm transform transition-transform duration-150 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`} onClick={(e) => e.stopPropagation()}>
                 {sidebar}
               </div>
             </div>
-          )}
+          )) : null}
           <main onClickCapture={acknowledge} onKeyDownCapture={acknowledge} onInputCapture={acknowledge} onWheelCapture={acknowledge} onTouchMoveCapture={acknowledge} className="app-main flex min-h-0 min-w-0 flex-1 flex-col bg-white dark:bg-neutral-950">
             <SkillConversationContext.Provider value={{ request: skillConversationRequest, consume: consumeSkillConversation }}>
               <MainArea
+                isEmbedded={isEmbedded}
                 onSkillsProjectChange={handleSkillsProjectChange}
                 onUseSkill={handleUseSkill}
                 workspaceUpload={workspaceUpload}
