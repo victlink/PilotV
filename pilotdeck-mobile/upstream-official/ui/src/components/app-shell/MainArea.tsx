@@ -18,6 +18,7 @@ import { REVIEW_CLOSE_EVENT } from '../chat-review/reviewEvents';
 import ApprovalSessionPanel from '../approval-session/ApprovalSessionPanel';
 import MultiWindowArea from './MultiWindowArea';
 import { shouldOpenArtifacts, syncEmbeddedPaneView } from './embedMode';
+import { readState, writeState, WINDOW_LAYOUTS, type WindowLayout } from './multiWindow';
 
 const CronPanel = lazy(() => import('../cron/view/CronPanel'));
 const SkillsPanel = lazy(() => import('../skills/view/SkillsPanel'));
@@ -55,7 +56,7 @@ function PageFallback() {
 }
 function ApprovalSessionArea({ isSidebarCollapsed, onOpenSidebar, onBack }: { isSidebarCollapsed?: boolean; onOpenSidebar?: () => void; onBack?: () => void }) {
   return (
-    <DedicatedWorkspacePage title="审批会话" isSidebarCollapsed={isSidebarCollapsed} onOpenSidebar={onOpenSidebar}
+    <DedicatedWorkspacePage title="审核" isSidebarCollapsed={isSidebarCollapsed} onOpenSidebar={onOpenSidebar}
       actions={onBack ? (
         <button type="button" onClick={onBack} aria-label="返回对话" title="返回对话"
           className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800">
@@ -131,6 +132,10 @@ function MainAreaContent(props: MainAreaProps) {
   // 多窗口窗格可以用 ?view=artifacts 直接落在成果台上。
   const [showArtifacts, setShowArtifacts] = useState(() => shouldOpenArtifacts());
   const [pageTabsOpen, setPageTabsOpen] = useState(() => readPageTabsOpen(isEmbedded));
+  // 「多窗口」不再是顶栏按钮：它挂在右侧悬浮抽屉「成果」下面，点开是一个
+  // 布局菜单。这里只存弹出层相对视口的位置，避免被抽屉的 overflow 裁掉。
+  const [multiWindowMenu, setMultiWindowMenu] = useState<{ top: number; right: number } | null>(null);
+  const multiWindowButtonRef = useRef<HTMLButtonElement | null>(null);
   const [taskMonitorOpen, setTaskMonitorOpen] = useState(false);
   const pendingConfirmations = usePendingConfirmations();
   const [reviewOpenRequest, setReviewOpenRequest] = useState<MainContentProps['reviewOpenRequest']>();
@@ -169,6 +174,37 @@ function MainAreaContent(props: MainAreaProps) {
     return () => window.removeEventListener('pilotdeck:open-changes', openChangesPage);
   }, [openChangesPage]);
   const leaveReviewPanel = useCallback(() => window.dispatchEvent(new Event(REVIEW_CLOSE_EVENT)), []);
+
+  // 点抽屉里的「多窗口」弹布局菜单；点空白、滚轮或 Esc 都收起。
+  const toggleMultiWindowMenu = () => {
+    if (multiWindowMenu) { setMultiWindowMenu(null); return; }
+    const rect = multiWindowButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setMultiWindowMenu({ top: rect.top, right: window.innerWidth - rect.left + 8 });
+  };
+  const enterMultiWindow = (layout: WindowLayout) => {
+    // MultiWindowArea 初始化时读这份状态，先写布局再切页签，进去就是刚选的格数。
+    writeState({ ...readState(), layout });
+    setMultiWindowMenu(null);
+    setShowArtifacts(false);
+    leaveReviewPanel();
+    setActiveTab('windows');
+  };
+  useEffect(() => {
+    if (!multiWindowMenu) return;
+    const close = () => setMultiWindowMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') close(); };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [multiWindowMenu]);
   useCustomNamesVersion();
   const activeDashboardTab = DASHBOARD_TABS.find((tab) => tab.id === displayActiveTab) ?? null;
   const tabLabelKey = displayActiveTab === FILES_TAB.id ? FILES_TAB.labelKey : activeDashboardTab?.labelKey;
@@ -255,20 +291,12 @@ function MainAreaContent(props: MainAreaProps) {
               <PanelsTopLeft className="h-4 w-4" aria-hidden />{t('sidebar:tasks.toggle')}
             </button>
             {!isEmbedded ? (
-              <>
-                <button type="button" onClick={() => setActiveTab('approval')}
-                  aria-label={t('sidebar:explore.approvalSession', { defaultValue: '审批会话' }) as string}
-                  title={t('sidebar:explore.approvalSession', { defaultValue: '审批会话' }) as string}
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800">
-                  <ShieldCheck className="h-4 w-4" aria-hidden />{t('sidebar:explore.approvalSession', { defaultValue: '审批会话' })}
-                </button>
-                <button type="button" onClick={() => setActiveTab('windows')}
-                  aria-label={t('sidebar:explore.multiWindow', { defaultValue: '多窗口' }) as string}
-                  title={t('sidebar:explore.multiWindow', { defaultValue: '多窗口' }) as string}
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800">
-                  <LayoutGrid className="h-4 w-4" aria-hidden />{t('sidebar:explore.multiWindow', { defaultValue: '多窗口' })}
-                </button>
-              </>
+              <button type="button" onClick={() => setActiveTab('approval')}
+                aria-label={t('sidebar:explore.approvalSession', { defaultValue: '审核' }) as string}
+                title={t('sidebar:explore.approvalSession', { defaultValue: '审核' }) as string}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800">
+                <ShieldCheck className="h-4 w-4" aria-hidden />{t('sidebar:explore.approvalSession', { defaultValue: '审核' })}
+              </button>
             ) : null}
           </div>
         </div>
@@ -293,17 +321,44 @@ function MainAreaContent(props: MainAreaProps) {
         {/* 抽屉不占内容宽度；改动页只保留侧栏事件入口。 */}
         <div className="pd-page-drawer">
           {pageTabsOpen ? (
-            <nav aria-label="页面切换" className="right-rail pd-page-drawer-panel">
-              <button type="button" aria-pressed={!showArtifacts && displayActiveTab === 'chat'} data-pane-state={!showArtifacts && displayActiveTab === 'chat' ? 'on' : 'off'}
-                onClick={() => { setShowArtifacts(false); setActiveTab('chat'); leaveReviewPanel(); }} className={!showArtifacts && displayActiveTab === 'chat' ? 'active' : ''}><span>对话</span></button>
-              {projectFilesEnabled ? (
-                <button type="button" aria-pressed={!showArtifacts && displayActiveTab === FILES_TAB.id} data-pane-state={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'on' : 'off'}
-                  onClick={() => { setShowArtifacts(false); setActiveTab(FILES_TAB.id); leaveReviewPanel(); }} className={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'active' : ''}><span>文件</span></button>
+            <>
+              <nav aria-label="页面切换" className="right-rail pd-page-drawer-panel">
+                <button type="button" aria-pressed={!showArtifacts && displayActiveTab === 'chat'} data-pane-state={!showArtifacts && displayActiveTab === 'chat' ? 'on' : 'off'}
+                  onClick={() => { setShowArtifacts(false); setActiveTab('chat'); leaveReviewPanel(); }} className={!showArtifacts && displayActiveTab === 'chat' ? 'active' : ''}><span>对话</span></button>
+                {projectFilesEnabled ? (
+                  <button type="button" aria-pressed={!showArtifacts && displayActiveTab === FILES_TAB.id} data-pane-state={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'on' : 'off'}
+                    onClick={() => { setShowArtifacts(false); setActiveTab(FILES_TAB.id); leaveReviewPanel(); }} className={!showArtifacts && displayActiveTab === FILES_TAB.id ? 'active' : ''}><span>文件</span></button>
+                ) : null}
+                <button type="button" aria-pressed={showArtifacts} data-pane-state={showArtifacts ? 'on' : 'off'} onClick={() => { leaveReviewPanel(); setShowArtifacts(true); }} className={showArtifacts ? 'active' : ''}><span>成果</span></button>
+                {!isEmbedded ? (
+                  <button type="button" ref={multiWindowButtonRef} aria-haspopup="menu" aria-expanded={Boolean(multiWindowMenu)}
+                    aria-label={t('sidebar:explore.multiWindow', { defaultValue: '多窗口' }) as string}
+                    title={t('sidebar:explore.multiWindow', { defaultValue: '多窗口' }) as string}
+                    data-pane-state={multiWindowMenu ? 'on' : 'off'} onClick={toggleMultiWindowMenu}
+                    className={multiWindowMenu ? 'active' : ''}><span>多窗口</span></button>
+                ) : null}
+                <span aria-hidden="true" className="pd-page-drawer-divider" />
+                <button type="button" aria-label="收起页面标签" title="收起页面标签" onClick={() => setPageTabsOpen(false)} className="pd-page-drawer-toggle"><PanelRightClose className="h-3.5 w-3.5" strokeWidth={1.9} /></button>
+              </nav>
+              {multiWindowMenu ? (
+                <div role="menu" aria-label="多窗口布局" className="pd-multiwindow-menu"
+                  style={{ top: multiWindowMenu.top, right: multiWindowMenu.right }}
+                  onPointerDown={event => event.stopPropagation()}>
+                  <p className="pd-multiwindow-menu-title">多窗口</p>
+                  {WINDOW_LAYOUTS.map(layout => (
+                    <button key={layout} type="button" role="menuitem" onClick={() => enterMultiWindow(layout)}>
+                      <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+                      <span>{layout} 窗口</span>
+                    </button>
+                  ))}
+                  <span aria-hidden="true" className="pd-page-drawer-divider" />
+                  <button type="button" role="menuitem" onClick={() => enterMultiWindow(readState().layout)}>
+                    <PanelsTopLeft className="h-3.5 w-3.5" aria-hidden />
+                    <span>按当前布局打开</span>
+                  </button>
+                </div>
               ) : null}
-              <button type="button" aria-pressed={showArtifacts} data-pane-state={showArtifacts ? 'on' : 'off'} onClick={() => { leaveReviewPanel(); setShowArtifacts(true); }} className={showArtifacts ? 'active' : ''}><span>成果</span></button>
-              <span aria-hidden="true" className="pd-page-drawer-divider" />
-              <button type="button" aria-label="收起页面标签" title="收起页面标签" onClick={() => setPageTabsOpen(false)} className="pd-page-drawer-toggle"><PanelRightClose className="h-3.5 w-3.5" strokeWidth={1.9} /></button>
-            </nav>
+            </>
           ) : (
             <button type="button" aria-label="展开页面标签" title="展开页面标签" aria-expanded={false} onClick={() => setPageTabsOpen(true)} className="pd-page-drawer-handle"><PanelRightOpen className="h-4 w-4" strokeWidth={1.9} /></button>
           )}

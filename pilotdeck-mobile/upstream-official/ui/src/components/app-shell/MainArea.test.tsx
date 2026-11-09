@@ -85,6 +85,11 @@ vi.mock('../skills/view/SkillsPanel', () => ({
   default: () => <div data-testid="skills-page"><h1>Skills</h1></div>,
 }));
 
+// 多窗口页要真挂 6 个 iframe，这里只关心抽屉里的入口是否把它切了出来。
+vi.mock('./MultiWindowArea', () => ({
+  default: () => <div data-testid="multi-window-page" />,
+}));
+
 const project: Project = {
   name: 'pilotdeck',
   displayName: 'PilotDeck',
@@ -224,6 +229,29 @@ describe('MainArea dashboard switcher', () => {
     render(<Harness />);
     expect(screen.queryByRole('navigation', { name: '页面切换' })).toBeNull();
     expect(screen.getByRole('button', { name: '展开页面标签' })).toBeTruthy();
+  });
+
+  it('opens the multi-window layout menu from the page drawer', async () => {
+    render(<Harness />);
+
+    // 「多窗口」已经搬进右侧抽屉，紧跟在「成果」后面。
+    const pages = within(screen.getByRole('navigation', { name: '页面切换' }));
+    const multiWindowButton = pages.getByRole('button', { name: '多窗口' });
+    const artifactsButton = pages.getByRole('button', { name: '成果' });
+    expect(artifactsButton.compareDocumentPosition(multiWindowButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    expect(screen.queryByRole('menu', { name: '多窗口布局' })).toBeNull();
+    fireEvent.click(multiWindowButton);
+
+    const menu = screen.getByRole('menu', { name: '多窗口布局' });
+    expect(within(menu).getByRole('menuitem', { name: '2 窗口' })).toBeTruthy();
+    expect(within(menu).getByRole('menuitem', { name: '6 窗口' })).toBeTruthy();
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '4 窗口' }));
+
+    await waitFor(() => expect(screen.getByTestId('multi-window-page')).toBeTruthy());
+    expect(JSON.parse(localStorage.getItem('pilotv-multi-window-v1') || '{}').layout).toBe(4);
+    expect(screen.queryByRole('menu', { name: '多窗口布局' })).toBeNull();
   });
 
   it('renames the selected session inline after double-clicking the header title', () => {

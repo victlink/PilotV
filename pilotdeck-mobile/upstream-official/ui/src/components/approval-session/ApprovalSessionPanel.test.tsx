@@ -30,12 +30,12 @@ const renderWith = async (requests: unknown[]) => {
   mockFetch.mockResolvedValue({
     ok: true,
     json: async () => ({
-      session: { id: 'approval-center', title: '审批会话', channelBinding: { enabled: false, channelKey: 'feishu', chatId: '', approverIds: [] } },
+      session: { id: 'approval-center', title: '审核', channelBinding: { enabled: false, channelKey: 'feishu', chatId: '', approverIds: [] } },
       requests,
     }),
   } as unknown as Response);
   render(<ApprovalSessionPanel />);
-  await waitFor(() => expect(screen.queryByText(/正在加载审批会话/)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(/正在加载审核/)).toBeNull());
 };
 
 afterEach(() => {
@@ -90,7 +90,7 @@ describe('approval session panel', () => {
 
   it('keeps a decided request read-only', async () => {
     await renderWith([request({ state: 'approved', risk: 'low' })]);
-    await waitFor(() => expect(screen.queryByText(/正在加载审批会话/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/正在加载审核/)).toBeNull());
     expect((screen.getByRole('button', { name: /允许/ }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: /拒绝/ }) as HTMLButtonElement).disabled).toBe(true);
   });

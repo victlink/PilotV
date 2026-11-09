@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, QrCode } from 'lucide-react';
+import { Check, QrCode, ShieldCheck } from 'lucide-react';
 import { authenticatedFetch } from '../../utils/api';
 import { getSettingsPath } from '../settings/navigation';
 import { useGatewayStatus } from '../settings/view/integrations/im/hooks/useGatewayStatus';
@@ -75,13 +75,20 @@ export default function ApprovalChannelSettings() {
   };
 
   return (
-    <section className="rounded-xl border bg-card p-4 text-sm">
-      <h2 className="font-semibold">独立审批通道</h2>
-      <p className="mt-1 text-muted-foreground">
-        选择一个已经配置好的消息渠道即可。审批请求会推送到该渠道，会话与审批人由服务端自动使用当前账号和渠道默认配置，无需手动填写 ID。
-      </p>
-
-      <label className="mt-4 flex items-center gap-2">
+    <div className="approval-channel-page">
+      <section className="security-section" aria-labelledby="approval-channel-title">
+        <div className="security-card">
+          <header className="security-card-header">
+            <span className="security-card-header-icon" aria-hidden="true">
+              <ShieldCheck size={19} />
+            </span>
+            <div>
+              <h2 id="approval-channel-title">独立审批通道</h2>
+              <p>选择一个已经配置好的消息渠道即可。审批请求会推送到该渠道，会话与审批人由服务端自动使用当前账号和渠道默认配置，无需手动填写 ID。</p>
+            </div>
+          </header>
+          <div className="approval-channel-body p-5 text-sm">
+      <label className="flex items-center gap-2">
         <input type="checkbox" checked={binding.enabled} onChange={e => setBinding({ ...binding, enabled: e.target.checked })} />
         启用独立审批通道
       </label>
@@ -147,6 +154,9 @@ export default function ApprovalChannelSettings() {
         </button>
         {message ? <span role="status" className="text-muted-foreground">{message}</span> : null}
       </div>
-    </section>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }

@@ -7,7 +7,7 @@ import { resolvePilotHome } from '../utils/pilotPaths.js';
 import { clearPendingPermission, listPendingPermissions } from '../pending-permissions.js';
 
 const CHANNELS = new Set(['feishu', 'wecom']);
-const session = { id: 'approval-center', title: '审批会话' };
+const session = { id: 'approval-center', title: '审核' };
 
 /**
  * The authoritative policy module is shared with the native approval center

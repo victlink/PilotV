@@ -1055,6 +1055,76 @@
     color: var(--pd-accent, #7167ff);
   }
 
+  /* 「多窗口」布局菜单：挂在抽屉按钮左侧。用 fixed 是为了不被
+     .pd-page-drawer-panel 的 overflow-y 裁掉。 */
+  .pd-multiwindow-menu {
+    position: fixed;
+    z-index: 60;
+    display: flex;
+    min-width: 170px;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 8px;
+    border: 1px solid var(--line, #e4e5ee);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 14px 34px rgba(31, 27, 66, 0.18);
+    animation: pd-page-drawer-in 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+
+  .dark .pd-multiwindow-menu {
+    border-color: var(--line, #262626);
+    background: rgba(18, 18, 20, 0.97);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  }
+
+  .pd-multiwindow-menu-title {
+    margin: 0 4px 4px;
+    color: #8b8ea0;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+  }
+
+  .pd-multiwindow-menu button {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #3f4250;
+    font-size: 12px;
+    line-height: 1.3;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .pd-multiwindow-menu button:hover {
+    background: rgba(var(--pd-accent-rgb, 100, 86, 189), 0.1);
+    color: var(--pd-accent-strong, #453bd7);
+  }
+
+  /* 抽屉里的竖排文字规则不能传染到弹出菜单。 */
+  .pd-multiwindow-menu button span {
+    writing-mode: horizontal-tb;
+    letter-spacing: 0;
+  }
+
+  .dark .pd-multiwindow-menu button { color: #d4d4d8; }
+
+  .dark .pd-multiwindow-menu button:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
+
+  .pd-multiwindow-menu .pd-page-drawer-divider {
+    margin: 4px auto;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .pd-page-drawer-panel {
       animation: none;
