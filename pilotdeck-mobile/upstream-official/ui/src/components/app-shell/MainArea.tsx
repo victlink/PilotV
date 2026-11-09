@@ -215,6 +215,7 @@ function MainAreaContent(props: MainAreaProps) {
               <h1 className="min-w-0 max-w-[34rem] truncate text-[15px] font-semibold leading-5 text-neutral-950 dark:text-neutral-50 cursor-text" title={headerTitle} data-desktop-no-drag="" onDoubleClick={beginSessionTitleRename}>{headerTitle}</h1>
             ) : null}
           </div>
+          <TaskSessionStats sessionId={selectedSession?.id ?? null} />
           <button type="button" onClick={() => setTaskMonitorOpen(value => !value)} aria-expanded={taskMonitorOpen} aria-label={t('sidebar:tasks.toggle')} title={t('sidebar:tasks.toggle')}
             className={`ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors ${taskMonitorOpen
               ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-200'
@@ -223,7 +224,6 @@ function MainAreaContent(props: MainAreaProps) {
           </button>
         </div>
       </header>
-      <TaskSessionStats sessionId={selectedSession?.id ?? null} />
       {taskMonitorOpen ? (
         <TaskMonitorPanel projects={props.projects} processingSessions={props.processingSessions} unreadSessionIds={props.unreadSessionIds} pendingConfirmations={pendingConfirmations} selectedSessionId={selectedSession?.id}
           onOpenSession={entry => {
