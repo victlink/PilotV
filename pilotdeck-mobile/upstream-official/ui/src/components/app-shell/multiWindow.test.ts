@@ -16,7 +16,7 @@ const ORIGIN = 'https://nas.example:5186';
 const DEVICE = 'http://127.0.0.1:3001';
 const REMOTE = 'http://marc-pc.example:3001';
 
-beforeEach(() => { localStorage.clear(); });
+beforeEach(() => { localStorage.clear(); sessionStorage.clear(); });
 
 describe('buildPaneUrl', () => {
   it('显式带 d 与 embed，视图由窗格内的悬浮按钮决定', () => {
@@ -38,6 +38,18 @@ describe('buildPaneUrl', () => {
   it('会话为空时跟随主界面的当前会话', () => {
     const url = new URL(buildPaneUrl(defaultPane(0), { origin: ORIGIN, currentDevice: DEVICE, currentSessionId: 'current-42' }));
     expect(url.pathname).toBe('/session/current-42');
+  });
+
+  it('远端空会话不能继承主设备会话', () => {
+    const url = new URL(buildPaneUrl({ ...defaultPane(0), device: REMOTE }, { origin: ORIGIN, currentDevice: DEVICE, currentSessionId: 'local-session' }));
+    expect(url.pathname).toBe('/');
+  });
+
+  it('持久化窗格的会话路径和视图', () => {
+    const restored = normalizeState({ panes: [{ device: REMOTE, sessionId: 'remote', path: '/p/project/c/remote', view: 'files' }] });
+    const url = new URL(buildPaneUrl(restored.panes[0], { origin: ORIGIN, currentDevice: DEVICE }));
+    expect(url.pathname).toBe('/p/project/c/remote');
+    expect(url.searchParams.get('view')).toBe('files');
   });
 
   it('重建 iframe 时把窗格里选中的视图带过去', () => {
@@ -75,7 +87,7 @@ describe('布局状态', () => {
     expect(state.layout).toBe(2);
     expect(state.panes).toHaveLength(MAX_PANES);
     expect(state.panes[0].sessionId).toBe('');
-    expect(state.panes[1].sidebar).toBe(false);
+    expect(state.panes[1].sidebar).toBe(true);
   });
 
   it('坏数据与旧版本的 view/path 字段都不会让工作区白屏', () => {
@@ -89,11 +101,12 @@ describe('布局状态', () => {
     expect(restored.panes[0]).not.toHaveProperty('path');
   });
 
-  it('合法配置可以往返 localStorage', () => {
+  it('合法配置可以往返 sessionStorage，且不写共享 localStorage', () => {
     const state = { ...defaultState(), layout: 6 as const };
     state.panes[0] = { ...state.panes[0], device: REMOTE };
     writeState(state);
-    expect(localStorage.getItem(MULTI_WINDOW_STORAGE_KEY)).toBeTruthy();
+    expect(sessionStorage.getItem(MULTI_WINDOW_STORAGE_KEY)).toBeTruthy();
+    expect(localStorage.getItem(MULTI_WINDOW_STORAGE_KEY)).toBeNull();
     expect(readState().layout).toBe(6);
     expect(readState().panes[0].device).toBe(REMOTE);
   });

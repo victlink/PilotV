@@ -115,7 +115,7 @@ function Harness({
 }: {
   initialTab?: AppTab;
   withSession?: boolean;
-  selectedProject?: Project;
+  selectedProject?: Project | null;
   onSearchSelect?: (result: GlobalSearchResult, query: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<AppTab>(initialTab);
@@ -144,6 +144,25 @@ afterEach(() => {
 });
 
 describe('MainArea dashboard switcher', () => {
+  it.each(['embed=1&window=pane-1', 'window=popup-1'])('preserves Files while the project resolves (%s)', (mode) => {
+    const previousUrl = window.location.href;
+    window.history.replaceState(null, '', `/p/pilotdeck/c/session-1?${mode}&view=files`);
+    try {
+      const view = render(<Harness initialTab="files" selectedProject={null} withSession />);
+      expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('files');
+      expect(new URL(window.location.href).searchParams.get('view')).toBe('files');
+      view.rerender(<Harness initialTab="files" selectedProject={project} withSession />);
+      expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('files');
+      expect(screen.getByRole('button', { name: '文件' }).getAttribute('aria-pressed')).toBe('true');
+      expect(new URL(window.location.href).searchParams.get('view')).toBe('files');
+      // Once capability resolution confirms Files is unavailable, fallback is still required.
+      view.rerender(<Harness initialTab="files" selectedProject={{ ...project, capabilities: { files: false } }} withSession />);
+      expect(screen.getByTestId('main-content').getAttribute('data-active-tab')).toBe('chat');
+      expect(new URL(window.location.href).searchParams.get('view')).toBe('chat');
+    } finally {
+      window.history.replaceState(null, '', previousUrl);
+    }
+  });
   it('keeps General on chat and hides the project-scoped Files page', async () => {
     const generalProject: Project = {
       name: 'general',
@@ -261,7 +280,7 @@ describe('MainArea dashboard switcher', () => {
     fireEvent.click(within(menu).getByRole('menuitem', { name: '4 窗口' }));
 
     await waitFor(() => expect(screen.getByTestId('multi-window-page')).toBeTruthy());
-    expect(JSON.parse(localStorage.getItem('pilotv-multi-window-v1') || '{}').layout).toBe(4);
+    expect(JSON.parse(sessionStorage.getItem('pilotv-multi-window-v1') || '{}').layout).toBe(4);
     expect(screen.queryByRole('menu', { name: '窗口布局' })).toBeNull();
   });
 

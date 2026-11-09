@@ -58,6 +58,13 @@ describe('窗格视图与 URL 同步', () => {
     expect(new URLSearchParams(window.location.search).getAll('view')).toEqual(['files']);
   });
 
+  it('独立浏览器窗口也保存自己的视图', () => {
+    window.history.replaceState(null, '', '/session/popup?window=popup-1&view=chat');
+    syncEmbeddedPaneView('files');
+    expect(window.location.search).toContain('view=files');
+    expect(window.location.search).toContain('window=popup-1');
+  });
+
   it('非内嵌页面不会被改写', () => {
     window.history.replaceState(null, '', '/?d=http%3A%2F%2Fnas%3A3001');
     expect(syncEmbeddedPaneView('artifacts')).toBeNull();

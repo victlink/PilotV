@@ -17,6 +17,11 @@ export function isEmbeddedView(search?: string): boolean {
   return new URLSearchParams(currentSearch(search)).get(EMBED_QUERY_KEY) === '1';
 }
 
+export function isWindowView(search?: string): boolean {
+  const params = new URLSearchParams(currentSearch(search));
+  return isEmbeddedView(search) || Boolean(params.get('window'));
+}
+
 /** 多窗口窗格里的右侧悬浮按钮只有这三种视图，用 URL 记住，避免共享 localStorage。 */
 export type PaneView = 'chat' | 'files' | 'artifacts';
 
@@ -35,13 +40,16 @@ export function syncEmbeddedPaneView(view: PaneView, href?: string): string | nu
   if (typeof window === 'undefined') return null;
   const source = href ?? window.location.href;
   const url = new URL(source, window.location.origin);
-  if (!isEmbeddedView(url.search)) return null;
+  if (!isWindowView(url.search)) return null;
   // 始终显式写值（chat 也写），避免「删掉参数」被路由的补参逻辑又加回来。
   url.searchParams.set(VIEW_QUERY_KEY, view);
   const next = `${url.pathname}${url.search}${url.hash}`;
   if (href === undefined && next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
     try { window.history.replaceState(window.history.state, '', next); }
     catch { /* 历史 API 不可用时忽略：本窗格仍可正常切换视图。 */ }
+  }
+  if (href === undefined && window.parent !== window) {
+    window.parent.postMessage({ type: 'pilotv-pane-context' }, window.location.origin);
   }
   return next;
 }

@@ -5,13 +5,11 @@
 //     整个浏览器共享的；多个窗格同时连不同设备时，后加载的那个会覆盖前一个。
 //     显式 query 的优先级高于 Cookie，且窗格内注入的 X-PilotV-Device 头也
 //     跟着各自的 runtime 走，这才真正做到互不干扰。
-//  2. 每个 iframe 带 ?embed=1，让里面的壳隐藏侧栏和多窗口入口，否则 1/6
-//     屏塞一整套导航，也会无限嵌套出新的多窗口页。
+//  2. 每个 iframe 带 ?embed=1，保留可切换的本格侧栏，隐藏多窗口入口以免嵌套。
 //  3. 登录令牌按后端 origin 分开存（deviceTokens.ts），runtime 来自网关注入，
 //     所以不同设备的窗格各自用自己的令牌，不会互相顶掉登录态。
-//  4. 不再由父页决定每格显示「对话 / 文件 / 成果台」：窗格内本来就有右侧
-//     悬浮按钮，用户直接在那儿切。父页只负责设备、会话、侧栏和布局，视图
-//     由 iframe 自己的 ?view= 记住；父页重建 iframe 时把这个参数带过去。
+//  4. 每格使用设备自己的侧栏选会话，右侧按钮切换视图；路径与视图回传父页，
+//     在当前浏览器窗口的 sessionStorage 保存，不覆盖其它顶层窗口的布局。
 // 这些约定值得有单元测试盯着，不要塞进组件里。
 
 import type { PaneView } from './embedMode';
@@ -29,6 +27,8 @@ export interface PaneConfig {
   sessionId: string;
   /** 是否在这个窗格里展开该设备自己的侧栏（用于挑它的会话）。 */
   sidebar: boolean;
+  path?: string;
+  view?: PaneView;
 }
 
 export interface MultiWindowState {
@@ -37,7 +37,7 @@ export interface MultiWindowState {
 }
 
 export function defaultPane(index: number): PaneConfig {
-  return { id: `pane-${index + 1}`, device: '', sessionId: '', sidebar: false };
+  return { id: `pane-${index + 1}`, device: '', sessionId: '', sidebar: true };
 }
 
 export function defaultState(): MultiWindowState {
@@ -51,7 +51,7 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-/** 读回本地配置时逐项校验：坏数据不能让整个工作区白屏。旧版的 view/path 字段会被忽略。 */
+/** 逐项校验窗格上下文，只接受应用内项目/会话路径及三种视图。 */
 export function normalizeState(raw: unknown): MultiWindowState {
   const fallback = defaultState();
   if (!raw || typeof raw !== 'object') return fallback;
@@ -70,19 +70,21 @@ export function normalizeState(raw: unknown): MultiWindowState {
       id: base.id,
       device: /^https?:\/\//i.test(device) ? device.replace(/\/$/, '') : '',
       sessionId: asString(pane.sessionId).trim(),
-      sidebar: pane.sidebar === true,
+      sidebar: pane.sidebar !== false,
+      ...(typeof pane.path === 'string' && /^(\/|\/session\/[^/?#]+|\/p\/[^/?#]+(?:\/c\/[^/?#]+)?)$/.test(pane.path) ? { path: pane.path } : {}),
+      ...(pane.view === 'chat' || pane.view === 'files' || pane.view === 'artifacts' ? { view: pane.view } : {}),
     };
   });
   return { layout, panes };
 }
 
 export function readState(): MultiWindowState {
-  try { return normalizeState(JSON.parse(localStorage.getItem(MULTI_WINDOW_STORAGE_KEY) || 'null')); }
+  try { return normalizeState(JSON.parse(sessionStorage.getItem(MULTI_WINDOW_STORAGE_KEY) || 'null')); }
   catch { return defaultState(); }
 }
 
 export function writeState(state: MultiWindowState): void {
-  try { localStorage.setItem(MULTI_WINDOW_STORAGE_KEY, JSON.stringify(state)); }
+  try { sessionStorage.setItem(MULTI_WINDOW_STORAGE_KEY, JSON.stringify(state)); }
   catch { /* 存储不可用时不该影响使用，只是不记住布局 */ }
 }
 
@@ -99,12 +101,13 @@ export interface BuildPaneUrlOptions {
 
 export function buildPaneUrl(pane: PaneConfig, options: BuildPaneUrlOptions): string {
   const { origin, currentDevice = null, currentSessionId = null, embed = true, view = null } = options;
-  const sessionId = pane.sessionId.trim() || (currentSessionId ?? '').trim();
-  const url = new URL(sessionId ? `/session/${encodeURIComponent(sessionId)}` : '/', origin);
+  const sessionId = pane.sessionId.trim() || ((!pane.device || pane.device === currentDevice) ? (currentSessionId ?? '').trim() : '');
+  const url = new URL(pane.path || (sessionId ? `/session/${encodeURIComponent(sessionId)}` : '/'), origin);
+  url.searchParams.set('window', pane.id);
   if (currentDevice) url.searchParams.set('d', pane.device || currentDevice);
   if (embed) url.searchParams.set('embed', '1');
   if (embed && pane.sidebar) url.searchParams.set('sidebar', '1');
-  if (view) url.searchParams.set('view', view);
+  if (view || pane.view) url.searchParams.set('view', view || pane.view!);
   return url.toString();
 }
 

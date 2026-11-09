@@ -82,7 +82,7 @@ export function switchBackend(origin: string): void {
   // 多窗口窗格里也能切设备。切完必须留在精简模式，否则 iframe 会突然
   // 长出整套外壳（甚至嵌套出新的多窗口页）。
   const current = new URLSearchParams(window.location.search);
-  for (const key of ['embed', 'sidebar', 'view']) {
+  for (const key of ['embed', 'sidebar', 'view', 'window']) {
     const value = current.get(key);
     if (value) target.searchParams.set(key, value);
   }
@@ -101,7 +101,7 @@ export function keepDeviceInUrl(): void {
   const runtime = getPilotVRuntime();
   if (!runtime || history.__pilotvPatched) return;
 
-  const CARRIED_QUERY_KEYS = ['d', EMBED_QUERY_KEY, SIDEBAR_QUERY_KEY, VIEW_QUERY_KEY] as const;
+  const CARRIED_QUERY_KEYS = ['d', EMBED_QUERY_KEY, SIDEBAR_QUERY_KEY, VIEW_QUERY_KEY, 'window'] as const;
   const decorate = (method: 'pushState' | 'replaceState') => {
     const original = history[method];
     history[method] = function patchedHistoryMethod(

@@ -90,7 +90,7 @@ function AppShellContent() {
   // 也不再提供「多窗口」入口，否则窄格里会无限嵌套出新的工作区。
   const isEmbedded = isEmbeddedView();
   // ?embed=1&sidebar=1 让单个窗格按需展开该设备自己的侧栏。
-  const hideEmbeddedSidebar = isEmbedded && !shouldShowEmbeddedSidebar();
+  const hideEmbeddedSidebar = Boolean(matchWindows) || (isEmbedded && !shouldShowEmbeddedSidebar());
   const dedicatedTab = resolveDedicatedTab({
     skills: Boolean(matchSkills),
     cron: Boolean(matchScheduledTasks),
@@ -526,8 +526,8 @@ function AppShellContent() {
         {isSettingsRoute ? (
           <SettingsComponent onClose={onCloseSettings} projects={sidebarSharedProps.projects.map(normalizeProjectForSettings)} section={settingsSection} />
         ) : null}
-        <div className={`app-shell min-h-0 flex-1 ${!isMobile && desktopSidebarOpen && !hideEmbeddedSidebar ? '' : 'sidebar-hidden'}${isSettingsRoute ? ' hidden' : ''}`} aria-hidden={isSettingsRoute}>
-          {!hideEmbeddedSidebar ? (!isMobile ? (desktopSidebarOpen ? sidebar : null) : (
+        <div className={`app-shell min-h-0 flex-1 ${(!isMobile || isEmbedded) && desktopSidebarOpen && !hideEmbeddedSidebar ? '' : 'sidebar-hidden'}${isSettingsRoute ? ' hidden' : ''}`} aria-hidden={isSettingsRoute}>
+          {!hideEmbeddedSidebar ? ((!isMobile || isEmbedded) ? (desktopSidebarOpen ? sidebar : null) : (
             <div className={`mobile-sidebar-drawer fixed inset-0 z-50 flex transition-opacity duration-150 ease-out ${sidebarOpen ? 'visible opacity-100' : 'invisible opacity-0'}`}>
               <button type="button" className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} aria-label={t('uiText.closeSidebar')} />
               <div className={`relative h-full w-[85vw] max-w-sm transform transition-transform duration-150 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`} onClick={(e) => e.stopPropagation()}>
@@ -588,7 +588,7 @@ function AppShellContent() {
                     navigate(`/p/${encodeURIComponent(target.name)}`);
                   }
                 }}
-                isSidebarCollapsed={isMobile || !desktopSidebarOpen}
+                isSidebarCollapsed={isMobile || !desktopSidebarOpen || hideEmbeddedSidebar}
                 onOpenSidebar={isMobile ? onMenuClick : onOpenDesktopSidebar}
                 externalMessageUpdate={externalMessageUpdate}
                 externalMessageUpdateTarget={externalMessageUpdateTarget}

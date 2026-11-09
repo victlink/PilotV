@@ -45,6 +45,22 @@ describe('new project visibility', () => {
   });
   afterEach(cleanup);
 
+  it('popup restores its own URL view without overwriting shared activeTab', async () => {
+    const href = window.location.href;
+    window.history.replaceState(null, '', '/?window=popup-test&view=files');
+    localStorage.setItem('activeTab', 'skills');
+    vi.mocked(api.projects).mockResolvedValue(response([], 10));
+    try {
+      const { result } = renderProjects();
+      expect(result.current.activeTab).toBe('files');
+      act(() => result.current.setActiveTab('chat'));
+      expect(localStorage.getItem('activeTab')).toBe('skills');
+      await waitFor(() => expect(result.current.isLoadingProjects).toBe(false));
+    } finally {
+      window.history.replaceState(null, '', href);
+    }
+  });
+
   it('inserts into a large sidebar immediately without another list request', async () => {
     const existing = Array.from({ length: 250 }, (_, i) => project(`existing-${i}`));
     vi.mocked(api.projects).mockResolvedValue(response(existing, 10));

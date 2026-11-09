@@ -12,7 +12,7 @@ import type {
   SessionMessagesUpdateTarget,
 } from '../types/app';
 import { isBackgroundTaskSession } from '../types/app';
-import { isEmbeddedView, readPaneView } from '../components/app-shell/embedMode';
+import { isWindowView, readPaneView } from '../components/app-shell/embedMode';
 
 type UseProjectsStateArgs = {
   sessionId?: string;
@@ -254,7 +254,7 @@ const isValidTab = (tab: string): tab is AppTab => {
 const readPersistedTab = (): AppTab => {
   // 多窗口的每个 iframe 是同源的，若共用 localStorage.activeTab，一格切到
   // 「文件」会把其它格也带过去。内嵌窗格改为只认自己的 ?view= 参数。
-  if (isEmbeddedView()) return readPaneView() === 'files' ? 'files' : 'chat';
+  if (isWindowView()) return readPaneView() === 'files' ? 'files' : 'chat';
   try {
     const stored = localStorage.getItem('activeTab');
     if (stored === 'home') {
@@ -284,7 +284,7 @@ export function useProjectsState({
 
   useEffect(() => {
     // 内嵌窗格的视图由各自的 URL 保存，不写回共享的 localStorage。
-    if (isEmbeddedView()) return;
+    if (isWindowView()) return;
     try {
       localStorage.setItem('activeTab', activeTab);
     } catch {

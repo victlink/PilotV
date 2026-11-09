@@ -17,7 +17,7 @@ import { isGeneralProject } from './appShellSelection';
 import { REVIEW_CLOSE_EVENT } from '../chat-review/reviewEvents';
 import ApprovalSessionPanel from '../approval-session/ApprovalSessionPanel';
 import MultiWindowArea from './MultiWindowArea';
-import { shouldOpenArtifacts, syncEmbeddedPaneView } from './embedMode';
+import { isWindowView, shouldOpenArtifacts, syncEmbeddedPaneView } from './embedMode';
 import { readState, writeState, WINDOW_LAYOUTS, type WindowLayout } from './multiWindow';
 
 const CronPanel = lazy(() => import('../cron/view/CronPanel'));
@@ -107,7 +107,7 @@ const PAGE_TABS_STORAGE_KEY = 'pilotdeck:pageTabsOpen';
 function readPageTabsOpen(isEmbedded: boolean) {
   // 内嵌窗格靠右侧悬浮按钮切换「对话 / 文件 / 成果」，必须始终展开；
   // 而且不能读写共享的 localStorage，否则一格收起会把所有窗格一起收起。
-  if (isEmbedded) return true;
+  if (isEmbedded || isWindowView()) return true;
   try { return localStorage.getItem(PAGE_TABS_STORAGE_KEY) !== 'collapsed'; }
   catch { return true; }
 }
@@ -130,14 +130,15 @@ function MainAreaContent(props: MainAreaProps) {
   const [sessionTitleDraft, setSessionTitleDraft] = useState('');
   const sessionTitleInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
-    if (isEmbedded) return;
+    if (isEmbedded || isWindowView()) return;
     try { localStorage.setItem(PAGE_TABS_STORAGE_KEY, pageTabsOpen ? 'expanded' : 'collapsed'); }
     catch { /* Storage may be unavailable. */ }
   }, [pageTabsOpen, isEmbedded]);
   const generalConversation = Boolean(selectedProject && isGeneralProject(selectedProject));
   const projectFilesEnabled = Boolean(selectedProject && !generalConversation && selectedProject.capabilities?.files !== false);
   const projectExploreEnabled = Boolean(selectedProject && !generalConversation && selectedProject.capabilities?.explore !== false);
-  const activeTabIsUnavailable = (activeTab === 'files' && !projectFilesEnabled) || (DASHBOARD_TABS.some((tab) => tab.id === activeTab) && !projectExploreEnabled);
+  // null is also the initial project-resolution state, not a capability verdict.
+  const activeTabIsUnavailable = Boolean(selectedProject) && ((activeTab === 'files' && !projectFilesEnabled) || (DASHBOARD_TABS.some((tab) => tab.id === activeTab) && !projectExploreEnabled));
   const displayActiveTab = activeTab === 'home' || activeTabIsUnavailable ? 'chat' : activeTab;
   // 审核不再整页替换对话，而是浮在对话窗口上的一扇窗；对话始终挂在下面。
   const approvalOpen = displayActiveTab === 'approval';
@@ -148,9 +149,9 @@ function MainAreaContent(props: MainAreaProps) {
   // 右侧悬浮按钮切换视图时把结果写进本窗格自己的 URL。这样刷新、切设备或
   // 弹出独立窗口后仍是用户刚选的那一页，也不需要多窗口父页再做一个内容下拉。
   useEffect(() => {
-    if (!isEmbedded) return;
+    if (!isWindowView()) return;
     syncEmbeddedPaneView(showArtifacts ? 'artifacts' : displayActiveTab === FILES_TAB.id ? 'files' : 'chat');
-  }, [showArtifacts, displayActiveTab, isEmbedded]);
+  }, [showArtifacts, displayActiveTab, isEmbedded, selectedSession?.id]);
 
   // 评审面板在对话子树中，重复点击仍应产生新的打开请求。
   const openChangesPage = useCallback(() => {
