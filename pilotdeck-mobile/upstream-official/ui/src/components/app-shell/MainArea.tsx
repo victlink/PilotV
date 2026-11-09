@@ -5,7 +5,7 @@ import { usePendingConfirmations } from './usePendingConfirmations';
 import { FileConversationContext } from '../main-content-v2/fileConversationContext';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BarChart3, Database, Folder, GitBranch, Library, PanelsTopLeft, PanelLeftOpen, PanelRightClose, PanelRightOpen, Radio, ShieldCheck, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, BarChart3, Database, Folder, GitBranch, Library, PanelsTopLeft, PanelLeftOpen, PanelRightClose, PanelRightOpen, Radio, ShieldCheck, type LucideIcon } from 'lucide-react';
 import type { ConversationSkill } from '../../contexts/SkillConversationContext';
 import type { AlwaysOnSubTab, AppTab, Project, ProjectSession } from '../../types/app';
 import MainContent from '../main-content/view/MainContent';
@@ -20,10 +20,11 @@ import ApprovalSessionPanel from '../approval-session/ApprovalSessionPanel';
 const CronPanel = lazy(() => import('../cron/view/CronPanel'));
 const SkillsPanel = lazy(() => import('../skills/view/SkillsPanel'));
 
-function DedicatedWorkspacePage({ title, isSidebarCollapsed, onOpenSidebar, children }: {
+function DedicatedWorkspacePage({ title, isSidebarCollapsed, onOpenSidebar, actions, children }: {
   title: string;
   isSidebarCollapsed?: boolean;
   onOpenSidebar?: () => void;
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -38,8 +39,9 @@ function DedicatedWorkspacePage({ title, isSidebarCollapsed, onOpenSidebar, chil
             <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
           </button>
         ) : null}
-        <div className="workspace-title flex-1">
+        <div className="workspace-title flex flex-1 items-center gap-2">
           <h1 className="min-w-0 truncate text-[15px] font-semibold leading-5 text-neutral-950 dark:text-neutral-50">{title}</h1>
+          {actions ? <div className="ml-auto flex shrink-0 items-center">{actions}</div> : null}
         </div>
       </header>
       <div className="relative z-0 min-h-0 flex-1 overflow-hidden">{children}</div>
@@ -49,8 +51,18 @@ function DedicatedWorkspacePage({ title, isSidebarCollapsed, onOpenSidebar, chil
 function PageFallback() {
   return <div className="flex h-full w-full items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-600 dark:border-neutral-600 dark:border-t-neutral-300" /></div>;
 }
-function ApprovalSessionArea({ isSidebarCollapsed, onOpenSidebar }: { isSidebarCollapsed?: boolean; onOpenSidebar?: () => void }) {
-  return <DedicatedWorkspacePage title="审批会话" isSidebarCollapsed={isSidebarCollapsed} onOpenSidebar={onOpenSidebar}><ApprovalSessionPanel /></DedicatedWorkspacePage>;
+function ApprovalSessionArea({ isSidebarCollapsed, onOpenSidebar, onBack }: { isSidebarCollapsed?: boolean; onOpenSidebar?: () => void; onBack?: () => void }) {
+  return (
+    <DedicatedWorkspacePage title="审批会话" isSidebarCollapsed={isSidebarCollapsed} onOpenSidebar={onOpenSidebar}
+      actions={onBack ? (
+        <button type="button" onClick={onBack} aria-label="返回对话" title="返回对话"
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800">
+          <ArrowLeft className="h-4 w-4" aria-hidden />返回对话
+        </button>
+      ) : null}>
+      <ApprovalSessionPanel />
+    </DedicatedWorkspacePage>
+  );
 }
 function ScheduledTasksArea({ isSidebarCollapsed, onOpenSidebar }: { isSidebarCollapsed?: boolean; onOpenSidebar?: () => void }) {
   const { t } = useTranslation();
@@ -276,7 +288,7 @@ function MainAreaContent(props: MainAreaProps) {
 }
 
 export default function MainArea(props: MainAreaProps) {
-  if (props.activeTab === 'approval') return <ApprovalSessionArea isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} />;
+  if (props.activeTab === 'approval') return <ApprovalSessionArea isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} onBack={() => props.setActiveTab('chat')} />;
   if (props.activeTab === 'cron') return <ScheduledTasksArea isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} />;
   if (props.activeTab === 'skills') return <SkillsArea onSkillsProjectChange={props.onSkillsProjectChange} onUseSkill={props.onUseSkill} isSidebarCollapsed={props.isSidebarCollapsed} onOpenSidebar={props.onOpenSidebar} selectedProject={props.selectedProject} projects={props.projects} />;
   return <ChatHistorySearchControllerProvider><MainAreaContent {...props} /></ChatHistorySearchControllerProvider>;
