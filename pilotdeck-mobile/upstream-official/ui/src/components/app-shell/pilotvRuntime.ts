@@ -78,6 +78,13 @@ export function activeBackendOrigin(): string {
 export function switchBackend(origin: string): void {
   const target = new URL(window.location.origin);
   target.search = `d=${encodeURIComponent(origin)}`;
+  // 多窗口窗格里也能切设备。切完必须留在精简模式，否则 iframe 会突然
+  // 长出整套外壳（甚至嵌套出新的多窗口页）。
+  const current = new URLSearchParams(window.location.search);
+  for (const key of ['embed', 'sidebar', 'view']) {
+    const value = current.get(key);
+    if (value) target.searchParams.set(key, value);
+  }
   target.hash = '';
   window.location.assign(target.toString());
 }

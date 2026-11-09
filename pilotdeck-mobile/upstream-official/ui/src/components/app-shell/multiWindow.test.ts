@@ -55,6 +55,14 @@ describe('buildPaneUrl', () => {
     expect(url.searchParams.get('d')).toBe(DEVICE);
   });
 
+  it('侧栏开关只在内嵌窗格里生效', () => {
+    const pane = { ...defaultPane(0), sidebar: true, view: 'home' as const };
+    const embedded = new URL(buildPaneUrl(pane, { origin: ORIGIN, currentDevice: DEVICE }));
+    expect(embedded.searchParams.get('sidebar')).toBe('1');
+    const popped = new URL(buildPaneUrl(pane, { origin: ORIGIN, currentDevice: DEVICE, embed: false }));
+    expect(popped.searchParams.has('sidebar')).toBe(false);
+  });
+
   it('没有网关时不伪造 d 参数', () => {
     const pane = { ...defaultPane(0), view: 'home' as const };
     const url = new URL(buildPaneUrl(pane, { origin: ORIGIN, currentDevice: null }));
@@ -82,11 +90,12 @@ describe('布局状态', () => {
 
   it('坏数据不会让工作区白屏', () => {
     expect(normalizeState(null).layout).toBe(2);
-    const restored = normalizeState({ layout: 9, panes: [{ view: 'nope', device: 'javascript:alert(1)' }] });
+    const restored = normalizeState({ layout: 9, panes: [{ view: 'nope', device: 'javascript:alert(1)', sidebar: true }] });
     expect(restored.layout).toBe(2);
     expect(restored.panes).toHaveLength(MAX_PANES);
     expect(restored.panes[0].view).toBe('session');
     expect(restored.panes[0].device).toBe('');
+    expect(restored.panes[0].sidebar).toBe(true);
   });
 
   it('合法配置可以往返 localStorage', () => {

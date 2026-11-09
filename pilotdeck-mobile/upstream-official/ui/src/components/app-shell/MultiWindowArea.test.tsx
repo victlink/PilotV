@@ -69,6 +69,15 @@ describe('多窗口工作区', () => {
     open.mockRestore();
   });
 
+  it('每个窗格可以按需展开该设备自己的侧栏', () => {
+    const view = renderWorkspace();
+    expect(view.container.querySelector('iframe')?.getAttribute('src')).not.toContain('sidebar=1');
+    fireEvent.click(screen.getAllByRole('button', { name: '显示此窗口侧栏' })[0]);
+    expect(view.container.querySelector('iframe')?.getAttribute('src')).toContain('sidebar=1');
+    fireEvent.click(screen.getByRole('button', { name: '隐藏此窗口侧栏' }));
+    expect(view.container.querySelector('iframe')?.getAttribute('src')).not.toContain('sidebar=1');
+  });
+
   it('切换窗格内容会重写 iframe 地址', () => {
     const view = renderWorkspace();
     const selector = screen.getByRole('combobox', { name: '窗口 1 内容' });

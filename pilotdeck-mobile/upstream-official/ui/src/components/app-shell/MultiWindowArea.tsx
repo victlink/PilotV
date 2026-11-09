@@ -77,6 +77,15 @@ function PaneToolbar({
           className="h-6 w-32 shrink-0 rounded border border-neutral-200 bg-white px-1.5 text-[11px] outline-none focus:border-indigo-400 dark:border-neutral-700 dark:bg-neutral-900" />
       ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        <button type="button" aria-pressed={pane.sidebar}
+          aria-label={pane.sidebar ? '隐藏此窗口侧栏' : '显示此窗口侧栏'}
+          title="展开该设备自己的侧栏，可浏览它的项目与会话"
+          onClick={() => onUpdate({ sidebar: !pane.sidebar })}
+          className={`h-6 shrink-0 rounded border px-1.5 text-[11px] transition-colors ${pane.sidebar
+            ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-200'
+            : 'border-neutral-200 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800'}`}>
+          侧栏
+        </button>
         <button type="button" className={ICON_BUTTON_CLASS} onClick={onRefresh} aria-label="刷新此窗口" title="刷新此窗口"><RefreshCw className="h-3.5 w-3.5" aria-hidden /></button>
         <button type="button" className={ICON_BUTTON_CLASS} onClick={onFocus} aria-label={focused ? '还原此窗口' : '放大此窗口'} title={focused ? '还原此窗口' : '放大此窗口'}>
           {focused ? <Minimize2 className="h-3.5 w-3.5" aria-hidden /> : <Maximize2 className="h-3.5 w-3.5" aria-hidden />}

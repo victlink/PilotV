@@ -27,6 +27,8 @@ export interface PaneConfig {
   sessionId: string;
   /** view === 'custom' 时使用的站内路径。 */
   path: string;
+  /** 是否在这个窗格里展开该设备自己的侧栏（用于挑它的会话）。 */
+  sidebar: boolean;
 }
 
 export interface MultiWindowState {
@@ -39,7 +41,7 @@ const VIEWS: readonly PaneView[] = ['home', 'session', 'artifacts', 'custom'];
 export function defaultPane(index: number): PaneConfig {
   // 默认第一格跟当前对话、第二格看成果台，打开 2 分屏就有内容，不用先配置。
   const view: PaneView = index === 0 ? 'session' : index === 1 ? 'artifacts' : 'home';
-  return { id: `pane-${index + 1}`, device: '', view, sessionId: '', path: '' };
+  return { id: `pane-${index + 1}`, device: '', view, sessionId: '', path: '', sidebar: false };
 }
 
 export function defaultState(): MultiWindowState {
@@ -75,6 +77,7 @@ export function normalizeState(raw: unknown): MultiWindowState {
       view,
       sessionId: asString(pane.sessionId).trim(),
       path: asString(pane.path).trim(),
+      sidebar: pane.sidebar === true,
     };
   });
   return { layout, panes };
@@ -117,6 +120,7 @@ export function buildPaneUrl(pane: PaneConfig, options: BuildPaneUrlOptions): st
   const url = new URL(path, origin);
   if (currentDevice) url.searchParams.set('d', pane.device || currentDevice);
   if (embed) url.searchParams.set('embed', '1');
+  if (embed && pane.sidebar) url.searchParams.set('sidebar', '1');
   if (pane.view === 'artifacts') url.searchParams.set('view', 'artifacts');
   return url.toString();
 }

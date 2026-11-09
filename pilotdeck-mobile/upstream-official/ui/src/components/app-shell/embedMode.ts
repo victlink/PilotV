@@ -6,6 +6,7 @@
 
 export const EMBED_QUERY_KEY = 'embed';
 export const VIEW_QUERY_KEY = 'view';
+export const SIDEBAR_QUERY_KEY = 'sidebar';
 
 function currentSearch(search?: string): string {
   if (typeof search === 'string') return search;
@@ -19,4 +20,13 @@ export function isEmbeddedView(search?: string): boolean {
 /** 成果台没有独立路由，用 ?view=artifacts 让内嵌实例直达成果台面板。 */
 export function shouldOpenArtifacts(search?: string): boolean {
   return new URLSearchParams(currentSearch(search)).get(VIEW_QUERY_KEY) === 'artifacts';
+}
+
+/**
+ * 默认精简掉侧栏；但连到另一台设备时，用户需要那台设备自己的项目/会话列表
+ * 才能挑对话。?sidebar=1 让单个窗格按需展开，不必把所有格子都塞满导航。
+ */
+export function shouldShowEmbeddedSidebar(search?: string): boolean {
+  const params = new URLSearchParams(currentSearch(search));
+  return params.get(EMBED_QUERY_KEY) === '1' && params.get(SIDEBAR_QUERY_KEY) === '1';
 }
