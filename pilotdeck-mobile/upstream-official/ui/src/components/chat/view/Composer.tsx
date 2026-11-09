@@ -33,7 +33,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useFloatingPanel } from "../../ui/useFloatingPanel";
-import ContextPanel, { type ContextTarget } from '../../chat-context/ContextPanel';
+import type { ContextTarget } from '../../chat-context/ContextPanel';
 import type {
   ChatRunMode,
   PendingPermissionRequest,
@@ -542,8 +542,6 @@ export default function Composer({
   isInputQueuePaused = false,
   onResumeInputQueue,
   isSubmitPending = false,
-  tokenBudget,
-  contextTarget,
   modelCatalog,
   modelSelection,
   isModelCatalogLoading = false,
@@ -602,7 +600,6 @@ export default function Composer({
     [1, t("input.models.speedLevels.fast", { defaultValue: "Fast" }) as string],
   ]), [t]);
   const [isPermissionMenuOpen, setIsPermissionMenuOpen] = useState(false);
-  const [isContextPopoverOpen, setIsContextPopoverOpen] = useState(false);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
@@ -615,12 +612,10 @@ export default function Composer({
   const directoryInputRef = useRef<HTMLInputElement>(null);
   const addTriggerRef = useRef<HTMLButtonElement>(null);
   const permissionTriggerRef = useRef<HTMLButtonElement>(null);
-  const contextTriggerRef = useRef<HTMLButtonElement>(null);
   const agentTriggerRef = useRef<HTMLButtonElement>(null);
   const reasoningTriggerRef = useRef<HTMLButtonElement>(null);
   const addMenu = useFloatingPanel(isAddMenuOpen, addTriggerRef, () => setIsAddMenuOpen(false), { matchComposer: true });
   const permissionMenu = useFloatingPanel(isPermissionMenuOpen, permissionTriggerRef, () => setIsPermissionMenuOpen(false), { width: 220 });
-  const contextMenu = useFloatingPanel(isContextPopoverOpen, contextTriggerRef, () => setIsContextPopoverOpen(false), { width: 256 });
   const reasoningMenu = useFloatingPanel(isReasoningMenuOpen, reasoningTriggerRef, () => setIsReasoningMenuOpen(false), { width: 200, maxHeight: 260 });
   const agentMenu = useFloatingPanel(isAgentMenuOpen, agentTriggerRef, () => setIsAgentMenuOpen(false), { width: 240, maxHeight: 320 });
   const fileMenu = useFloatingPanel(showFileDropdown, textareaRef, undefined, { matchComposer: true, maxHeight: 320 });
@@ -709,24 +704,9 @@ export default function Composer({
         : isLoading
           ? (t("input.queueSend", { defaultValue: "Queue message" }) as string)
           : (t("input.send", { defaultValue: "Send" }) as string);
-  const contextStatus = getContextStatus(tokenBudget);
-  const contextStatusTitle = contextStatus.known
-    ? (contextStatus.state === "blocking"
-        ? (t("input.contextStatusBlocking", {
-            percentLabel: contextStatus.percentLabel,
-            used: contextStatus.usedLabel,
-            total: contextStatus.totalLabel,
-            defaultValue: `${contextStatus.percentLabel} used. ${contextStatus.usedLabel} tokens used out of ${contextStatus.totalLabel}. Auto compact ran, but the context is still over the limit.`,
-          }) as string)
-        : (t("input.contextStatus", {
-            percentLabel: contextStatus.percentLabel,
-            used: contextStatus.usedLabel,
-            total: contextStatus.totalLabel,
-            defaultValue: `${contextStatus.percentLabel} used. ${contextStatus.usedLabel} tokens used out of ${contextStatus.totalLabel}. Auto compact runs near the limit.`,
-          }) as string))
-    : (t("input.contextStatusUnknown", {
-        defaultValue: "Context usage unknown. It will appear after the next model response.",
-      }) as string);
+  // The composer's context gauge was removed: context usage now lives only in
+  // the header stats, next to the task button. `getContextStatus` stays as a
+  // pure exported helper for callers/tests that still need the calculation.
   const selectedPermissionOption =
     PERMISSION_MODE_OPTIONS.find((option) => option.mode === permissionMode) ||
     PERMISSION_MODE_OPTIONS[0];
@@ -2049,45 +2029,6 @@ export default function Composer({
                             ) : null}
                           </aside>
                         ) : null}
-                      </div>, document.body
-                    ) : null}
-                  </div>
-
-                  <div className="pd-composer-context-control relative">
-                    <button
-                      ref={contextTriggerRef}
-                      type="button"
-                      onClick={() => setIsContextPopoverOpen((open) => !open)}
-                      className={cn(
-                        "pd-composer-icon-button inline-flex h-8 min-w-[44px] items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] tabular-nums transition",
-                        contextStatus.tone === "red"
-                          ? "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-                          : contextStatus.tone === "amber"
-                            ? "text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30"
-                            : contextStatus.tone === "normal"
-                              ? "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                              : "text-[var(--pd-muted,#687080)] hover:bg-neutral-100 dark:text-[var(--pd-muted,#b4b6c0)] dark:hover:bg-neutral-800",
-                      )}
-                      title={contextStatusTitle}
-                      aria-label={contextStatusTitle}
-                      aria-haspopup="dialog"
-                      aria-expanded={isContextPopoverOpen}
-                    >
-                      <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden="true">
-                        <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" opacity="0.2" />
-                        <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2"
-                          strokeDasharray={`${Math.min(100, contextStatus.percent) * 0.377} 37.7`} transform="rotate(-90 8 8)" />
-                      </svg>
-                      <span>{contextStatus.known ? contextStatus.percentLabel : "--"}</span>
-                    </button>
-                    {isContextPopoverOpen ? createPortal(
-                      <div ref={contextMenu.panelRef} style={contextMenu.style}
-                        role="dialog"
-                        aria-label={t('input.contextStatusTitle', { defaultValue: 'Context window' })}
-                        className="pd-context-popover"
-                      >
-                        <ContextPanel target={contextTarget} used={contextStatus.used} total={contextStatus.displayTotal}
-                          percent={contextStatus.percent} percentLabel={contextStatus.percentLabel} />
                       </div>, document.body
                     ) : null}
                   </div>

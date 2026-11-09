@@ -43,7 +43,9 @@ export function getDedicatedTabPath(tab: string): string | undefined {
 export function resolveDedicatedTab(
   matched: Partial<Record<DedicatedTab, boolean>>,
 ): DedicatedTab | null {
-  for (const tab of ['skills', 'cron'] as const) {
+  // `approval` must be included: otherwise /approval-session is navigated to
+  // but never resolved as a dedicated tab, so MainArea falls back to chat.
+  for (const tab of ['skills', 'cron', 'approval'] as const) {
     if (matched[tab]) return tab;
   }
   return null;

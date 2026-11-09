@@ -623,6 +623,23 @@ function ChatInterface({
     setIsAbortPending(true);
   }, [canAbortSession, handleAbortSession, isAbortPending, isLoading]);
 
+  /** "返回" on a sent user message: stop the running task (if any), put the
+   *  original instruction back into the composer, and focus it for editing. */
+  const handleReturnToComposer = useCallback((message: ChatMessage) => {
+    if (isLoading && canAbortSession) handleAbortWithPending();
+    const text = typeof message.content === 'string' ? message.content : String(message.content ?? '');
+    if (!text) return;
+    setInput(text);
+    const sessionId = selectedSession?.id || currentSessionId;
+    if (selectedProject && sessionId) {
+      safeLocalStorage.setItem(getDraftInputStorageKey(selectedProject.name, sessionId), text);
+    }
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      scheduleScrollToBottom?.();
+    });
+  }, [canAbortSession, currentSessionId, handleAbortWithPending, isLoading, scheduleScrollToBottom, selectedProject, selectedSession?.id, setInput, textareaRef]);
+
   const handleResumeInputQueue = useCallback(() => {
     void inputQueue.resume().then((result) => {
       if (!result.ok) addToast('error', result.error || t('inputQueue.resumeFailed', { defaultValue: 'Failed to resume the queue.' }));
@@ -1162,6 +1179,7 @@ function ChatInterface({
           sessionStore={sessionStore}
           onFork={sessionIsReadOnly ? undefined : handleFork}
           onRegenerate={sessionIsReadOnly ? undefined : handleRegenerate}
+          onReturnToComposer={sessionIsReadOnly ? undefined : handleReturnToComposer}
           forkDisabled={isForkPending}
         />
       </ErrorBoundary>

@@ -5,7 +5,7 @@ import { usePendingConfirmations } from './usePendingConfirmations';
 import { FileConversationContext } from '../main-content-v2/fileConversationContext';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BarChart3, Database, Folder, GitBranch, Library, PanelsTopLeft, PanelLeftOpen, PanelRightClose, PanelRightOpen, Radio, type LucideIcon } from 'lucide-react';
+import { BarChart3, Database, Folder, GitBranch, Library, PanelsTopLeft, PanelLeftOpen, PanelRightClose, PanelRightOpen, Radio, ShieldCheck, type LucideIcon } from 'lucide-react';
 import type { ConversationSkill } from '../../contexts/SkillConversationContext';
 import type { AlwaysOnSubTab, AppTab, Project, ProjectSession } from '../../types/app';
 import MainContent from '../main-content/view/MainContent';
@@ -215,13 +215,24 @@ function MainAreaContent(props: MainAreaProps) {
               <h1 className="min-w-0 max-w-[34rem] truncate text-[15px] font-semibold leading-5 text-neutral-950 dark:text-neutral-50 cursor-text" title={headerTitle} data-desktop-no-drag="" onDoubleClick={beginSessionTitleRename}>{headerTitle}</h1>
             ) : null}
           </div>
-          <TaskSessionStats sessionId={selectedSession?.id ?? null} />
-          <button type="button" onClick={() => setTaskMonitorOpen(value => !value)} aria-expanded={taskMonitorOpen} aria-label={t('sidebar:tasks.toggle')} title={t('sidebar:tasks.toggle')}
-            className={`ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors ${taskMonitorOpen
-              ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-200'
-              : 'border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800'}`}>
-            <PanelsTopLeft className="h-4 w-4" aria-hidden />{t('sidebar:tasks.toggle')}
-          </button>
+          {/* Right-hand cluster: keep the stats pinned directly left of the task
+              button and the approval entry beside both, instead of letting the
+              stats drift next to the session breadcrumb. */}
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <TaskSessionStats sessionId={selectedSession?.id ?? null} />
+            <button type="button" onClick={() => setTaskMonitorOpen(value => !value)} aria-expanded={taskMonitorOpen} aria-label={t('sidebar:tasks.toggle')} title={t('sidebar:tasks.toggle')}
+              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors ${taskMonitorOpen
+                ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-200'
+                : 'border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800'}`}>
+              <PanelsTopLeft className="h-4 w-4" aria-hidden />{t('sidebar:tasks.toggle')}
+            </button>
+            <button type="button" onClick={() => setActiveTab('approval')}
+              aria-label={t('sidebar:explore.approvalSession', { defaultValue: '审批会话' }) as string}
+              title={t('sidebar:explore.approvalSession', { defaultValue: '审批会话' }) as string}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-neutral-200 px-2.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800">
+              <ShieldCheck className="h-4 w-4" aria-hidden />{t('sidebar:explore.approvalSession', { defaultValue: '审批会话' })}
+            </button>
+          </div>
         </div>
       </header>
       {taskMonitorOpen ? (

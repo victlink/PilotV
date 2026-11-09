@@ -59,7 +59,7 @@ const MENU_TITLE_KEYS: Record<SettingsMenuKey, string> = {
   officePreview: "settingsPage.titles.officePreview",
   computerUse: "settingsPage.titles.computerUse",
   privacy: "settingsPage.titles.privacy",
-  approvalChannel: "审批通道",
+  approvalChannel: "settingsPage.menu.approvalChannel",
   advanced: "settingsPage.titles.advanced",
   about: "settingsPage.titles.about",
 };
@@ -83,7 +83,7 @@ const PAGE_HEADING_KEYS: Record<SettingsMenuKey, string> = {
   officePreview: "settingsPage.menu.officePreview",
   computerUse: "settingsPage.menu.computerUse",
   privacy: "settingsPage.menu.privacy",
-  approvalChannel: "审批通道",
+  approvalChannel: "settingsPage.menu.approvalChannel",
   advanced: "settingsPage.menu.system",
   about: "settingsPage.menu.about",
 };

@@ -103,6 +103,8 @@ type MessagesPaneProps = {
   sessionStore?: SessionStore;
   onFork?: (message: ChatMessage, carriedMessageCount: number) => void;
   onRegenerate?: (message: ChatMessage, editedText: string) => Promise<void>;
+  /** Stop the current turn and put this user message back into the composer. */
+  onReturnToComposer?: (message: ChatMessage) => void;
   forkDisabled?: boolean;
   forkParentSessionTitle?: string | null;
   /** 只看某个发言人的发言内容；null = 显示全部发言人 */
@@ -586,6 +588,7 @@ function MessagesPane({
   sessionStore,
   onFork,
   onRegenerate,
+  onReturnToComposer,
   forkDisabled = false,
   forkParentSessionTitle = null,
   speakerFilterKey = null,
@@ -1275,6 +1278,7 @@ function MessagesPane({
         onToggleReplyCollapsed={isSpeakerUtterance(rowItem.message) ? () => handleSetReplyExpanded(rowKey ?? item.itemKey, !isReplyExpanded(rowKey ?? item.itemKey, rowItem.message)) : undefined}
         onSelectSpeaker={onSelectSpeaker}
         onRegenerate={onRegenerate}
+        onReturnToComposer={onReturnToComposer}
       />
     );
 
@@ -1345,6 +1349,7 @@ function MessagesPane({
     onFileOpen,
     onFork,
     onRegenerate,
+    onReturnToComposer,
     forkDisabled,
     lastUserMessageItemKey,
     sessionIsReadOnly,

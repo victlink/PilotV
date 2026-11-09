@@ -39,6 +39,7 @@ import { GlobalSearchProvider, useGlobalSearch, type GlobalSearchResult } from '
 import { useWorkspaceUpload } from '../file-tree/hooks/useWorkspaceUpload';
 import { chooseDefaultProject, resolveHomeNewConversationProject } from './appShellSelection';
 import {
+  APPROVAL_SESSION_PATH,
   getDedicatedTabPath,
   LEGACY_SESSION_PATH,
   PROJECT_CHAT_PATH,
@@ -78,12 +79,14 @@ function AppShellContent() {
   const matchLegacySession = useMatch(LEGACY_SESSION_PATH);
   const matchScheduledTasks = useMatch(SCHEDULED_TASKS_PATH);
   const matchSkills = useMatch(SKILLS_PATH);
+  const matchApprovalSession = useMatch(APPROVAL_SESSION_PATH);
   const settingsRouteMatch = useSettingsRouteMatch();
   const isSettingsRoute = Boolean(settingsRouteMatch);
   const settingsSection = settingsRouteMatch?.params.section;
   const dedicatedTab = resolveDedicatedTab({
     skills: Boolean(matchSkills),
     cron: Boolean(matchScheduledTasks),
+    approval: Boolean(matchApprovalSession),
   });
   const isDedicatedRoute = dedicatedTab !== null || isSettingsRoute;
   const projectNameParam = matchProjectChat?.params.projectName ?? matchProject?.params.projectName ?? undefined;

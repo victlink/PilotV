@@ -110,6 +110,10 @@
     "markdownShort": "MD",
     "textShort": "TXT"
   },
+  "messageActions": {
+    "returnToComposer": "Back to composer",
+    "returnToComposerTitle": "Stop the current task and put this instruction back into the composer so you can edit and resend it"
+  },
   "edit": {
     "message": "Edit message",
     "cancel": "Cancel",

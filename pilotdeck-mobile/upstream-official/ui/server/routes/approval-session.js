@@ -114,13 +114,34 @@ async function mapRequest(entry, resolveProject, policy) {
 function validateBinding(body) {
   if (!body || typeof body.enabled !== 'boolean') return 'enabled must be boolean';
   if (body.enabled && !CHANNELS.has(String(body.channelKey || '').trim())) return 'channelKey must be feishu or wecom; weixin is unsupported';
-  if (body.enabled && (typeof body.chatId !== 'string' || !body.chatId.trim())) return 'chatId must be non-empty when enabled';
+  // `chatId` is optional per the shared approval contract: when it is absent
+  // the binding accepts an answer from any chat of the channel. The settings
+  // UI only picks an already configured channel, so it may omit both IDs.
+  if (body.chatId !== undefined && typeof body.chatId !== 'string') return 'chatId must be a string when provided';
   if (!Array.isArray(body.approverIds) || body.approverIds.some(v => typeof v !== 'string' || !v.trim())) return 'approverIds must be non-empty strings[]';
   // An enabled binding without approvers lets anybody in the bound chat
   // answer: the native `checkImBinding` only enforces the list when it is not
-  // empty. Enabling therefore requires at least one approver id.
+  // empty. Enabling therefore requires at least one approver id — the server
+  // supplies the authenticated account when the client omits the field.
   if (body.enabled && body.approverIds.length === 0) return 'approverIds must list at least one approver when the binding is enabled';
   return null;
+}
+/**
+ * A channel-only save (Settings → Approval Channel) omits both ids. Fill in
+ * the approver allow-list from the authenticated local account so the binding
+ * stays fail-closed, and drop an empty chatId so the shared contract treats it
+ * as "any chat of this channel". Explicit values are always preserved.
+ */
+function normalizeChannelBody(body, user) {
+  if (!body || typeof body !== 'object') return body;
+  const next = { ...body };
+  if (!Object.prototype.hasOwnProperty.call(next, 'approverIds')) {
+    const actor = [user?.username, user?.id]
+      .find(v => (typeof v === 'string' || typeof v === 'number') && String(v).trim());
+    next.approverIds = [String(actor ?? 'local-user').trim()];
+  }
+  if (typeof next.chatId !== 'string' || !next.chatId.trim()) delete next.chatId;
+  return next;
 }
 function bindingPath() { return path.join(resolvePilotHome(), 'approval-bindings.json'); }
 function readBindings() {
@@ -132,11 +153,18 @@ async function writeBinding(binding) {
   const file = bindingPath(); await fsp.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   const existing = fs.existsSync(file) ? readBindings() : [];
   const bindings = existing.filter(b => b?.approvalSession !== 'approval-center' && b?.approvalSource !== 'approval-center');
-  if (binding.enabled) bindings.push({ channelKey: binding.channelKey.trim(), chatId: binding.chatId.trim(), approverIds: binding.approverIds.map(v => v.trim()), approvalSession: 'approval-center', approvalSource: 'approval-center' });
+  const chatId = String(binding.chatId ?? '').trim();
+  if (binding.enabled) {
+    const record = { channelKey: binding.channelKey.trim(), approverIds: binding.approverIds.map(v => v.trim()), approvalSession: 'approval-center', approvalSource: 'approval-center' };
+    // Omit chatId entirely when empty: the shared contract reads a missing
+    // chatId as "any chat of this channel".
+    if (chatId) record.chatId = chatId;
+    bindings.push(record);
+  }
   const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
   await fsp.writeFile(temp, JSON.stringify({ bindings }, null, 2), { mode: 0o600 });
   await fsp.rename(temp, file);
-  return { enabled: binding.enabled, channelKey: binding.enabled ? binding.channelKey.trim() : '', chatId: binding.enabled ? binding.chatId.trim() : '', approverIds: binding.enabled ? binding.approverIds.map(v => v.trim()) : [] };
+  return { enabled: binding.enabled, channelKey: binding.enabled ? binding.channelKey.trim() : '', chatId: binding.enabled ? chatId : '', approverIds: binding.enabled ? binding.approverIds.map(v => v.trim()) : [] };
 }
 
 export function createApprovalSessionRouter(deps = {}) {
@@ -162,7 +190,15 @@ export function createApprovalSessionRouter(deps = {}) {
     const requests = await Promise.all(list().map(entry => mapRequest(entry, deps.resolveProject, policy)));
     return res.json({ session: { ...session, channelBinding: binding }, requests });
   });
-  router.put('/channel', async (req, res) => { const error = validateBinding(req.body); if (error) return res.status(400).json({ error }); try { binding = await (deps.saveBinding ? deps.saveBinding(req.body) : writeBinding(req.body)); return res.json({ session: { ...session, channelBinding: binding } }); } catch (e) { return res.status(500).json({ error: '审批绑定保存失败' }); } });
+  router.put('/channel', async (req, res) => {
+    const body = normalizeChannelBody(req.body, req.user);
+    const error = validateBinding(body);
+    if (error) return res.status(400).json({ error });
+    try {
+      binding = await (deps.saveBinding ? deps.saveBinding(body) : writeBinding(body));
+      return res.json({ session: { ...session, channelBinding: binding } });
+    } catch (e) { return res.status(500).json({ error: '审批绑定保存失败' }); }
+  });
   router.post('/requests/:id/decision', async (req, res) => {
     const body = req.body || {}; const entry = list().find(item => item.requestId === req.params.id);
     if (!entry) return res.status(404).json({ error: 'approval request is not pending' });

@@ -1,7 +1,7 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { Check, ChevronRight, Copy, GitBranch, Loader2, Pencil } from 'lucide-react';
+import { Check, ChevronRight, Copy, CornerUpLeft, GitBranch, Loader2, Pencil } from 'lucide-react';
 import { copyTextToClipboard } from '../../../utils/clipboard';
 import { isImeEnterEvent } from '../../../utils/ime.js';
 import { cn } from '../../../lib/utils.js';
@@ -121,6 +121,8 @@ type MessageRowProps = {
   showAssistantActions?: boolean;
   canEdit?: boolean;
   onRegenerate?: (message: ChatMessage, editedText: string) => Promise<void>;
+  /** Stop the running turn and move this user message back into the composer. */
+  onReturnToComposer?: (message: ChatMessage) => void;
   /** 这条回复当前是否被折叠（已完成的回复默认折叠） */
   replyCollapsed?: boolean;
   /** 展开 / 折叠这条回复 */
@@ -174,6 +176,7 @@ function MessageRow({
   showAssistantActions,
   canEdit = false,
   onRegenerate,
+  onReturnToComposer,
   replyCollapsed = false,
   onToggleReplyCollapsed,
   onSelectSpeaker,
@@ -546,6 +549,18 @@ function MessageRow({
               className="pointer-events-none flex h-6 items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover/user-msg:pointer-events-auto group-hover/user-msg:opacity-100 group-focus-within/user-msg:pointer-events-auto group-focus-within/user-msg:opacity-100"
             >
             <CopyMarkdownButton content={String(message.content ?? '')} t={t} />
+            {onReturnToComposer ? (
+              <button
+                type="button"
+                onClick={() => onReturnToComposer(message)}
+                data-testid="return-to-composer"
+                className="rounded p-1 text-neutral-400 transition-colors hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
+                aria-label={t('messageActions.returnToComposer', { defaultValue: '返回输入框' })}
+                title={t('messageActions.returnToComposerTitle', { defaultValue: '停止当前任务，把这条指令放回输入框，可编辑后重新发送' })}
+              >
+                <CornerUpLeft className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+            ) : null}
             {canEdit && onRegenerate ? (
               <button
                 type="button"

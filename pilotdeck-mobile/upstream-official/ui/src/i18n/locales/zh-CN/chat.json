@@ -109,6 +109,10 @@
     "markdownShort": "MD",
     "textShort": "TXT"
   },
+  "messageActions": {
+    "returnToComposer": "返回输入框",
+    "returnToComposerTitle": "停止当前任务，把这条指令放回输入框，可编辑后重新发送"
+  },
   "edit": {
     "message": "修改消息",
     "cancel": "取消",
