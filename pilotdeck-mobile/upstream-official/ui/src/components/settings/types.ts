@@ -2,11 +2,13 @@ export type SettingsMenuKey =
   | 'general'
   | 'appearance'
   | 'modelPool'
+  | 'usage'
   | 'agent'
   | 'agentRoute'
   | 'agentMemory'
   | 'agentResident'
   | 'agentSearch'
+  | 'multimodalGeneration'
   | 'agentSchedule'
   | 'projectTeam'
   | 'integrations'
@@ -15,6 +17,7 @@ export type SettingsMenuKey =
   | 'officePreview'
   | 'computerUse'
   | 'privacy'
+  | 'approvalChannel'
   | 'advanced'
   | 'about';
 

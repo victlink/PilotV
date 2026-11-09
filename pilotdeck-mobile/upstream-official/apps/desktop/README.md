@@ -1,255 +1,61 @@
 # PilotDeck Desktop
 
-Electron desktop shell for the existing PilotDeck Web UI and local gateway runtime.
+Electron shell for the shared Web UI and local Gateway. It owns native windows, menus, notifications, runtime supervision and updates; agent execution stays in [the core](../../src/README.md).
 
 ## Development
 
-```bash
+Use the Node.js and pnpm versions declared at the repository root. From that root:
+
+```sh
 pnpm install --frozen-lockfile
 pnpm --filter pilotdeck-desktop dev
-```
-
-The desktop process starts the existing PilotDeck gateway and UI server as local
-child processes, then opens the packaged Web UI inside an Electron window.
-
-## Background behavior and quitting
-
-On macOS, the red close button and **File > Close Window** (`Cmd+W`) hide the
-main window without destroying it. Tasks continue, and the same interface is
-restored by clicking the Dock icon or choosing **Open main window** from the
-PilotDeck status icon at the top of the screen. Full-screen windows leave their
-Space before hiding. Minimizing and `Cmd+H` retain their native behavior. The Dock
-icon remains available even if the status icon cannot be created.
-
-The status icon menu, Dock **Quit**, application **Quit PilotDeck**, and `Cmd+Q`
-share one native confirmation dialog. Cancel is the default. Confirming stops
-the managed server, gateway and task processes before exiting. If cleanup fails,
-the window reappears with an error and quitting can be retried. Menus and the
-confirmation follow the application language. The status icon uses a monochrome
-template image for light/dark menu bars, with a Retina representation.
-
-This does not prevent sleep or change power management. System shutdown and
-update installation bypass the user confirmation; update failure restores the
-runtime and normal quit protection.
-
-### Windows
-
-Closing the main window (including Alt+F4) hides it in the Windows notification
-area and keeps the local runtime and tasks running. Click the PilotDeck tray icon
-or choose **Open main window** to restore the same window and its current state.
-Launching the client again also restores the existing instance.
-
-The tray's **Quit** command and **File > Exit** restore the main window and show
-an owned confirmation dialog. Cancel is the default. Confirming stops the managed
-runtime before the application exits; automatic updates use their existing quit
-path without a second confirmation. Tray menus and confirmation text follow the
-application language.
-
-### Ubuntu
-
-Closing the main window keeps the app and local tasks running when a system tray
-is available. The PilotDeck icon in Ubuntu's top panel opens a native menu with
-**Open main window** and **Quit**. Select **Open main window** to restore it.
-Quit asks for confirmation and stops managed tasks. Launching PilotDeck again
-restores the existing window instead of starting another runtime. If creating
-the tray icon fails, closing the window quits normally so it is not stranded
-in the background. The desktop environment must provide a status icon host,
-such as Ubuntu's AppIndicators extension, to show the top-panel icon.
-
-Run `node --test apps/desktop/scripts/desktop-lifecycle.test.mjs` from the repository
-root for the cross-platform controller checks. On macOS or Windows,
-`node apps/desktop/scripts/verify-desktop-lifecycle.cjs` exercises the production
-main process with real Electron windows and isolated server/gateway/task
-processes. It covers hiding during startup, state-preserving restoration,
-minimization, native macOS full screen, native quit dispatch, cancellation,
-cleanup failure/retry, startup quit, update preparation/recovery and shutdown.
-Windows also checks second-instance restoration. Dialog responses, update
-handoff and shutdown events are simulated; the test never installs an update or
-shuts down the host. Each scenario uses its own profile/configuration, and owned
-process trees are cleaned even if an assertion fails.
-
-The Windows release workflow also accepts the existing
-`verify-windows-tray.cjs` entry point. Mac lifecycle checks run in Desktop Smoke
-and both architecture-specific release builds. For manual validation of OS entry
-points, check the actual red close button, `Cmd+W`, Dock click/right-click Quit,
-status menu Open/Quit and `Cmd+Q`; cancel once, then confirm with a task running.
-For an isolated native-dialog session, run
-`node apps/desktop/scripts/verify-desktop-lifecycle.cjs manual` (five-minute timeout).
-Confirm that restoring retains the draft and that quitting leaves no managed
-runtime processes. Check the status icon in both light and dark menu bars.
-
-Regenerate status icons from the checked-in SVG with
-`node apps/desktop/scripts/rebuild-tray-icon.mjs`.
-
-## Packaging
-
-```bash
-# Run the command matching the Mac host architecture:
-pnpm --filter pilotdeck-desktop dist:mac:arm64
-pnpm --filter pilotdeck-desktop dist:mac:x64
-# On a native Windows host with the matching CPU architecture:
-pnpm --filter pilotdeck-desktop dist:win:x64
-pnpm --filter pilotdeck-desktop dist:win:arm64
-# On a native Ubuntu host with the matching CPU architecture:
-pnpm --filter pilotdeck-desktop dist:linux:arm64
-pnpm --filter pilotdeck-desktop dist:linux:x64
-# On Rocky Linux 9 with the matching CPU architecture and system FPM:
-USE_SYSTEM_FPM=true pnpm --filter pilotdeck-desktop dist:linux:rpm:arm64
-USE_SYSTEM_FPM=true pnpm --filter pilotdeck-desktop dist:linux:rpm:x64
-```
-
-Build DEB release packages on Ubuntu 22.04 LTS for the intended minimum
-version. Native modules compiled on newer Ubuntu releases may require a newer
-glibc and will not run on 22.04. A 4 GB build VM may need
-`NODE_OPTIONS=--max-old-space-size=2560` for the Web UI build. Linux packages
-use the system Git package and include a bundled Node.js runtime.
-See [Ubuntu desktop support assessment](../../docs/ubuntu-desktop-support.md)
-for the X11, Wayland, and XWayland test matrix and remaining release gates.
-
-RPMs use Rocky Linux 9 containers for the RHEL 9 glibc baseline. See
-[RPM desktop support](../../docs/redhat-desktop-support.md) for installation,
-updates and the RPM validation matrix.
-
-Platform release builds should run on matching GitHub Actions runners:
-
-- macOS arm64 DMG artifacts on `macos-latest`
-- macOS x64 DMG artifacts on `macos-15-intel`
-- Windows x64 NSIS installer artifacts on `windows-latest`
-- Windows ARM64 NSIS installer artifacts on `windows-11-arm`
-- Ubuntu x64 DEB artifacts on `ubuntu-22.04`
-- Ubuntu arm64 DEB artifacts on `ubuntu-22.04-arm`
-- RPM x64/ARM64 artifacts in Rocky Linux 9 containers on the same native runners
-
-PR checks and releases share the Linux, macOS and Windows workflows. Linux
-includes DEB/RPM builds, installation and X11/Wayland checks within each package
-job for both architectures; macOS PRs build ad-hoc signed application directories,
-while releases require Developer ID signing and notarization. Windows runs
-installer lifecycle checks and verifies
-the packaged Electron, Node, Git and native modules on each native runner.
-Portable Git's MSYS Bash may use x64 emulation on Windows ARM64.
-
-Release installer filenames retain the existing
-`PilotDeck-<version>-<os>-<arch>` pattern. Windows installers end in `-setup.exe`.
-Windows x64 continues to use `latest-x64.yml`; ARM64 uses `latest-arm64.yml`.
-Publication requires all ten installers and eight separate update feeds, with
-matching versions, architectures, package types, sizes and checksums.
-
-macOS CI signs and notarizes release artifacts when the repository provides
-these GitHub Secrets:
-
-- `MACOS_DEVELOPER_ID_APPLICATION_P12_BASE64`: base64-encoded `.p12` for
-  a valid `Developer ID Application` certificate.
-- `MACOS_DEVELOPER_ID_APPLICATION_PASSWORD`: the `.p12` export password.
-- `MACOS_KEYCHAIN_PASSWORD`: optional password for the temporary CI keychain.
-- `APPLE_ID`: Apple account email used for notarization.
-- `APPLE_APP_SPECIFIC_PASSWORD`: Apple app-specific password for notarization.
-- `APPLE_TEAM_ID`: Apple Developer Team ID.
-
-CI release builds fail closed when signing credentials are absent. Local macOS
-development packages may still use ad-hoc signing.
-
-Each packaging script stages one architecture-matched, production-only runtime
-in `.runtime/app` before calling `electron-builder`; the final app should not
-include the other macOS architecture or the workspace development dependency
-tree.
-
-See [`docs/release.md`](../../docs/release.md) for the daily
-release policy, required GitHub Secrets, manual recovery, and Web deployment
-compatibility guarantees.
-
-## Window chrome and application commands
-
-macOS keeps native traffic lights in the sidebar's 48px top strip. The main
-header extends to the window edge. Collapsing the sidebar, entering compact
-mode or opening Settings reserves a full-width strip; fullscreen removes it.
-Windows and Ubuntu use a 40px title-bar overlay with native caption buttons,
-putting the application menus and window controls on one row. The caption
-has a neutral light/dark background; the main interface keeps its original sidebar
-gradient, layout, rounded frame, borders and viewport gutter.
-File, Edit, View, Go and Help open the corresponding menu sections; Alt+F/E/V/G/H
-access them directly. F10 opens the application menu on Windows and the File
-section on Linux, including in fullscreen. Tab and arrow keys navigate caption
-buttons. Menu clicks preserve the editor selection. While a popup is open,
-hovering or clicking another caption menu switches directly to it. Windows uses
-native submenus and tracks the native cursor while they are open. Linux renders
-the popup from the same current application menu template inside the window;
-the native menu remains registered for keyboard accelerators and OS integration.
-Its drag region reserves the native controls' area through
-the Window Controls Overlay geometry; the workspace header also supports dragging.
-Alt does not reveal a duplicate system menu row. Windows fullscreen state is
-published after the native transition updates, removing/restoring the top inset.
-All three platforms retain native frames, resizing and shadows. macOS removes the Web
-viewport's extra gutter, border, rounded corners and shadow. Windows and Ubuntu reserve
-space for the caption; business components and browser/PWA styles are preserved.
-The caption is preload-owned, so it also works during startup and onboarding.
-Caption labels initialize from the saved desktop language and follow the UI's
-resolved i18n language immediately, together with the native application menu.
-The caption, Linux popup and Electron native theme follow the app's
-light/dark/system preference immediately. The Linux popup does not depend on a
-particular GTK theme, panel extension or desktop environment, so the same menu
-code applies on Ubuntu, Kylin, Deepin and UOS when their Electron and package
-dependencies are compatible. Distribution-level installation and tray behavior
-still require testing on each target desktop. Opaque surfaces are intentional;
-this implementation does not require vibrancy or Mica.
-
-The native menu routes New Conversation, New Project, Settings, Find, sidebar
-visibility, Conversation, Project Files, Skills, Scheduled Tasks and Check for
-Updates to their existing UI owners. App actions are disabled before the shell
-is ready and while a modal blocks navigation. Reload/renderer failure clears the
-native state, and the renderer rechecks context when a command arrives.
-Find menu state uses the same registered, visible target and focused-surface
-resolver as the Find shortcut; an empty Files page does not enable it. A new
-conversation uses the same project inheritance as the sidebar button. Updates
-open Settings > About and use the existing check and installation UI.
-
-Default shortcuts: Cmd/Ctrl+N (conversation), Cmd/Ctrl+Shift+N (project),
-Cmd/Ctrl+, (settings), Cmd/Ctrl+F (focused-surface find), Cmd/Ctrl+B (sidebar),
-Cmd/Ctrl+R (reload), plus the native edit, zoom and fullscreen commands. Find and
-sidebar shortcuts reach the renderer so editors/terminals keep their own keys.
-Help opens the public documentation and GitHub issues in the system browser;
-Copy Version Information includes version, OS/architecture, Electron and build
-commit, without logs or project paths. Existing close/quit safeguards still apply.
-
-### Chrome verification
-
-Use Node 22, then run:
-
-```bash
 pnpm --filter pilotdeck-desktop compile
-pnpm --dir ui exec vitest run server/services/desktopChrome.test.ts server/services/windowsCaptionMenu.test.ts server/services/desktopApplicationMenu.test.ts src/components/desktop/useDesktopCommands.test.tsx src/contexts/FindShortcutContext.test.tsx
+pnpm --filter pilotdeck-desktop test
 ```
 
-On macOS or Windows, start an isolated UI development server in a separate terminal:
+Development and packaging prepare an architecture-matched runtime and pinned native resources. Packaging depends on the matching host architecture and platform toolchain. Use [release instructions](../../docs/release.md), [DEB support](../../docs/ubuntu-desktop-support.md) or [RPM support](../../docs/redhat-desktop-support.md) for build and signing setup.
 
-```bash
-pnpm --dir ui exec vite --host 127.0.0.1 --port 5187 --strictPort
-node ui/e2e/desktop-chrome.smoke.mjs
-```
+Desktop includes Python 3.12, uv/uvx and a curated set of agent, data, statistics, plotting and document libraries on all six Windows/macOS/Linux x64/ARM64 targets. Settings > Advanced > Python environment enables it by default. The Gateway creates an offline, writable virtual environment under `PILOT_HOME/runtimes/python`, sharing the immutable bundled base libraries. Preference changes apply to subsequent turns and retain running tasks and MCP connections. See [bundled Python release inputs](../../docs/release.md#bundled-python).
 
-On Ubuntu 22.04, run the same smoke suite under both X11 and a headless Wayland
-compositor with `bash apps/desktop/scripts/run-linux-chrome-smoke.sh x11` and
-`bash apps/desktop/scripts/run-linux-chrome-smoke.sh wayland`. It verifies the
-single-row caption, menu commands, Chinese/English labels in the caption and
-Linux popup, and light/dark menu colors. The Linux CI job runs both display
-paths on x64 and arm64 before PR merge and in the daily release pipeline.
+## Entry points and boundaries
 
-The smoke host uses the real compiled preload and application UI with a temporary
-Electron profile and mocked API/WebSocket traffic. It does not start the real
-runtime or send model requests. It invokes native menu callbacks to check commands,
-project inheritance, dialog blocking, sidebar collapse, repeated update checks,
-light/dark appearance, native fullscreen transitions and traffic-light position,
-and minimize/restore. Windows checks native popup requests; Linux checks its
-interactive popup contents and live theme/language updates. Both check
-caption/sidebar colors, control safe area and fullscreen inset restoration.
-Windows additionally checks maximize/restore; the headless Linux compositors
-have no window manager to verify maximize behavior.
-Set `PILOTDECK_CHROME_SCALE` to `1`, `1.25` or `1.5` for Windows scaling checks.
-Screenshots go to `outputs/desktop-chrome-review` (override
-with `PILOTDECK_CHROME_ARTIFACTS`). Run the lifecycle suite above as well when
-changing the main process.
+- [main.ts](src/main.ts): application lifecycle, IPC and supervised Web/Gateway processes.
+- [preload.ts](src/preload.ts): the constrained renderer bridge.
+- [applicationMenu.ts](src/applicationMenu.ts): native commands and shortcuts.
+- [updates.ts](src/updates.ts), [JsonReleaseProvider.ts](src/JsonReleaseProvider.ts) and [updateDownload.ts](src/updateDownload.ts): pinned release identity, differential/full download recovery and transport control; see [release policy](../../docs/release.md#differential-downloads-and-recovery).
+- [build-runtime.mjs](scripts/build-runtime.mjs): runtime assembly; [installer documentation](resources/installer/README.md) explains transactional Windows payload replacement.
+- [rebuild-icon.mjs](scripts/rebuild-icon.mjs) regenerates platform icons; [rebuild-icon.ps1](scripts/rebuild-icon.ps1) preserves the Windows command entry.
+- [computerUse.ts](src/computerUse.ts): built-in native Driver lifecycle. Settings > External integrations > Computer Use controls it; macOS permissions belong to PilotDeck Computer Use, not the main app. See [MCP](../../src/mcp/README.md).
 
-Windows native acceptance needs a Windows host: check menu keyboard
-navigation/F10, all three caption buttons, double-click maximize/restore, edge
-resizing, Snap Layouts, 100%/125%/150% scaling, fullscreen and light/dark/system
-appearance. On macOS, manually check native menu accelerators, titlebar dragging and the system's configured
-double-click action, including controls/popovers overlapping the header.
+Closing the window keeps background work running when a supported tray is available. Explicit Quit stops owned processes; updater failure must restore a working runtime. Do not terminate unrelated user processes.
+
+Runtime readiness owns its probe sockets, retry timers and process listeners. Success, process failure, cancellation and the startup deadline release them before a replacement attempt begins; failed starts do not leave background polling behind.
+Quit, update installation and runtime replacement cancel pending readiness before awaiting startup settlement. Each runtime coalesces launch and cleanup, prevents late startup stages from launching processes after shutdown, and retains failed cleanup for an explicit retry.
+
+Caption menus retain each native popup through deferred close completion. `close()` stops hover tracking and returns a promise that resolves after native teardown. Renderer acknowledgements and queued menu switches resume after the native close callback exits; repeated close requests do not cancel that settlement. Native acceptance controls popup closure through renderer IPC and reads main-process debugger state after dismissal.
+
+Notifications follow application preferences and OS policy. Windows uses native Toasts without numeric app badges. Supported app badges count background tasks and clear when the main window gains focus; conversation unread state is independent.
+
+General uses a registered PilotDeckGeneral workspace (Documents on Windows, home on macOS/Linux). Configuration may select another location; selection and migration must preserve existing files, validate directory identity and reject overlap with installation or state directories. See [configuration and paths](../../src/pilot/README.md).
+
+Runtime logs are managed under userData/logs, or PILOT_HOME/logs for standalone services. The retention setting defaults to seven days. Download runtime logs exports redacted diagnostics; invalid configuration remains available for repair.
+
+## Preference persistence
+
+Ordinary application updates replace the installation payload and retain the user profile. Desktop theme mode, color palette, custom colors, wallpaper parameters and interface performance preferences live in Electron's `userData/appearance.json`; managed background images live in `userData/appearance-images/`. Language/theme updates merge into the saved appearance rather than replacing it. Model, tool and skill preferences live under `PILOT_HOME` (normally `~/.pilotdeck`); device UI choices also use the Web view's local storage. These locations must stay outside the installation directory. Desktop startup selects an available localhost port beginning at 3001; if it changes, local-storage-only choices such as project sorting and code editor options use a different origin and can appear reset. File-backed appearance, images and Gateway preferences are independent of that port.
+
+Browser deployments keep appearance settings in local storage and images in IndexedDB, scoped to the browser profile and site origin (scheme, hostname and port). Reinstalling with personal-data deletion, clearing site data, changing the application profile/identity or changing the Web origin is outside normal update retention. Storage keys remain stable across palette refinements; the retired lavender preset remains readable as a custom choice without overwriting separately saved custom colors; user custom colors and image effects are preserved.
+
+## Appearance tokens
+
+The six presets use paired 12-step sRGB scales exported from the [Radix custom palette tool](https://www.radix-ui.com/colors/custom); source inputs are recorded in [themeScales.ts](src/themeScales.ts). [appearancePalette.ts](src/appearancePalette.ts) maps backgrounds to steps 1–2, interactions to 3–5, borders to 6–8, solid actions to 9–10 and text to 11–12. Contrast checks protect button labels and selected text; custom accents use the same semantic roles with derived colors. The UI, native caption and memory dashboard share these tokens. The original default light styling remains opt-out; all six palettes support dark and system mode. Wallpaper effects remain light-only, with saved images and adjustments retained across mode changes.
+
+Use palette tokens for interactive accents (links, selection, focus, switches, progress and primary actions), including portalled menus and dark styles. Use `--pd-accent-strong` for colored text, `--pd-accent` / `--pd-button-hover` for solid buttons with white labels, and distinct soft/hover/selected tokens for their backgrounds. Permission bypass uses a separate amber warning pair. Success, errors, Git additions/deletions, file types, chart categories, product logos, document content and terminal/syntax colors retain their meanings across accents; their foreground/background pairs must still be readable in each mode. Editor chrome follows the palette while syntax categories remain distinct.
+
+## Validation
+
+The Node helper suite is collected by the test command above. [Desktop chrome acceptance](../../ui/e2e/desktop-chrome.smoke.mjs), [lifecycle acceptance](scripts/verify-desktop-lifecycle.cjs) and native installer checks need their stated build/platform prerequisites and isolated profiles. They do not establish that a particular published package is signed; [release verification](../../docs/release.md) checks the actual payload.
+
+Caption-menu changes also require `pnpm --dir ui exec vitest run --project server server/services/windowsCaptionMenu.test.ts`; these fake-clock integration cases complement the desktop helper's real event-loop tests.
+
+Shared development rules: [CONTRIBUTING.md](../../CONTRIBUTING.md). Test selection: [testing guide](../../docs/testing.md).

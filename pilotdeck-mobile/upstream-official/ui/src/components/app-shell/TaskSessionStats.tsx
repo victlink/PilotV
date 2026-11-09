@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { CircleGauge, Clock } from 'lucide-react';
-import { useSessionContextUsageFromSocket, useTurnTaskElapsedFromSocket } from '../chat-v2/useTurnTaskElapsed';
+import { useSessionContextUsageFromSocket, useTurnTaskElapsedFromSocket } from '../chat/view/useTurnTaskElapsed';
 import { formatElapsed } from './TaskMonitorPanel';
 
 /**

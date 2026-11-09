@@ -118,6 +118,14 @@ export class SubAgentSession {
     const startedAt = Date.now();
 
     const messages = this.buildInitialMessages();
+    const parentArtifacts = await this.options.parentDependencies.prepareSubagentArtifacts?.({
+      parentSessionId: this.options.parentSessionId,
+      subagentSessionId: this.options.subagentSessionId,
+      abortSignal: this.options.abortSignal,
+    });
+    if (parentArtifacts?.length) {
+      messages[0]!.content.push({ type: "text", text: `Attachments inherited from the parent and available in this session:\n${parentArtifacts.map(artifact => artifact.description).join("\n")}` });
+    }
     const subRegistry = this.buildScopedRegistry();
     const subDependencies = this.cloneDependencies(subRegistry);
     const subConfig = this.buildConfig();
@@ -128,6 +136,7 @@ export class SubAgentSession {
     });
 
     let last: AgentLoopRunResult | undefined;
+    const inheritedArtifacts = new Map<string, string>();
     const turnId = `${this.options.subagentId}-t0`;
     if (this.options.sidechainTranscript) {
       await this.options.sidechainTranscript.recordAcceptedInput(
@@ -150,6 +159,14 @@ export class SubAgentSession {
         break;
       }
       const event = next.value;
+      if (event.type === "tool_result") {
+        const artifact = await this.options.parentDependencies.inheritSubagentToolResult?.({
+          parentSessionId: this.options.parentSessionId,
+          subagentSessionId: this.options.subagentSessionId,
+          result: event.result,
+        });
+        if (artifact) inheritedArtifacts.set(artifact.key, artifact.description);
+      }
       this.forwardActivity(event);
       if (
         this.options.sidechainTranscript &&
@@ -181,7 +198,9 @@ export class SubAgentSession {
     return {
       subagentId: this.options.subagentId,
       definitionId: this.options.definition.id,
-      markdown: text,
+      markdown: inheritedArtifacts.size
+        ? `${text}\n\nAttachments available in the parent session:\n${[...inheritedArtifacts.values()].join("\n")}`
+        : text,
       parsed,
       usage: last.result.usage,
       turns: last.result.turns,
@@ -203,6 +222,13 @@ export class SubAgentSession {
       scoped.register(tool as PilotDeckToolDefinition);
     }
     return scoped;
+  }
+
+  private includesTool(tool: PilotDeckToolDefinition): boolean {
+    const allowed = this.options.definition.allowedTools;
+    return (allowed.includes("*") || allowed.includes(tool.name))
+      && !["enter_plan_mode", "exit_plan_mode", "agent", "ask_user_question"].includes(tool.name)
+      && !tool.name.startsWith("always_on_");
   }
 
   private forwardActivity(event: AgentEvent): void {
@@ -269,6 +295,10 @@ export class SubAgentSession {
     return {
       router: this.options.parentDependencies.router,
       tools: { scheduler, registry },
+      refreshToolCatalog: this.options.parentDependencies.refreshToolCatalog
+        ? (target, signal, include) => this.options.parentDependencies.refreshToolCatalog!(target, signal,
+          tool => this.includesTool(tool) && (include?.(tool) ?? true))
+        : undefined,
       context: this.options.parentDependencies.context,
       now: this.options.parentDependencies.now,
       uuid: this.options.parentDependencies.uuid,

@@ -1,14 +1,13 @@
 #!/usr/bin/env node
+import { gatewayRuntimeLogging } from './runtimeBootstrap.js';
 import { resolve } from "node:path";
+import { registerDiagnosticSecrets } from "@pilotdeck/config";
 import { createAlwaysOnManager, createApplyHandler, SessionConfigOverrides, type AlwaysOnManager, type AlwaysOnConfig } from "../always-on/index.js";
 import { createCronManager, type CronManager, type CronConfig } from "../cron/index.js";
 import { connectRemoteGatewayIfAvailable, type Gateway, type GatewayEvent, type GatewaySubmitTurnInput } from "../gateway/index.js";
-import {
-  CliChannel, TuiChannel, FeishuChannel, WeixinChannel, QQChannel, WeComChannel,
-  loadEnabledChannels, ChannelStatePersistence,
-  FeishuSessionMapper, WeixinSessionMapper, QQSessionMapper, WeComSessionMapper,
-  type FeishuSessionMapperState, type WeixinSessionMapperState, type QQSessionMapperState, type WeComSessionMapperState,
-} from "../adapters/index.js";
+import type { FeishuSessionMapperState, WeixinSessionMapperState, QQSessionMapperState, WeComSessionMapperState } from '../adapters/index.js';
+import { loadEnabledChannels } from '../adapters/channel/loadEnabledChannels.js';
+import { ChannelStatePersistence } from '../adapters/channel/protocol/ChannelStatePersistence.js';
 import {
   migrateSkillsToPilotDeck,
   type SkillMigrationConflictMode,
@@ -32,6 +31,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     const env = process.env;
     const pilotHome = resolvePilotHome(env);
     const snapshot = loadPilotConfig({ projectRoot, env });
+    registerDiagnosticSecrets(snapshot.config);
     const telemetry = createTelemetryCollector({
       env, pilotHome,
       enabled: snapshot.config.telemetry?.enabled,
@@ -111,10 +111,10 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     alwaysOn = buildAlwaysOn(snapshot.config.alwaysOn);
     cron = buildCron(snapshot.config.cron);
 
-    const {
-      gateway, configStore, dispose: disposeGateway,
-      bindServer, isProjectBusy, updateSubsystems,
-    } = createLocalGateway({
+    // The server is created after the gateway, so the approval runtime resolves
+    // the channel registry lazily through `serverRef`.
+    let serverRef: Awaited<ReturnType<typeof startPilotDeckServer>> | undefined;
+    const localGateway = createLocalGateway({
       projectRoot,
       pilotHome,
       env,
@@ -123,6 +123,23 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       sessionOverrides,
       cron,
       telemetry,
+      resolveApprovalChannel: (channelKey) => serverRef?.getChannel(channelKey),
+      approvalLogger: {
+        warn: (message) => console.warn(message),
+        error: (message) => console.error(message),
+      },
+    });
+    const {
+      gateway, configStore, dispose: disposeGateway,
+      bindServer, isProjectBusy, updateSubsystems,
+    } = localGateway;
+
+    // Contract §7.4: the approval center is ready before the server starts
+    // serving, so no permission request is lost or decided too early.
+    await localGateway.approvalReady.catch((error) => {
+      console.error(
+        `[approval] runtime initialisation failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     });
 
     const standaloneApply = createApplyHandler({
@@ -256,12 +273,26 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     // --- Adapter hot-reload ---
 
     let serverRef: Awaited<ReturnType<typeof startPilotDeckServer>> | undefined;
+    /**
+     * Config fingerprint of every channel started via loadEnabledChannels
+     * (Slack, Telegram, …). Hot reload stops the ones that were disabled and
+     * leaves unchanged healthy ones running, so saving another IM's settings
+     * does not drop their connection, queued turns or pending permission prompts.
+     */
+    let runningExtraChannelConfigs = new Map<string, string | undefined>();
+    let runningFeishuConfig = snapshot.config.adapters?.feishu?.enabled === true
+      ? JSON.stringify(snapshot.config.adapters.feishu)
+      : undefined;
+    const extraChannelFingerprint = (adapters: unknown, channelKey: string): string | undefined => {
+      const cfg = (adapters as Record<string, unknown> | undefined)?.[channelKey];
+      return cfg === undefined ? undefined : JSON.stringify(cfg);
+    };
 
     async function hotStartWeixinChannel(): Promise<void> {
       if (!serverRef) return;
       const savedWeixin = await channelStatePersistence.load<WeixinSessionMapperState>("weixin");
-      await serverRef.hotStartChannel(new WeixinChannel({
-        mapper: savedWeixin ? new WeixinSessionMapper(savedWeixin) : undefined,
+      await serverRef.hotStartChannel(new (await import('../adapters/channel/weixin/WeixinChannel.js')).WeixinChannel({
+        mapper: savedWeixin ? new (await import('../adapters/channel/weixin/WeixinSessionMapper.js')).WeixinSessionMapper(savedWeixin) : undefined,
         onStateChange: (state) => channelStatePersistence.save("weixin", state),
       }));
     }
@@ -271,9 +302,14 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       const parts: string[] = [];
 
       const fCfg = config.adapters?.feishu;
-      if (fCfg?.enabled === true) {
+      const nextFeishuConfig = fCfg?.enabled === true ? JSON.stringify(fCfg) : undefined;
+      const feishuState = serverRef.channelState("feishu");
+      if (nextFeishuConfig && nextFeishuConfig === runningFeishuConfig
+        && feishuState !== "failed" && feishuState !== "stopped") {
+        parts.push("feishu=unchanged");
+      } else if (fCfg?.enabled === true) {
         const savedFeishu = await channelStatePersistence.load<FeishuSessionMapperState>("feishu");
-        const ch = new FeishuChannel({
+        const ch = new (await import('../adapters/channel/feishu/FeishuChannel.js')).FeishuChannel({
           appId: fCfg.appId,
           appSecret: fCfg.appSecret,
           encryptKey: fCfg.encryptKey,
@@ -281,12 +317,16 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
           connectionMode: fCfg.connectionMode,
           domainName: fCfg.domainName,
           permissionMode: fCfg.permissionMode,
-          mapper: savedFeishu ? new FeishuSessionMapper(savedFeishu) : undefined,
+          mapper: savedFeishu ? new (await import('../adapters/channel/feishu/FeishuSessionMapper.js')).FeishuSessionMapper(savedFeishu) : undefined,
           onStateChange: (state) => channelStatePersistence.save("feishu", state),
         });
         await serverRef.hotStartChannel(ch);
         parts.push("feishu=started");
+      } else if (runningFeishuConfig !== undefined) {
+        await serverRef.stopChannel("feishu", "disabled");
+        parts.push("feishu=stopped");
       }
+      runningFeishuConfig = nextFeishuConfig;
 
       const wCfg = config.adapters?.weixin;
       if (wCfg?.enabled === true) {
@@ -297,13 +337,13 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       const qqCfg = config.adapters?.qq;
       if (qqCfg?.enabled === true) {
         const savedQQ = await channelStatePersistence.load<QQSessionMapperState>("qq");
-        await serverRef.hotStartChannel(new QQChannel({
+        await serverRef.hotStartChannel(new (await import('../adapters/channel/qq/QQChannel.js')).QQChannel({
           appId: qqCfg.appId,
           clientSecret: qqCfg.clientSecret,
           allowGroups: qqCfg.allowGroups,
           triggerPrefixes: qqCfg.triggerPrefixes,
           maxMessageLength: qqCfg.maxMessageLength,
-          mapper: savedQQ ? new QQSessionMapper(savedQQ) : undefined,
+          mapper: savedQQ ? new (await import('../adapters/channel/qq/QQSessionMapper.js')).QQSessionMapper(savedQQ) : undefined,
           onStateChange: (state) => channelStatePersistence.save("qq", state),
         }));
         parts.push("qq=started");
@@ -312,20 +352,39 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       const wcCfg = config.adapters?.wecom;
       if (wcCfg?.enabled === true) {
         const savedWeCom = await channelStatePersistence.load<WeComSessionMapperState>("wecom");
-        await serverRef.hotStartChannel(new WeComChannel({
+        await serverRef.hotStartChannel(new (await import('../adapters/channel/wecom/WeComChannel.js')).WeComChannel({
           botKey: wcCfg.token,
           extra: wcCfg.extra,
-          mapper: savedWeCom ? new WeComSessionMapper(savedWeCom) : undefined,
+          mapper: savedWeCom ? new (await import('../adapters/channel/wecom/WeComSessionMapper.js')).WeComSessionMapper(savedWeCom) : undefined,
           onStateChange: (state) => channelStatePersistence.save("wecom", state),
         }));
         parts.push("wecom=started");
       }
 
-      const extraChannels = await loadEnabledChannels(config.adapters, { pilotHome });
+      const extraChannels = await loadEnabledChannels(config.adapters, { pilotHome, statePersistence: channelStatePersistence });
+      const nextExtraConfigs = new Map(
+        extraChannels.map((ch) => [ch.channelKey, extraChannelFingerprint(config.adapters, ch.channelKey)] as const),
+      );
+      for (const key of runningExtraChannelConfigs.keys()) {
+        if (nextExtraConfigs.has(key)) continue;
+        await serverRef.stopChannel(key, "disabled");
+        parts.push(`${key}=stopped`);
+      }
       for (const ch of extraChannels) {
+        const fingerprint = nextExtraConfigs.get(ch.channelKey);
+        const state = serverRef.channelState(ch.channelKey);
+        const unchanged = fingerprint !== undefined
+          && runningExtraChannelConfigs.get(ch.channelKey) === fingerprint
+          && state !== "failed"
+          && state !== "stopped";
+        if (unchanged) {
+          parts.push(`${ch.channelKey}=unchanged`);
+          continue;
+        }
         await serverRef.hotStartChannel(ch);
         parts.push(`${ch.channelKey}=started`);
       }
+      runningExtraChannelConfigs = nextExtraConfigs;
 
       if (parts.length) {
         console.log(`[pilotdeck] Adapter hot-reload complete: ${parts.join(", ")}`);
@@ -335,11 +394,14 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     // --- Server startup ---
 
     const envPort = Number.parseInt(env.PILOTDECK_GATEWAY_PORT ?? "", 10);
-    const extraChannels = await loadEnabledChannels(snapshot.config.adapters, { pilotHome });
+    const extraChannels = await loadEnabledChannels(snapshot.config.adapters, { pilotHome, statePersistence: channelStatePersistence });
+    runningExtraChannelConfigs = new Map(
+      extraChannels.map((ch) => [ch.channelKey, extraChannelFingerprint(snapshot.config.adapters, ch.channelKey)] as const),
+    );
     const feishuCfg = snapshot.config.adapters?.feishu;
     const savedFeishuState = await channelStatePersistence.load<FeishuSessionMapperState>("feishu");
     const feishuChannel = feishuCfg?.enabled === true
-      ? new FeishuChannel({
+      ? new (await import('../adapters/channel/feishu/FeishuChannel.js')).FeishuChannel({
           appId: feishuCfg.appId,
           appSecret: feishuCfg.appSecret,
           encryptKey: feishuCfg.encryptKey,
@@ -347,38 +409,38 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
           connectionMode: feishuCfg.connectionMode,
           domainName: feishuCfg.domainName,
           permissionMode: feishuCfg.permissionMode,
-          mapper: savedFeishuState ? new FeishuSessionMapper(savedFeishuState) : undefined,
+          mapper: savedFeishuState ? new (await import('../adapters/channel/feishu/FeishuSessionMapper.js')).FeishuSessionMapper(savedFeishuState) : undefined,
           onStateChange: (state) => channelStatePersistence.save("feishu", state),
         })
       : undefined;
     const weixinCfg = snapshot.config.adapters?.weixin;
     const savedWeixinState = await channelStatePersistence.load<WeixinSessionMapperState>("weixin");
     const weixinChannel = weixinCfg?.enabled === true
-      ? new WeixinChannel({
-          mapper: savedWeixinState ? new WeixinSessionMapper(savedWeixinState) : undefined,
+      ? new (await import('../adapters/channel/weixin/WeixinChannel.js')).WeixinChannel({
+          mapper: savedWeixinState ? new (await import('../adapters/channel/weixin/WeixinSessionMapper.js')).WeixinSessionMapper(savedWeixinState) : undefined,
           onStateChange: (state) => channelStatePersistence.save("weixin", state),
         })
       : undefined;
     const qqCfg = snapshot.config.adapters?.qq;
     const savedQQState = await channelStatePersistence.load<QQSessionMapperState>("qq");
     const qqChannel = qqCfg?.enabled === true
-      ? new QQChannel({
+      ? new (await import('../adapters/channel/qq/QQChannel.js')).QQChannel({
           appId: qqCfg.appId,
           clientSecret: qqCfg.clientSecret,
           allowGroups: qqCfg.allowGroups,
           triggerPrefixes: qqCfg.triggerPrefixes,
           maxMessageLength: qqCfg.maxMessageLength,
-          mapper: savedQQState ? new QQSessionMapper(savedQQState) : undefined,
+          mapper: savedQQState ? new (await import('../adapters/channel/qq/QQSessionMapper.js')).QQSessionMapper(savedQQState) : undefined,
           onStateChange: (state) => channelStatePersistence.save("qq", state),
         })
       : undefined;
     const wecomCfg = snapshot.config.adapters?.wecom;
     const savedWeComState = await channelStatePersistence.load<WeComSessionMapperState>("wecom");
     const wecomChannel = wecomCfg?.enabled === true
-      ? new WeComChannel({
+      ? new (await import('../adapters/channel/wecom/WeComChannel.js')).WeComChannel({
           botKey: wecomCfg.token,
           extra: wecomCfg.extra,
-          mapper: savedWeComState ? new WeComSessionMapper(savedWeComState) : undefined,
+          mapper: savedWeComState ? new (await import('../adapters/channel/wecom/WeComSessionMapper.js')).WeComSessionMapper(savedWeComState) : undefined,
           onStateChange: (state) => channelStatePersistence.save("wecom", state),
         })
       : undefined;
@@ -394,6 +456,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       config: snapshot.config,
     });
     serverRef = server;
+
     (
       gateway as {
         setPrepareWeixinLogin?: (
@@ -412,11 +475,15 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     deferredBroadcast = (name, payload) => server.broadcastNotification(name, payload);
     console.log(`PilotDeck server listening: ${server.url}`);
     console.log(`WebSocket: ${server.wsUrl}`);
+    if (process.send && process.connected) {
+      process.send({ type: 'pilotdeck:gateway-ready', port: server.port }, () => {});
+    }
     if (server.tokenPath) {
       console.log(`Token: ${server.tokenPath}`);
     }
     const stop = async () => {
       try {
+        localGateway.approvalRuntime?.stop();
         await channelStatePersistence.flush();
         console.log(`[telemetry] shutdown snapshot ${JSON.stringify(telemetry.snapshot())}`);
         disposeGateway();
@@ -484,14 +551,14 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     const fallbackGateway = createFallbackGateway();
     try {
       const { gateway: local } = createLocalGateway({ projectRoot: process.cwd() });
-      await new TuiChannel({
+      await new (await import('../adapters/channel/tui/TuiChannel.js')).TuiChannel({
         projectKey: process.cwd(),
         cwd: process.cwd(),
         model: "PilotDeck",
         probe: { url: probeUrl },
       }).start({ gateway: local });
     } catch (error) {
-      await new TuiChannel({
+      await new (await import('../adapters/channel/tui/TuiChannel.js')).TuiChannel({
         projectKey: process.cwd(),
         cwd: process.cwd(),
         model: "PilotDeck",
@@ -502,7 +569,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
   }
 
   const { gateway: fallbackGateway } = createLocalGateway({ projectRoot: process.cwd() });
-  await new CliChannel({ argv, projectKey: process.cwd() }).start({ gateway: fallbackGateway });
+  await new (await import('../adapters/channel/cli/CliChannel.js')).CliChannel({ argv, projectKey: process.cwd() }).start({ gateway: fallbackGateway });
 }
 
 async function handleUpdateCommand(argv: string[]): Promise<void> {
@@ -779,7 +846,5 @@ function createFallbackGateway(): Gateway {
   };
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+
+main().catch(error => { gatewayRuntimeLogging.report(error); process.exitCode = 1; });

@@ -40,7 +40,8 @@
     "title": "Explore",
     "collapse": "Collapse explore",
     "expand": "Expand explore",
-    "scheduledTasks": "Scheduled Tasks"
+    "scheduledTasks": "Scheduled Tasks",
+    "approvalSession": "Approval session"
   },
   "quickActions": {
     "label": "Quick actions",
@@ -57,6 +58,10 @@
   },
   "renamePlaceholder": "Rename - empty to reset",
   "contextMenu": {
+    "openInFinder": "Open in Finder",
+    "openInFileExplorer": "Open in File Explorer",
+    "openInFileManager": "Open in File Manager",
+    "openDirectoryFailed": "Could not open the working directory. It may have been moved or deleted.",
     "label": "Context menu"
   },
   "app": {
@@ -78,6 +83,8 @@
     "showMore": "Show more sessions",
     "showMoreCount": "Show more ({{count}})",
     "showLess": "Show less",
+    "waitingForAnswer": "Waiting for your answer",
+    "waitingForApproval": "Waiting for approval",
     "processing": "Agent is running",
     "unread": "Unread messages",
     "idle": "No unread messages",

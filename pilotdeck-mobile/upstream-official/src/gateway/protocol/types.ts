@@ -40,6 +40,8 @@ import type {
 import type {
   SkillCreateInput,
   SkillCreateResult,
+  SkillSetEnabledInput,
+  SkillSetEnabledResult,
   SkillDeleteInput,
   SkillDeleteResult,
   SkillImportInput,
@@ -90,7 +92,13 @@ export type GatewayOutboundAttachment = {
 
 export type TurnUsage = CanonicalUsage;
 
+/** Local execution controls; never serialized into a turn's wire payload. */
+export type GatewayTurnOptions = { signal?: AbortSignal };
+
 export type GatewaySubmitTurnInput = {
+  /** Opaque diagnostics supplied by an authenticated host; never authorization. */
+  requestContext?: Pick<import("../../network/requestContext.js").RequestContext,
+    "userId" | "deviceId" | "clientVersion" | "parentRequestId">;
   sessionKey: string;
   channelKey: GatewayChannelKey;
   message: string;
@@ -297,7 +305,7 @@ export type GatewayEvent = GatewayTurnScopedEventMetadata & (
       ratio: number;
       state: "ok" | "warning" | "blocking";
     }
-  | { type: "turn_completed"; usage: TurnUsage; finishReason: AgentTurnResult["stopReason"] | string }
+  | { type: "turn_completed"; usage: TurnUsage; finishReason: AgentTurnResult["stopReason"] | string; startedAt?: string; completedAt?: string }
   | { type: "agent_status"; event: string; detail?: Record<string, unknown> }
   | {
       type: "error";
@@ -338,6 +346,19 @@ export type GatewayElicitationResponseInput = {
   sessionKey: string;
   requestId: string;
   answer: PilotDeckElicitationAnswer;
+  /** Identity of the responder, recorded in the audit trail. */
+  actor?: string;
+  /**
+   * Where the answer came from. Web clients must not claim another origin:
+   * the websocket server overwrites this field.
+   */
+  origin?: "web" | "im" | "system" | "api";
+  /** Channel the answer came from (used to enforce IM bindings). */
+  channelKey?: string;
+  /** Chat the answer came from (used to enforce IM bindings). */
+  chatId?: string;
+  /** Provenance of `actor`. */
+  actorSource?: "channel_identity" | "client_reported";
 };
 
 /**
@@ -357,6 +378,39 @@ export type GatewayPermissionDecisionInput = {
   /** Persist the decision as an `allow_session` rule when true. */
   remember?: boolean;
   /** Optional free-form reason; surfaced in audit/transcript. */
+  reason?: string;
+  /** Identity of the approver, recorded in the audit trail. */
+  actor?: string;
+  /** Channel submitting the decision (used to enforce IM bindings). */
+  channelKey?: string;
+  /** Chat the decision came from (used to enforce IM bindings). */
+  chatId?: string;
+  /**
+   * Provenance of `actor`. Chat adapters verified the sender
+   * (`channel_identity`); the websocket entry point has no user identity and
+   * only ever reports `client_reported`.
+   */
+  actorSource?: "channel_identity" | "client_reported";
+  /**
+   * Where the decision came from. Web clients must not claim another
+   * origin: the websocket server overwrites this field.
+   */
+  origin?: "web" | "im" | "system" | "api";
+};
+
+/**
+ * Result of a permission decision.
+ *
+ * `delivered: false` is returned when the decision was refused. `reason`
+ * carries a stable machine-readable code explaining *why* (guard rejection,
+ * invalid input, unknown request) so the caller — the Web client or the chat
+ * adapter — can tell the approver what happened instead of silently
+ * pretending the request expired (contract §4 state semantics).
+ */
+export type GatewayPermissionDecisionResult = {
+  /** True only when the decision was applied to the pending request. */
+  delivered: boolean;
+  /** Stable reason code; present when the decision was refused. */
   reason?: string;
 };
 
@@ -411,6 +465,10 @@ export type GatewayServerInfo = {
   protocolVersion?: string;
   projectKey?: string;
   sessionCount?: number;
+  /** Agent turns across all channels, including cron, until cleanup ends. */
+  activeTurnCount?: number;
+  /** Agent turns plus pending/running background shell and monitor tasks. */
+  activeTaskCount?: number;
   capabilities?: GatewayCapability[];
 };
 
@@ -597,7 +655,7 @@ export type AlwaysOnRerunPlanResult = {
 
 export interface Gateway {
   manageCheckpoints?(input: import("../../session/checkpoints/WorkspaceCheckpoints.js").CheckpointRequest): Promise<unknown>;
-  submitTurn(input: GatewaySubmitTurnInput): AsyncIterable<GatewayEvent>;
+  submitTurn(input: GatewaySubmitTurnInput, options?: GatewayTurnOptions): AsyncIterable<GatewayEvent>;
   steerTurn(input: GatewaySteerTurnInput): Promise<GatewaySteerTurnResult>;
   cancelSteer(input: GatewayCancelSteerInput): Promise<GatewayCancelSteerResult>;
   abortTurn(input: { sessionKey: string; runId?: string; reason?: string }): Promise<void>;
@@ -625,16 +683,18 @@ export interface Gateway {
    * B1 — host responds to an `elicitation_request` event surfaced through
    * `submitTurn`. Resolves the waiting tool's `askUser()` promise. Returns
    * `{ delivered: false }` if the requestId is unknown (already cancelled
-   * or the session has ended).
+   * or the session has ended). A refused decision additionally carries a
+   * stable `reason` code.
    */
-  respondElicitation(input: GatewayElicitationResponseInput): Promise<{ delivered: boolean }>;
+  respondElicitation(input: GatewayElicitationResponseInput): Promise<{ delivered: boolean; reason?: string }>;
   /**
    * Web Phase 2 — host responds to a `permission_request` event surfaced
    * through `submitTurn`. Resolves the agent-side permission promise so the
    * blocked tool either runs (allow) or returns a denial. Returns
-   * `{ delivered: false }` if the requestId is unknown.
+   * `{ delivered: false }` if the requestId is unknown, and a `reason` code
+   * whenever the decision was refused.
    */
-  permissionDecide(input: GatewayPermissionDecisionInput): Promise<{ delivered: boolean }>;
+  permissionDecide(input: GatewayPermissionDecisionInput): Promise<GatewayPermissionDecisionResult>;
   /**
    * Grants a tool only for the current session. This is intentionally
    * non-persistent: global Settings / permissions.json stay unchanged.
@@ -678,6 +738,7 @@ export interface Gateway {
    * capability) may leave it undefined.
    */
   reloadConfig?(): Promise<ReloadConfigResult>;
+  getPythonRuntimeStatus?(): Promise<import('../../runtime/pythonRuntime.js').PythonRuntimeStatus>;
 
   /**
    * Ask the gateway host to start or restart the Weixin channel so it can
@@ -720,6 +781,7 @@ export interface Gateway {
   skillRead?(input: SkillAddressInput): Promise<SkillReadResult>;
   skillWrite?(input: SkillWriteInput): Promise<SkillWriteResult>;
   skillCreate?(input: SkillCreateInput): Promise<SkillCreateResult>;
+  skillSetEnabled?(input: SkillSetEnabledInput): Promise<SkillSetEnabledResult>;
   skillDelete?(input: SkillDeleteInput): Promise<SkillDeleteResult>;
   skillImport?(input: SkillImportInput): Promise<SkillImportResult>;
   skillValidate?(input: SkillValidateInput): Promise<SkillValidationResult>;

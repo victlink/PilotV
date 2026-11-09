@@ -15,24 +15,21 @@
 # 鉴权：回环调用方或出示与配置相同的机器令牌直接放行，其余走上游自己的 JWT 校验。
 # 跨机访问仍然走 PilotV 网关（5186），那里本来就把 /api/artifacts 转给 8799。
 diff --git a/pilotdeck-mobile/upstream-official/ui/server/index.js b/pilotdeck-mobile/upstream-official/ui/server/index.js
-index 9ad32c1..960d683 100644
+index 99959ce..9d48b52 100644
 --- a/pilotdeck-mobile/upstream-official/ui/server/index.js
 +++ b/pilotdeck-mobile/upstream-official/ui/server/index.js
-@@ -1,6 +1,7 @@
- #!/usr/bin/env node
+@@ -5,6 +5,7 @@ import { assertRequiredPilotDeckEnv } from './load-env.js';
+ import { createErrorDiagnostics, handleUnexpectedError } from './middleware/errorDiagnostics.js';
  import { getProjectParticipants } from './pilotdeck-bridge.js';
  import { createWorkspaceFileUploadHandler, createWorkspaceUploadCheckHandler } from './services/workspaceFileUpload.js';
 +import { createPilotVArtifactsProxy } from './services/pilotvArtifactsProxy.js';
  import { createBackgroundSessionForwarder, createSessionActivityRegistry } from './session-activity.js';
- import '../../scripts/check-node-runtime.mjs';
- // Load environment variables before other imports execute
-@@ -513,8 +514,17 @@
- 
- // Make WebSocket server available to routes
- app.locals.wss = wss;
-+
- app.use(cors({ exposedHeaders: ['X-Refreshed-Token'] }));
- 
+ import { createSessionNotificationRegistry } from './session-notifications.js';
+ import { notifySessionAttention } from './services/notification-orchestrator.js';
+@@ -527,6 +528,13 @@ app.use('/api', requestLimiters.ingress);
+ // Keep the dashboard's guard and protected routes in one mounted chain.
+ const memoryDashboardRouter = express.Router();
+ app.use('/memory-dashboard', requestLimiters.ingress, memoryDashboardRouter);
 +// PilotV：成果台代理。成果数据在 8799（service/serve_artifacts.py），页面上
 +// 请求的是相对路径 /api/artifacts/...。走 PilotV 网关（5186）时网关会把它转给
 +// 8799；直接开 3001 时没有这一层，成果台请求全是 404（前端报「成果列表请求
@@ -40,10 +37,9 @@ index 9ad32c1..960d683 100644
 +// 必须挂在 express.json / express.urlencoded 之前：那两个解析器会把 POST 的
 +// body 吃掉，转发给成果台时就只剩一个空 body 了。
 +app.use(createPilotVArtifactsProxy({ authenticate: authenticateToken }));
-+
+
  app.use(express.json({
      limit: '50mb',
-     type: (req) => {
 diff --git a/pilotdeck-mobile/upstream-official/ui/server/services/pilotvArtifactsProxy.js b/pilotdeck-mobile/upstream-official/ui/server/services/pilotvArtifactsProxy.js
 new file mode 100644
 index 0000000..e0d35d6

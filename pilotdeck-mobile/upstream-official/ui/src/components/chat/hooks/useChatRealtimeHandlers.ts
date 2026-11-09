@@ -1,6 +1,6 @@
-import { isTimelineMessage, type TimelinePosition } from '../../../stores/sessionTimeline';
 import { useCallback, useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
+import { isTimelineMessage, type TimelinePosition } from '../../../stores/sessionTimeline';
 import type {
   ClaudeWorkStatus,
   CompactProgress,
@@ -768,6 +768,10 @@ export function useChatRealtimeHandlers({
     }
 
     if (msg.kind === 'agent_activity') {
+      if (msg.phase === 'file_input' && msg.isSubagentDetail && msg.subagentId) {
+        sessionStore.appendSubagentDetailMessage?.(sid, msg.subagentId, msg as NormalizedMessage);
+        return;
+      }
       const activitySubagentId = typeof msg.subagentId === 'string'
         ? msg.subagentId
         : String(msg.activityId || '').startsWith('subagent:')
@@ -1118,8 +1122,9 @@ export function useChatRealtimeHandlers({
         });
         setIsLoading(true);
         setCanAbortSession(true);
-        setClaudeStatus({ text: 'Waiting for permission', tokens: 0, can_interrupt: true });
-        setPilotDeckStatus({ text: 'Waiting for permission', tokens: 0, can_interrupt: true });
+        const waitingText = /^(ask_?user_?question)$/i.test(msg.toolName || '') ? 'Waiting for answer' : 'Waiting for approval';
+        setClaudeStatus({ text: waitingText, tokens: 0, can_interrupt: true });
+        setPilotDeckStatus({ text: waitingText, tokens: 0, can_interrupt: true });
         break;
       }
 

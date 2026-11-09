@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import type { Gateway, GatewayChannelKey } from "../../../gateway/index.js";
 import type { CronResultDelivery } from "../../../cron/index.js";
 import type { ChannelAdapter, ChannelHandle, ChannelLogger, ChannelStartDeps } from "../protocol/ChannelAdapter.js";
@@ -6,6 +7,10 @@ import { EmailSessionMapper } from "./EmailSessionMapper.js";
 import { renderEmailEvent } from "./email-render.js";
 import { ImElicitationHelper } from "../protocol/ImElicitationHelper.js";
 import { ImPermissionHelper } from "../protocol/ImPermissionHelper.js";
+
+// The package is ESM ("type": "module"), so the CommonJS `require` global does
+// not exist. A module-scoped require keeps the optional SDK lazily loadable.
+const require = createRequire(import.meta.url);
 
 let ImapFlow: any;
 let nodemailer: any;
@@ -45,7 +50,7 @@ export class EmailChannel implements ChannelAdapter {
   private defaultSubject = "Message";
   private activeChats = new Set<string>();
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
   private stopped = false;
 
   constructor(options: EmailChannelOptions = {}) {

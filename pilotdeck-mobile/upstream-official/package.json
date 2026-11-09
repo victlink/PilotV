@@ -7,6 +7,7 @@
     "node": ">=22.13.0 <23"
   },
   "workspaces": [
+    "packages/*",
     "apps/desktop",
     "ui"
   ],
@@ -27,10 +28,11 @@
     "skills:migrate": "tsx src/cli/pilotdeck.ts skills migrate",
     "predev": "npm run check:runtime",
     "dev": "node scripts/prepare-computer-use.mjs && node scripts/dev-launcher.mjs",
-    "test": "npm run build && node --test --test-force-exit --test-timeout 60000 \"dist/tests/**/*.test.js\" \"dist/tests/**/*.spec.js\"",
+    "test": "npm run build && node --test --test-force-exit --test-timeout 60000 \"dist/tests/**/*.test.js\" \"dist/tests/**/*.spec.js\" \"dist/src/**/*.test.js\" \"dist/src/**/*.spec.js\"",
     "test:src": "node --import tsx --test --test-timeout 60000 \"src/**/*.test.ts\"",
     "test:mcp": "node --test --test-timeout 60000 \"dist/tests/mcp/**/*.spec.js\" dist/tests/context/prompt-skill-path.spec.js dist/tests/context/prompt-file-delivery.spec.js",
-    "test:checkpoints": "node --test --test-timeout 60000 dist/tests/session/workspace-checkpoints.spec.js dist/tests/session/checkpoint-execution.spec.js dist/tests/session/repository-operations.spec.js dist/tests/session/file-artifact-collector.spec.js dist/tests/session/turn-file-artifacts.spec.js dist/tests/pilot/project-gitignore.spec.js dist/tests/gateway/checkpoint-restoration.spec.js dist/tests/web/replace-last-turn.spec.js dist/tests/web/fork-compact-snapshot.spec.js",
+    "test:python": "node --import tsx --test tests/runtime/python-runtime.spec.ts tests/runtime/python-native.spec.ts tests/context/python-awareness.spec.ts tests/gateway/python-reload.spec.ts tests/gateway/active-turn-snapshot.spec.ts tests/agent/sub/SubAgentSession.spec.ts",
+    "test:checkpoints": "node --test --test-timeout 60000 dist/tests/session/workspace-checkpoints.spec.js dist/tests/session/shared-directory-concurrency.spec.js dist/tests/session/shared-directory-review-regressions.spec.js dist/tests/session/checkpoint-execution.spec.js dist/tests/session/checkpoint-subagents.spec.js dist/tests/session/checkpoint-background.spec.js dist/tests/session/repository-operations.spec.js dist/tests/session/file-artifact-collector.spec.js dist/tests/session/turn-file-artifacts.spec.js dist/tests/pilot/project-gitignore.spec.js dist/tests/gateway/checkpoint-restoration.spec.js dist/tests/web/replace-last-turn.spec.js dist/tests/web/fork-compact-snapshot.spec.js",
     "e2e:real-compaction": "npm run build && PILOTDECK_RUN_REAL_COMPACTION_E2E=1 node dist/tests/agent/e2e/run-real-compaction.js",
     "e2e:real-agent-lifecycle-hooks": "npm run build && PILOTDECK_RUN_REAL_AGENT_LIFECYCLE_E2E=1 node dist/tests/agent/e2e/run-real-agent-lifecycle-hooks.js",
     "postbuild": "node scripts/write-web-build-metadata.mjs dist"
@@ -43,6 +45,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@pilotdeck/config": "workspace:*",
     "@google/genai": "^2.10.0",
     "@larksuiteoapi/node-sdk": "^1.65.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -63,8 +66,10 @@
     "slice-ansi": "^9.0.0",
     "string-width": "^8.2.1",
     "strip-ansi": "^7.2.0",
+    "tree-sitter-bash": "0.25.0",
     "turndown": "^7.2.4",
     "undici": "^8.2.0",
+    "web-tree-sitter": "0.25.10",
     "weixin-ilink": "^0.1.0",
     "ws": "^8.21.0",
     "yaml": "^2.8.4"

@@ -12,6 +12,11 @@ import type { Gateway, GatewayEvent } from "../../../gateway/index.js";
  *   2. Formats the question(s) as a numbered-option text message.
  *   3. When the user's next message arrives, resolves the pending elicitation
  *      by mapping the reply (a number or label) back to the original option.
+ *
+ * Mirrored elicitations (a Web turn that the approval center offers to a chat
+ * channel) live in the same queue as the native ones — never in the permission
+ * queue, so an answer to a question can never be read as a permission
+ * decision.
  */
 
 type PendingElicitation = {
@@ -23,6 +28,27 @@ type PendingElicitation = {
     options: Array<{ label: string; description: string }>;
     multiSelect?: boolean;
   }>;
+  /** Set when the request was mirrored from another channel. */
+  mirrored?: boolean;
+  expiresAt?: number;
+};
+
+export type MirroredElicitationRequest = {
+  sessionKey: string;
+  requestId: string;
+  questions: PendingElicitation["questions"];
+  expiresAt?: number;
+};
+
+export type ImElicitationAnswerOptions = {
+  actor?: string;
+  origin?: "web" | "im" | "system" | "api";
+  /** Channel the answer comes from; used for the approval binding check. */
+  channelKey?: string;
+  /** Chat the answer comes from. */
+  chatId?: string;
+  /** Provenance of `actor`. */
+  actorSource?: "channel_identity" | "client_reported";
 };
 
 export class ImElicitationHelper {
@@ -39,20 +65,36 @@ export class ImElicitationHelper {
       questions: event.questions,
     });
 
-    const lines: string[] = [];
-    for (const q of event.questions) {
-      if (q.header) lines.push(`**${q.header}**`);
-      if (q.question) lines.push(q.question);
-      for (let i = 0; i < q.options.length; i++) {
-        const opt = q.options[i];
-        lines.push(`${i + 1}. ${opt.label}${opt.description ? ` — ${opt.description}` : ""}`);
-      }
-    }
-    lines.push("", "回复数字选择（多选用逗号分隔），回复 0 取消。");
-    return lines.join("\n");
+    return this.formatQuestions(event.questions);
+  }
+
+  /**
+   * Register a request that the approval center mirrored into this channel.
+   * The reply is answered through the elicitation path, so it can never be
+   * mistaken for a permission decision.
+   */
+  captureMirrored(chatId: string, request: MirroredElicitationRequest): string | undefined {
+    this.pruneExpired(chatId);
+    if (this.pending.has(chatId)) return undefined;
+    this.pending.set(chatId, {
+      sessionKey: request.sessionKey,
+      requestId: request.requestId,
+      questions: request.questions,
+      mirrored: true,
+      ...(request.expiresAt !== undefined ? { expiresAt: request.expiresAt } : {}),
+    });
+    return this.formatQuestions(request.questions);
+  }
+
+  /** Drop a mirrored request again (delivery failed). */
+  removeMirrored(chatId: string, requestId: string): void {
+    const entry = this.pending.get(chatId);
+    if (!entry) return;
+    if (entry.mirrored && entry.requestId === requestId) this.pending.delete(chatId);
   }
 
   hasPending(chatId: string): boolean {
+    this.pruneExpired(chatId);
     return this.pending.has(chatId);
   }
 
@@ -61,7 +103,13 @@ export class ImElicitationHelper {
    * Parses the reply, calls `gateway.respondElicitation`, and clears state.
    * Returns a confirmation string to send back, or undefined if nothing to say.
    */
-  async answer(chatId: string, text: string, gateway: Gateway): Promise<string | undefined> {
+  async answer(
+    chatId: string,
+    text: string,
+    gateway: Gateway,
+    options?: ImElicitationAnswerOptions,
+  ): Promise<string | undefined> {
+    this.pruneExpired(chatId);
     const entry = this.pending.get(chatId);
     if (!entry) return undefined;
     this.pending.delete(chatId);
@@ -73,6 +121,11 @@ export class ImElicitationHelper {
         sessionKey: entry.sessionKey,
         requestId: entry.requestId,
         answer: { type: "cancelled", reason: "user cancelled" },
+        ...(options?.actor !== undefined ? { actor: options.actor } : {}),
+        ...(options?.origin !== undefined ? { origin: options.origin } : { origin: "im" }),
+        ...(options?.channelKey !== undefined ? { channelKey: options.channelKey } : {}),
+        ...(options?.chatId !== undefined ? { chatId: options.chatId } : {}),
+        ...(options?.actorSource !== undefined ? { actorSource: options.actorSource } : {}),
       });
       return "已取消。";
     }
@@ -100,11 +153,40 @@ export class ImElicitationHelper {
       sessionKey: entry.sessionKey,
       requestId: entry.requestId,
       answer: { type: "answered", answers },
+      ...(options?.actor !== undefined ? { actor: options.actor } : {}),
+      ...(options?.origin !== undefined ? { origin: options.origin } : { origin: "im" }),
+      ...(options?.channelKey !== undefined ? { channelKey: options.channelKey } : {}),
+      ...(options?.chatId !== undefined ? { chatId: options.chatId } : {}),
+      ...(options?.actorSource !== undefined ? { actorSource: options.actorSource } : {}),
     });
     return undefined;
   }
 
   clear(chatId: string): void {
     this.pending.delete(chatId);
+  }
+
+  /** Drop mirrored questions whose TTL elapsed. */
+  private pruneExpired(chatId: string): void {
+    const entry = this.pending.get(chatId);
+    if (!entry || entry.expiresAt === undefined) return;
+    if (entry.expiresAt > Date.now()) return;
+    this.pending.delete(chatId);
+  }
+
+  private formatQuestions(
+    questions: PendingElicitation["questions"],
+  ): string {
+    const lines: string[] = [];
+    for (const q of questions) {
+      if (q.header) lines.push(`**${q.header}**`);
+      if (q.question) lines.push(q.question);
+      for (let i = 0; i < q.options.length; i++) {
+        const opt = q.options[i];
+        lines.push(`${i + 1}. ${opt.label}${opt.description ? ` — ${opt.description}` : ""}`);
+      }
+    }
+    lines.push("", "回复数字选择（多选用逗号分隔），回复 0 取消。");
+    return lines.join("\n");
   }
 }

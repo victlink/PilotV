@@ -3,6 +3,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { Socket } from "node:net";
 import type { Duplex } from "node:stream";
 import { resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { requestContextHeaders, safeHeaderValue, withRequestContext } from "../../network/requestContext.js";
 import type { Gateway } from "../protocol/types.js";
 import { createWebSocketAcceptValue, TextWebSocketConnection } from "./websocket.js";
 import { GatewayWsConnection } from "./GatewayWsConnection.js";
@@ -33,6 +35,8 @@ export type GatewayServerOptions = {
 };
 
 export type GatewayServer = {
+  /** Actual bound port, including default HTTP ports and ephemeral allocation. */
+  port: number;
   url: string;
   wsUrl: string;
   token: string;
@@ -63,6 +67,7 @@ export async function startGatewayServer(options: GatewayServerOptions): Promise
   const address = server.address();
   const port = typeof address === "object" && address ? address.port : options.port ?? 18789;
   return {
+    port,
     url: `http://${host}:${port}`,
     wsUrl: `ws://${host}:${port}/ws`,
     token: auth.token,

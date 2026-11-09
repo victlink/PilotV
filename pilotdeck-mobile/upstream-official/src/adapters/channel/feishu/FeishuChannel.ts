@@ -1,4 +1,4 @@
-import { createDecipheriv, createHash } from "node:crypto";
+import { createDecipheriv, createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +13,10 @@ import { deliverChatCronResult } from "../protocol/ImCronDelivery.js";
 import { ImElicitationHelper } from "../protocol/ImElicitationHelper.js";
 import { ImPermissionHelper } from "../protocol/ImPermissionHelper.js";
 import {
+  deliverApprovalPrompt,
+  deliverElicitationPrompt,
+} from "../protocol/ApprovalPromptDelivery.js";
+import {
   ImLiveReplyController,
   type ImLiveReplyControllerOptions,
   type ImLiveReplyTransport,
@@ -20,6 +24,7 @@ import {
 import { FeishuSessionMapper, type FeishuSessionMapperState } from "./FeishuSessionMapper.js";
 import { type FeishuLiveCardActivityKind } from "./feishu-render.js";
 import { createVisibleErrorStatusDetail } from "../../../status/agentStatus.js";
+import type { ApprovalPromptRoute } from "../../../approval/ApprovalRouter.js";
 
 let Lark: any = null;
 let larkLoadAttempted = false;
@@ -35,18 +40,24 @@ async function loadLarkSdk(): Promise<any> {
   return Lark;
 }
 
-const TENANT_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
-const SEND_MESSAGE_URL = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id";
-const FEISHU_IMAGE_UPLOAD_URL = "https://open.feishu.cn/open-apis/im/v1/images";
-const FEISHU_FILE_UPLOAD_URL = "https://open.feishu.cn/open-apis/im/v1/files";
-const FEISHU_MESSAGE_RESOURCE_URL = "https://open.feishu.cn/open-apis/im/v1/messages";
-const REACTION_URL = "https://open.feishu.cn/open-apis/im/v1/messages";
-const UPDATE_MESSAGE_URL = "https://open.feishu.cn/open-apis/im/v1/messages";
+const TENANT_TOKEN_PATH = "/open-apis/auth/v3/tenant_access_token/internal";
+const SEND_MESSAGE_PATH = "/open-apis/im/v1/messages?receive_id_type=chat_id";
+const FEISHU_IMAGE_UPLOAD_PATH = "/open-apis/im/v1/images";
+const FEISHU_FILE_UPLOAD_PATH = "/open-apis/im/v1/files";
+const FEISHU_MESSAGES_PATH = "/open-apis/im/v1/messages";
+const FEISHU_OPEN_API_BASE = {
+  feishu: "https://open.feishu.cn",
+  lark: "https://open.larksuite.com",
+} as const;
 const PROCESSING_EMOJI = "OnIt";
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 const SEEN_EVENTS_MAX = 2000;
 const MAX_TEXT_MESSAGE_LENGTH = 4000;
 const DEFAULT_LIVE_REPLY_CURSOR = " ▉";
+/** Feishu rejects edits past 20 per message (error 230072). */
+const FEISHU_MAX_EDITS_PER_MESSAGE = 20;
+/** Pace live edits so one message streams for ~30s before rolling over. */
+const FEISHU_MIN_EDIT_INTERVAL_MS = 1_500;
 const FEISHU_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const FEISHU_ATTACHMENT_FETCH_TIMEOUT_MS = 60_000;
 const FEISHU_MAX_PENDING_TURNS_PER_CHAT = 20;
@@ -94,12 +105,14 @@ export type FeishuChannelOptions = {
 };
 
 type ParsedEvent =
+  | { kind: "unauthorized" }
   | { kind: "url_verification"; challenge: string }
   | {
       kind: "message";
       eventId: string;
       chatId: string;
       text: string;
+      senderId?: string;
       messageId?: string;
       messageType?: string;
       content?: string;
@@ -109,6 +122,7 @@ type ParsedEvent =
 type FeishuInboundMessage = {
   chatId: string;
   text: string;
+  senderId?: string;
   eventId: string;
   messageId?: string;
   messageType?: string;
@@ -133,6 +147,26 @@ type FeishuInboundBatch = {
 export class FeishuChannel implements ChannelAdapter {
   readonly channelKey = "feishu";
 
+  async routeApprovalPrompt(route: ApprovalPromptRoute): Promise<boolean> {
+    if (route.kind === "elicitation") {
+      // An elicitation is a question, not an authorization: it goes into the
+      // elicitation queue so the reply can never be read as a permission
+      // decision.
+      return deliverElicitationPrompt({
+        helper: this.elicitation,
+        route,
+        send: async (chatId, text) => this.send({ chatId, text }),
+        logger: this.logger,
+      });
+    }
+    return deliverApprovalPrompt({
+      helper: this.permissions,
+      route,
+      send: async (chatId, text) => this.send({ chatId, text }),
+      logger: this.logger,
+    });
+  }
+
   private readonly mapper: FeishuSessionMapper;
   private readonly explicitSend?: (message: FeishuOutboundMessage) => Promise<void>;
   private readonly liveReplyOptions?: FeishuChannelOptions["liveReplyOptions"];
@@ -144,6 +178,7 @@ export class FeishuChannel implements ChannelAdapter {
   private verifyToken?: string;
   private connectionMode: FeishuConnectionMode;
   private domainName: "feishu" | "lark";
+  private readonly domainNameExplicit: boolean;
   private permissionMode?: "default" | "bypassPermissions";
 
   private gateway?: Gateway;
@@ -159,15 +194,20 @@ export class FeishuChannel implements ChannelAdapter {
   private readonly permissionAnsweringTokens = new Map<string, number>();
   private nextPermissionAnsweringToken = 1;
   private readonly elicitation = new ImElicitationHelper();
-  private readonly permissions = new ImPermissionHelper();
+  private readonly permissions = new ImPermissionHelper({ channelKey: this.channelKey });
   private readonly attachmentStore = new ImAttachmentStore({
     rootDir: join(homedir(), ".pilotdeck", "im-attachments"),
     channelKey: "feishu",
     maxBytes: FEISHU_MAX_ATTACHMENT_BYTES,
     fetchTimeoutMs: FEISHU_ATTACHMENT_FETCH_TIMEOUT_MS,
+    fetchImpl: (url, init) => this.fetchApi(url, init),
   });
 
   private wsClient: any = null;
+  private stopped = true;
+  private readonly stopAbort = new AbortController();
+  private readonly activeReplies = new Map<string, ImLiveReplyController<FeishuLiveMessageHandle>>();
+  private readonly watchdogs = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(options: FeishuChannelOptions = {}) {
     this.mapper = options.mapper ?? new FeishuSessionMapper();
@@ -179,6 +219,7 @@ export class FeishuChannel implements ChannelAdapter {
     this.verifyToken = options.verifyToken;
     this.connectionMode = options.connectionMode ?? "stream";
     this.domainName = options.domainName ?? "feishu";
+    this.domainNameExplicit = options.domainName !== undefined;
     this.permissionMode = options.permissionMode;
     this.onStateChange = options.onStateChange;
   }
@@ -194,6 +235,11 @@ export class FeishuChannel implements ChannelAdapter {
       this.encryptKey = this.encryptKey ?? cfg.encryptKey;
       this.verifyToken = this.verifyToken ?? cfg.verifyToken;
       this.permissionMode = this.permissionMode ?? cfg.permissionMode;
+      // Constructor options win: on hot reload deps.config is still the startup
+      // snapshot, so it must not undo a domain switch the new instance was built with.
+      if (!this.domainNameExplicit && (cfg.domainName === "lark" || cfg.domainName === "feishu")) {
+        this.domainName = cfg.domainName;
+      }
     }
 
     if (!this.explicitSend && (!this.appId || !this.appSecret)) {
@@ -201,18 +247,19 @@ export class FeishuChannel implements ChannelAdapter {
         "feishu: appId/appSecret not configured; outbound replies will not be sent. " +
           "Configure adapters.feishu.appId/appSecret in pilotdeck.yaml.",
       );
+      deps.reportChannelStatus?.("feishu", { state: "failed", message: "feishu: app credentials missing" });
       return { stop: async () => undefined };
     }
 
+    this.stopped = false;
     if (this.connectionMode === "stream") {
-      const ok = await this.startStreamMode();
-      if (!ok) {
-        this.logger?.warn?.(
-          "feishu: stream mode failed to start; falling back to webhook-only " +
-            "(set adapters.feishu.connectionMode: webhook in pilotdeck.yaml to silence this).",
-        );
+      deps.reportChannelStatus?.("feishu", { state: "starting", message: "feishu: stream connecting" });
+      const ok = await this.startStreamMode(deps.reportChannelStatus);
+      if (!ok && !this.stopped) {
+        deps.reportChannelStatus?.("feishu", { state: "failed", message: "feishu: stream connection failed" });
       }
     } else {
+      deps.reportChannelStatus?.("feishu", { state: "connected", message: "feishu: webhook ready" });
       this.logger?.info?.(
         `feishu: ready in webhook mode (appId=${maskAppId(this.appId)}); waiting for POST /feishu/webhook`,
       );
@@ -221,15 +268,49 @@ export class FeishuChannel implements ChannelAdapter {
     return {
       stop: async (reason?: string) => {
         this.logger?.info?.(`feishu: stopping (${reason ?? "no reason"})`);
-        if (this.wsClient && typeof this.wsClient.stop === "function") {
-          try { this.wsClient.stop(); } catch { /* best effort */ }
-        }
+        this.stopped = true;
+        this.stopAbort.abort();
+        const aborts = this.cancelActiveTurns(reason);
+        const client = this.wsClient;
         this.wsClient = null;
+        try { client?.close({ force: true }); } catch { /* best effort */ }
+        await aborts;
       },
     };
   }
 
-  private async startStreamMode(): Promise<boolean> {
+  private async cancelActiveTurns(reason?: string): Promise<void> {
+    const aborts: Promise<void>[] = [];
+    const chats = new Set([...this.activeChats, ...this.inboundBatches.keys()]);
+    for (const chatId of chats) {
+      const run = this.chatState.activeRun(chatId);
+      const batch = this.inboundBatches.get(chatId);
+      if (batch) batch.messages.length = 0;
+      this.resetChatInteractionState(chatId);
+      if (run && this.gateway) {
+        aborts.push(this.gateway.abortTurn({
+          sessionKey: run.sessionKey,
+          ...(run.runId ? { runId: run.runId } : {}),
+          reason: reason ?? "channel stopped",
+        }).catch((error: unknown) => {
+          this.logger?.warn?.(`feishu: abort on stop failed: ${formatError(error)}`);
+        }));
+      }
+    }
+    this.permissionAnsweringChats.clear();
+    this.permissionAnsweringTokens.clear();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.all(aborts),
+        new Promise<void>((resolve) => { timer = setTimeout(resolve, 5_000); }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private async startStreamMode(reportStatus: ChannelStartDeps["reportChannelStatus"]): Promise<boolean> {
     const sdk = await loadLarkSdk();
     if (!sdk) {
       this.logger?.error?.(
@@ -254,15 +335,30 @@ export class FeishuChannel implements ChannelAdapter {
           ? sdk.Domain?.Lark ?? "https://open.larksuite.com"
           : sdk.Domain?.Feishu ?? "https://open.feishu.cn";
 
-      this.wsClient = new sdk.WSClient({
+      const report = (state: "connected" | "starting" | "failed", message: string, error?: unknown) => {
+        if (this.stopped || this.wsClient !== client) return;
+        reportStatus?.("feishu", {
+          state,
+          message,
+          ...(error !== undefined ? { error: formatError(error) } : {}),
+        });
+      };
+      const client = new sdk.WSClient({
         appId: this.appId,
         appSecret: this.appSecret,
         domain,
         loggerLevel: sdk.LoggerLevel?.info ?? 2,
+        onReady: () => report("connected", "feishu: stream connected"),
+        onError: (error: unknown) => report("failed", "feishu: stream connection failed", error),
+        onReconnecting: () => report("starting", "feishu: stream reconnecting"),
+        onReconnected: () => report("connected", "feishu: stream connected"),
       });
+      this.wsClient = client;
 
-      await this.wsClient.start({ eventDispatcher: dispatcher });
-      this.logger?.info?.(`feishu: stream mode connected (appId=${maskAppId(this.appId)})`);
+      await client.start({ eventDispatcher: dispatcher });
+      const state = client.getConnectionStatus?.().state;
+      if (state === "failed" || state === "idle") return false;
+      this.logger?.info?.(`feishu: stream client started (appId=${maskAppId(this.appId)})`);
       return true;
     } catch (e) {
       this.logger?.error?.(`feishu: stream mode start failed: ${e}`);
@@ -271,6 +367,7 @@ export class FeishuChannel implements ChannelAdapter {
   }
 
   private async handleStreamEvent(data: unknown): Promise<void> {
+    if (this.stopped) return;
     const raw = data as Record<string, unknown>;
     const message = (raw.message ?? (raw as { event?: { message?: unknown } }).event?.message) as
       | { chat_id?: string; content?: string; message_type?: string; message_id?: string }
@@ -295,16 +392,21 @@ export class FeishuChannel implements ChannelAdapter {
       messageId,
       messageType: message.message_type,
       content: message.content,
+      senderId: extractFeishuSenderId(raw),
     });
   }
 
   async handleWebhook(request: IncomingMessage, response: ServerResponse, body: string): Promise<boolean> {
-    if (!this.gateway) {
+    if (!this.gateway || this.stopped) {
       respondJson(response, 503, { error: "feishu_not_started" });
       return true;
     }
 
-    const parsed = this.parseInbound(body);
+    const parsed = this.parseInbound(body, request.headers ?? {});
+    if (parsed.kind === "unauthorized") {
+      respondJson(response, 401, { error: "invalid_feishu_webhook_auth" });
+      return true;
+    }
 
     if (parsed.kind === "url_verification") {
       respondJson(response, 200, { challenge: parsed.challenge });
@@ -328,6 +430,7 @@ export class FeishuChannel implements ChannelAdapter {
   }
 
   private enqueueInboundMessage(input: FeishuInboundMessage): void {
+    if (this.stopped) return;
     if (this.tryHandlePendingInteraction(input)) return;
 
     const batch = this.inboundBatches.get(input.chatId) ?? { messages: [], draining: false };
@@ -346,7 +449,7 @@ export class FeishuChannel implements ChannelAdapter {
   private tryHandlePendingInteraction(input: FeishuInboundMessage): boolean {
     if (!this.gateway) return false;
     if (this.elicitation.hasPending(input.chatId)) {
-      void this.answerPendingElicitation(input.chatId, input.text).catch((e: unknown) => {
+      void this.answerPendingElicitation(input.chatId, input.text, input.senderId).catch((e: unknown) => {
         this.logger?.error?.(`feishu: elicitation answer error: ${e}`);
       });
       return true;
@@ -356,7 +459,7 @@ export class FeishuChannel implements ChannelAdapter {
       const answeringToken = this.nextPermissionAnsweringToken++;
       this.permissionAnsweringChats.add(input.chatId);
       this.permissionAnsweringTokens.set(input.chatId, answeringToken);
-      void this.answerPendingPermission(input.chatId, input.text)
+      void this.answerPendingPermission(input.chatId, input.text, input.senderId)
         .catch((e: unknown) => {
           this.logger?.error?.(`feishu: permission answer error: ${e}`);
         })
@@ -370,17 +473,29 @@ export class FeishuChannel implements ChannelAdapter {
     return false;
   }
 
-  private async answerPendingElicitation(chatId: string, text: string): Promise<void> {
+  private async answerPendingElicitation(chatId: string, text: string, actor?: string): Promise<void> {
     if (!this.gateway) return;
-    const confirmation = await this.elicitation.answer(chatId, text, this.gateway);
+    const confirmation = await this.elicitation.answer(chatId, text, this.gateway, {
+      ...(actor ? { actor } : {}),
+      origin: "im",
+      channelKey: this.channelKey,
+      chatId,
+      actorSource: "channel_identity",
+    });
     if (confirmation) await this.send({ chatId, text: confirmation });
   }
 
-  private async answerPendingPermission(chatId: string, text: string): Promise<void> {
+  private async answerPendingPermission(chatId: string, text: string, actor?: string): Promise<void> {
     if (!this.gateway) return;
     let answerToken: number | undefined;
     try {
-      const answer = await this.permissions.answerWithState(chatId, text, this.gateway);
+      const answer = await this.permissions.answerWithState(chatId, text, this.gateway, {
+        ...(actor ? { actor } : {}),
+        origin: "im",
+        channelKey: this.channelKey,
+        chatId,
+        actorSource: "channel_identity",
+      });
       answerToken = answer?.answerToken;
       if (answer?.text) {
         const confirmationDelivered = await this.send({ chatId, text: answer.text });
@@ -405,10 +520,10 @@ export class FeishuChannel implements ChannelAdapter {
 
   private async drainInboundBatch(chatId: string): Promise<void> {
     const batch = this.inboundBatches.get(chatId);
-    if (!batch || batch.draining) return;
+    if (this.stopped || !batch || batch.draining) return;
     batch.draining = true;
     try {
-      while (batch.messages.length > 0) {
+      while (!this.stopped && batch.messages.length > 0) {
         const messages = batch.messages.splice(0);
         const grouped = groupFeishuInboundMessages(messages);
         for (const group of grouped) {
@@ -417,7 +532,7 @@ export class FeishuChannel implements ChannelAdapter {
       }
     } finally {
       batch.draining = false;
-      if (batch.messages.length === 0) {
+      if (this.stopped || batch.messages.length === 0) {
         this.inboundBatches.delete(chatId);
       } else {
         this.inboundBatches.set(chatId, batch);
@@ -429,11 +544,12 @@ export class FeishuChannel implements ChannelAdapter {
   }
 
   private async processInboundMessages(inputs: FeishuInboundMessage[]): Promise<void> {
-    if (!this.gateway) return;
+    if (!this.gateway || this.stopped) return;
     const first = inputs[0];
     if (!first) return;
     const chatId = first.chatId;
     const attachmentResults = await Promise.all(inputs.map((input) => this.extractIncomingAttachments(input)));
+    if (this.stopped) return;
     const attachments = attachmentResults.flatMap((result) => result.attachments);
     const diagnostics = attachmentResults.flatMap((result) => result.diagnostics);
     const text = mergeTextAndDiagnostics(inputs.map((input) => input.text).filter(Boolean).join("\n"), diagnostics);
@@ -442,7 +558,7 @@ export class FeishuChannel implements ChannelAdapter {
 
     if (this.elicitation.hasPending(chatId)) {
       try {
-        await this.answerPendingElicitation(chatId, messageText);
+        await this.answerPendingElicitation(chatId, messageText, first.senderId);
       } catch (e) {
         this.logger?.error?.(`feishu: elicitation answer error: ${e}`);
       }
@@ -451,7 +567,7 @@ export class FeishuChannel implements ChannelAdapter {
 
     if (this.permissions.hasPending(chatId)) {
       try {
-        await this.answerPendingPermission(chatId, messageText);
+        await this.answerPendingPermission(chatId, messageText, first.senderId);
       } catch (e) {
         this.logger?.error?.(`feishu: permission answer error: ${e}`);
       }
@@ -493,7 +609,7 @@ export class FeishuChannel implements ChannelAdapter {
       if (handled) return;
     }
 
-    if (!mapped.message) return;
+    if (!mapped.message || this.stopped) return;
 
     if (this.activeChats.has(chatId)) {
       this.chatState.queueTurn(chatId, {
@@ -519,6 +635,11 @@ export class FeishuChannel implements ChannelAdapter {
   }
 
   private resetChatInteractionState(chatId: string): void {
+    this.activeReplies.get(chatId)?.cancel();
+    this.activeReplies.delete(chatId);
+    const watchdog = this.watchdogs.get(chatId);
+    if (watchdog) clearTimeout(watchdog);
+    this.watchdogs.delete(chatId);
     this.chatState.resetForNewSession(chatId);
     this.elicitation.clear(chatId);
     this.permissionAnsweringTokens.delete(chatId);
@@ -533,7 +654,7 @@ export class FeishuChannel implements ChannelAdapter {
     this.activeChats.add(chatId);
     try {
       let nextTurn: QueuedFeishuTurn | undefined = firstTurn;
-      while (nextTurn) {
+      while (nextTurn && !this.stopped) {
         await this.processTurn(chatId, nextTurn);
         nextTurn = this.chatState.shiftTurn(chatId);
       }
@@ -544,23 +665,28 @@ export class FeishuChannel implements ChannelAdapter {
 
   private async processTurn(chatId: string, turn: QueuedFeishuTurn): Promise<void> {
     if (!this.gateway) return;
-    const isCurrentTurn = () => this.chatState.isCurrent(chatId, turn.generation);
+    const isCurrentTurn = () => !this.stopped && this.chatState.isCurrent(chatId, turn.generation);
     if (!isCurrentTurn()) return;
-    const reactionId = turn.messageId ? await this.addReaction(turn.messageId) : undefined;
+    // The "processing" reaction is cosmetic; start it alongside the turn so a
+    // Feishu round trip never delays handing the message to the agent.
+    const reactionPromise = turn.messageId ? this.addReaction(turn.messageId) : Promise.resolve(undefined);
     try {
       let activeRunId: string | undefined;
       let watchdogSettled = false;
       const liveReply = new ImLiveReplyController<FeishuLiveMessageHandle>({
+        minEditIntervalMs: FEISHU_MIN_EDIT_INTERVAL_MS,
         ...this.liveReplyOptions,
-        transport: this.createLiveReplyTransport(chatId),
+        transport: this.createLiveReplyTransport(chatId, isCurrentTurn),
         onTransportError: (error, phase) => {
           this.logger?.warn?.(`feishu: live reply ${phase} failed: ${error}`);
         },
       });
+      this.activeReplies.set(chatId, liveReply);
+      this.chatState.setActiveRun(chatId, { sessionKey: turn.sessionKey, generation: turn.generation });
       const turnTimeoutMs = this.liveReplyOptions?.turnTimeoutMs ?? 600_000;
       const watchdog = turnTimeoutMs > 0
         ? setTimeout(() => {
-            if (watchdogSettled) return;
+            if (watchdogSettled || !isCurrentTurn()) return;
             watchdogSettled = true;
             this.logger?.warn?.(`feishu: live reply timed out for chat ${chatId}`);
             void liveReply.markTimedOut().catch((error: unknown) => {
@@ -573,6 +699,7 @@ export class FeishuChannel implements ChannelAdapter {
           }, turnTimeoutMs)
         : undefined;
       watchdog?.unref?.();
+      if (watchdog) this.watchdogs.set(chatId, watchdog);
       try {
         for await (const event of this.gateway.submitTurn({
           sessionKey: turn.sessionKey,
@@ -584,7 +711,12 @@ export class FeishuChannel implements ChannelAdapter {
           timeoutMs: turnTimeoutMs,
           ...(turn.projectKey ? { projectKey: turn.projectKey } : {}),
         })) {
-          if (!isCurrentTurn()) break;
+          if (!isCurrentTurn()) {
+            if (event.type === "turn_started") {
+              void this.gateway.abortTurn({ sessionKey: turn.sessionKey, runId: event.runId }).catch(() => undefined);
+            }
+            break;
+          }
           if (event.type === "turn_started") {
             activeRunId = event.runId;
             this.chatState.setActiveRun(chatId, { sessionKey: turn.sessionKey, runId: activeRunId, generation: turn.generation });
@@ -592,13 +724,13 @@ export class FeishuChannel implements ChannelAdapter {
           if (event.type === "elicitation_request") {
             const questionText = this.elicitation.capture(chatId, turn.sessionKey, event);
             await liveReply.pauseActivity();
-            await this.send({ chatId, text: questionText });
+            if (isCurrentTurn()) await this.send({ chatId, text: questionText });
             continue;
           }
           if (event.type === "permission_request") {
             const questionText = this.permissions.capture(chatId, turn.sessionKey, event);
             await liveReply.pauseActivity();
-            if (questionText) this.permissions.confirmInitialPrompt(chatId, await this.send({ chatId, text: questionText }), event.requestId);
+            if (questionText && isCurrentTurn()) this.permissions.confirmInitialPrompt(chatId, await this.send({ chatId, text: questionText }), event.requestId);
             continue;
           }
           if (event.type === "error" && event.code === "agent_aborted") {
@@ -610,13 +742,14 @@ export class FeishuChannel implements ChannelAdapter {
             continue;
           }
           if (event.type === "assistant_attachment") {
-            await liveReply.flushFinal();
-            await this.sendAttachment(chatId, event.attachment);
+            await liveReply.flushSegment({ finalizeActivityOnly: false });
+            if (isCurrentTurn()) await this.sendAttachment(chatId, event.attachment);
             continue;
           }
           await liveReply.handleEvent(event);
         }
       } catch (e) {
+        if (!isCurrentTurn()) return;
         this.logger?.error?.(`feishu: submitTurn error: ${e}`);
         await liveReply.handleEvent({
           type: "agent_status",
@@ -635,16 +768,23 @@ export class FeishuChannel implements ChannelAdapter {
       } finally {
         watchdogSettled = true;
         if (watchdog) clearTimeout(watchdog);
+        if (this.watchdogs.get(chatId) === watchdog) this.watchdogs.delete(chatId);
       }
 
       if (isCurrentTurn()) {
         this.elicitation.clear(chatId);
         this.permissions.clearAfterTurn(chatId);
       }
-      await liveReply.flushFinal();
+      if (isCurrentTurn()) await liveReply.flushFinal();
+      else liveReply.cancel();
     } finally {
-      if (reactionId && turn.messageId) {
-        await this.removeReaction(turn.messageId, reactionId);
+      this.activeReplies.delete(chatId);
+      if (turn.messageId) {
+        const messageId = turn.messageId;
+        void reactionPromise.then((reactionId) => {
+          if (reactionId) return this.removeReaction(messageId, reactionId);
+          return undefined;
+        });
       }
       const activeRun = this.chatState.activeRun(chatId);
       if (activeRun?.generation === turn.generation) {
@@ -659,12 +799,14 @@ export class FeishuChannel implements ChannelAdapter {
     );
   }
 
-  private createLiveReplyTransport(chatId: string): ImLiveReplyTransport<FeishuLiveMessageHandle> {
+  private createLiveReplyTransport(chatId: string, isCurrent: () => boolean): ImLiveReplyTransport<FeishuLiveMessageHandle> {
     const liveCursor = this.liveReplyOptions?.cursor ?? DEFAULT_LIVE_REPLY_CURSOR;
     let liveHandle: FeishuLiveMessageHandle | undefined;
     return {
       maxMessageLength: MAX_TEXT_MESSAGE_LENGTH,
+      maxEditsPerMessage: FEISHU_MAX_EDITS_PER_MESSAGE,
       send: async (text) => {
+        if (!isCurrent()) return false;
         const result = await this.sendLiveMessage({ chatId, text }, {
           isFinal: !text.endsWith(liveCursor),
           activityKind: this.liveActivityKindFromText(text),
@@ -674,6 +816,7 @@ export class FeishuChannel implements ChannelAdapter {
         return liveHandle;
       },
       edit: async (handle, text) => {
+        if (!isCurrent()) return false;
         liveHandle = handle;
         return this.editLiveMessage(handle, text, {
           isFinal: !text.endsWith(liveCursor),
@@ -712,7 +855,7 @@ export class FeishuChannel implements ChannelAdapter {
     const form = new FormData();
     form.set("image_type", "message");
     form.set("image", new Blob([new Uint8Array(prepared.buffer)], { type: prepared.mimeType ?? "application/octet-stream" }), prepared.name);
-    const res = await fetch(FEISHU_IMAGE_UPLOAD_URL, {
+    const res = await this.fetchApi(this.openApiUrl(FEISHU_IMAGE_UPLOAD_PATH), {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: form,
@@ -731,7 +874,7 @@ export class FeishuChannel implements ChannelAdapter {
     form.set("file_type", inferFeishuFileType(prepared.name, prepared.mimeType));
     form.set("file_name", prepared.name);
     form.set("file", new Blob([new Uint8Array(prepared.buffer)], { type: prepared.mimeType ?? "application/octet-stream" }), prepared.name);
-    const res = await fetch(FEISHU_FILE_UPLOAD_URL, {
+    const res = await this.fetchApi(this.openApiUrl(FEISHU_FILE_UPLOAD_PATH), {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: form,
@@ -767,7 +910,7 @@ export class FeishuChannel implements ChannelAdapter {
       if (messageType === "image") {
         const imageKey = readString(content.image_key);
         if (!imageKey) throw new Error("image_key missing");
-        const url = `${FEISHU_MESSAGE_RESOURCE_URL}/${encodeURIComponent(input.messageId)}/resources/${encodeURIComponent(imageKey)}?type=image`;
+        const url = this.openApiUrl(`${FEISHU_MESSAGES_PATH}/${encodeURIComponent(input.messageId)}/resources/${encodeURIComponent(imageKey)}?type=image`);
         const attachment = await this.attachmentStore.saveFromUrl({
           url,
           chatId: input.chatId,
@@ -784,7 +927,7 @@ export class FeishuChannel implements ChannelAdapter {
       if (!fileKey) throw new Error("file_key missing");
       const name = readString(content.file_name) ?? readString(content.name) ?? fileKey;
       const bytes = readNumber(content.size);
-      const url = `${FEISHU_MESSAGE_RESOURCE_URL}/${encodeURIComponent(input.messageId)}/resources/${encodeURIComponent(fileKey)}?type=file`;
+      const url = this.openApiUrl(`${FEISHU_MESSAGES_PATH}/${encodeURIComponent(input.messageId)}/resources/${encodeURIComponent(fileKey)}?type=file`);
       const attachment = await this.attachmentStore.saveFromUrl({
         url,
         chatId: input.chatId,
@@ -815,6 +958,7 @@ export class FeishuChannel implements ChannelAdapter {
   }
 
   private async sendTextMessage(message: FeishuOutboundMessage): Promise<string | undefined | false> {
+    if (this.stopAbort.signal.aborted) return false;
     if (this.explicitSend) {
       try {
         await this.explicitSend(message);
@@ -835,7 +979,7 @@ export class FeishuChannel implements ChannelAdapter {
 
     try {
       const token = await this.getTenantAccessToken();
-      const res = await fetch(SEND_MESSAGE_URL, {
+      const res = await this.fetchApi(this.openApiUrl(SEND_MESSAGE_PATH), {
         method: "POST",
         headers: {
           "Content-Type": "application/json; charset=utf-8",
@@ -885,7 +1029,7 @@ export class FeishuChannel implements ChannelAdapter {
 
     try {
       const token = await this.getTenantAccessToken();
-      const res = await fetch(`${UPDATE_MESSAGE_URL}/${encodeURIComponent(messageId)}`, {
+      const res = await this.fetchApi(this.openApiUrl(`${FEISHU_MESSAGES_PATH}/${encodeURIComponent(messageId)}`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json; charset=utf-8",
@@ -920,7 +1064,7 @@ export class FeishuChannel implements ChannelAdapter {
 
     try {
       const token = await this.getTenantAccessToken();
-      const res = await fetch(SEND_MESSAGE_URL, {
+      const res = await this.fetchApi(this.openApiUrl(SEND_MESSAGE_PATH), {
         method: "POST",
         headers: {
           "Content-Type": "application/json; charset=utf-8",
@@ -960,7 +1104,7 @@ export class FeishuChannel implements ChannelAdapter {
 
     try {
       const token = await this.getTenantAccessToken();
-      const res = await fetch(`${UPDATE_MESSAGE_URL}/${encodeURIComponent(messageId)}`, {
+      const res = await this.fetchApi(this.openApiUrl(`${FEISHU_MESSAGES_PATH}/${encodeURIComponent(messageId)}`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json; charset=utf-8",
@@ -996,7 +1140,7 @@ export class FeishuChannel implements ChannelAdapter {
     if (!this.appId || !this.appSecret) return undefined;
     try {
       const token = await this.getTenantAccessToken();
-      const res = await fetch(`${REACTION_URL}/${messageId}/reactions`, {
+      const res = await this.fetchApi(this.openApiUrl(`${FEISHU_MESSAGES_PATH}/${messageId}/reactions`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json; charset=utf-8",
@@ -1022,7 +1166,7 @@ export class FeishuChannel implements ChannelAdapter {
     if (!this.appId || !this.appSecret) return;
     try {
       const token = await this.getTenantAccessToken();
-      await fetch(`${REACTION_URL}/${messageId}/reactions/${reactionId}`, {
+      await this.fetchApi(this.openApiUrl(`${FEISHU_MESSAGES_PATH}/${messageId}/reactions/${reactionId}`), {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -1040,7 +1184,7 @@ export class FeishuChannel implements ChannelAdapter {
 
     this.tokenInflight = (async () => {
       try {
-        const res = await fetch(TENANT_TOKEN_URL, {
+        const res = await this.fetchApi(this.openApiUrl(TENANT_TOKEN_PATH), {
           method: "POST",
           headers: { "Content-Type": "application/json; charset=utf-8" },
           body: JSON.stringify({ app_id: this.appId, app_secret: this.appSecret }),
@@ -1063,7 +1207,22 @@ export class FeishuChannel implements ChannelAdapter {
     return this.tokenInflight;
   }
 
-  private parseInbound(body: string): ParsedEvent {
+  private fetchApi(url: Parameters<typeof fetch>[0], init: RequestInit = {}): Promise<Response> {
+    return fetch(url, {
+      ...init,
+      signal: AbortSignal.any([
+        this.stopAbort.signal,
+        AbortSignal.timeout(FEISHU_ATTACHMENT_FETCH_TIMEOUT_MS),
+        ...(init.signal ? [init.signal] : []),
+      ]),
+    });
+  }
+
+  private openApiUrl(path: string): string {
+    return `${FEISHU_OPEN_API_BASE[this.domainName] ?? FEISHU_OPEN_API_BASE.feishu}${path}`;
+  }
+
+  private parseInbound(body: string, headers: IncomingMessage["headers"]): ParsedEvent {
     let raw: Record<string, unknown>;
     try {
       raw = JSON.parse(body) as Record<string, unknown>;
@@ -1071,30 +1230,37 @@ export class FeishuChannel implements ChannelAdapter {
       return { kind: "ignore" };
     }
 
-    if (typeof raw.encrypt === "string" && this.encryptKey) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { kind: "ignore" };
+    // HTTP callbacks must have at least one configured authentication mechanism.
+    if (!this.verifyToken && !this.encryptKey) return { kind: "unauthorized" };
+    const encrypted = typeof raw.encrypt === "string";
+    if (encrypted) {
+      if (!this.encryptKey) return { kind: "unauthorized" };
       try {
-        const decrypted = decryptFeishuPayload(raw.encrypt, this.encryptKey);
-        raw = JSON.parse(decrypted) as Record<string, unknown>;
-      } catch (e) {
-        this.logger?.error?.(`feishu: decrypt failed: ${e}`);
-        return { kind: "ignore" };
+        raw = JSON.parse(decryptFeishuPayload(raw.encrypt as string, this.encryptKey)) as Record<string, unknown>;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { kind: "unauthorized" };
+      } catch {
+        return { kind: "unauthorized" };
       }
     }
 
-    if (raw.type === "url_verification" && typeof raw.challenge === "string") {
-      if (this.verifyToken && raw.token !== this.verifyToken) {
-        this.logger?.warn?.("feishu: url_verification token mismatch");
-      }
-      return { kind: "url_verification", challenge: raw.challenge };
-    }
-
+    const challenge = raw.type === "url_verification" && typeof raw.challenge === "string";
     if (this.verifyToken) {
-      const token = (raw.token as string | undefined) ?? ((raw.header as { token?: string } | undefined)?.token);
-      if (token && token !== this.verifyToken) {
-        this.logger?.warn?.("feishu: verifyToken mismatch — ignoring event");
-        return { kind: "ignore" };
-      }
+      const token = raw.token ?? (raw.header as { token?: unknown } | undefined)?.token;
+      if (typeof token !== "string" || !secureEqual(token, this.verifyToken)) return { kind: "unauthorized" };
     }
+    if (this.encryptKey) {
+      const timestamp = headers["x-lark-request-timestamp"];
+      const nonce = headers["x-lark-request-nonce"];
+      const signature = headers["x-lark-signature"];
+      const signed = typeof timestamp === "string" && typeof nonce === "string" && typeof signature === "string"
+        && secureEqual(createHash("sha256").update(timestamp + nonce + this.encryptKey + body).digest("hex"), signature);
+      // Feishu's initial encrypted URL challenge may arrive without signature
+      // headers. Successful decryption (and token validation above) authenticates
+      // only that handshake; ordinary events always require the body signature.
+      if (!signed && !(challenge && encrypted)) return { kind: "unauthorized" };
+    }
+    if (challenge) return { kind: "url_verification", challenge: raw.challenge as string };
 
     const direct = parseDirectShape(raw);
     if (direct) return direct;
@@ -1115,6 +1281,14 @@ export class FeishuChannel implements ChannelAdapter {
       if (first) this.seenEvents.delete(first);
     }
   }
+}
+
+function extractFeishuSenderId(raw: Record<string, unknown>): string | undefined {
+  const event = (raw.event as Record<string, unknown> | undefined) ?? raw;
+  const sender = event.sender as Record<string, unknown> | undefined;
+  const senderId = sender?.sender_id as Record<string, unknown> | undefined;
+  const id = senderId?.open_id ?? senderId?.user_id ?? senderId?.union_id ?? event.user_id ?? event.from_user;
+  return typeof id === "string" && id.trim() ? id.trim() : undefined;
 }
 
 function parseDirectShape(raw: Record<string, unknown>): ParsedEvent | undefined {
@@ -1150,6 +1324,7 @@ function parseV2Event(raw: Record<string, unknown>): ParsedEvent | undefined {
     eventId: header.event_id,
     chatId,
     text,
+    senderId: extractFeishuSenderId(raw),
     messageId: event.message.message_id,
     messageType: event.message.message_type,
     content,
@@ -1162,7 +1337,14 @@ function parseV1Event(raw: Record<string, unknown>): ParsedEvent | undefined {
     | undefined;
   if (!event?.chat_id || event.text === undefined) return undefined;
   const eventId = (raw.uuid as string | undefined) ?? event.uuid ?? `v1:${event.chat_id}:${Date.now()}`;
-  return { kind: "message", eventId, chatId: event.chat_id, text: event.text, messageType: "text" };
+  return {
+    kind: "message",
+    eventId,
+    chatId: event.chat_id,
+    text: event.text,
+    messageType: "text",
+    senderId: extractFeishuSenderId(raw),
+  };
 }
 
 function isSupportedFeishuInboundType(messageType: string | undefined): boolean {
@@ -1276,6 +1458,12 @@ function livePostActivityLabel(kind: FeishuLiveCardActivityKind): string {
     default:
       return "正在思考…";
   }
+}
+
+function secureEqual(actual: string, expected: string): boolean {
+  const a = Buffer.from(actual);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 function decryptFeishuPayload(encrypted: string, key: string): string {

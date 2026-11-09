@@ -6,6 +6,8 @@ import type {
   PilotDeckToolFileHistorySink,
   PilotDeckToolScheduler,
   ToolRegistry,
+  PilotDeckToolResult,
+  PilotDeckToolDefinition,
 } from "../../tool/index.js";
 import type { PlanFileManager } from "../../tool/builtin/planFile.js";
 import type { PlanTodoStateManager } from "./PlanTodoState.js";
@@ -85,6 +87,10 @@ export type AgentSubagentTranscriptHooks = {
 };
 
 export type AgentRuntimeDependencies = {
+  releaseSessionResources?: () => void;
+  acquireTurnResources?: () => () => void;
+  /** Refresh only the supplied registry at a request boundary; child scopes stay restricted. */
+  refreshToolCatalog?: (registry: ToolRegistry, signal?: AbortSignal, include?: (tool: PilotDeckToolDefinition) => boolean) => Promise<void>;
   router: AgentRouterRuntime;
   tools: {
     scheduler: PilotDeckToolScheduler;
@@ -116,6 +122,18 @@ export type AgentRuntimeDependencies = {
   lifecycle?: LifecycleRuntime;
   /** C3 sidechain transcript hooks (optional). */
   subagentTranscript?: AgentSubagentTranscriptHooks;
+  /** Snapshot parent attachments into the child before its first model request. */
+  prepareSubagentArtifacts?: (args: {
+    parentSessionId: string;
+    subagentSessionId: string;
+    abortSignal?: AbortSignal;
+  }) => Promise<{ key: string; description: string }[]>;
+  /** Register child tool artifacts in the trusted parent scope before returning its report. */
+  inheritSubagentToolResult?: (args: {
+    parentSessionId: string;
+    subagentSessionId: string;
+    result: PilotDeckToolResult;
+  }) => Promise<{ key: string; description: string } | undefined>;
   /**
    * Shared concurrency gate for forked subagents. One gate per top-level
    * session, so the bound is on the total number of live subagents rather than

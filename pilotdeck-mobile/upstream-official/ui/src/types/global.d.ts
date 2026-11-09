@@ -3,6 +3,7 @@ import type { DesktopUpdateCheck, DesktopUpdateState } from "../utils/desktopUpd
 import type { LightAppearance } from '../lib/lightAppearance';
 import type { InterfacePreferences } from '../lib/interfacePreferences';
 import type { DesktopAboutInfo } from '../utils/desktopAbout';
+import type { NotificationPreferences, SystemNotification, DesktopNotificationStatus } from '../../shared/notifications';
 export {};
 
 declare module 'react' {
@@ -21,6 +22,9 @@ declare module 'react' {
 
 declare global {
   interface Window {
+    __pilotdeckStartupState?: { phase: string; progress?: number; startedAt?: number; phaseStartedAt?: number; completed?: boolean };
+    __pilotdeckStartupUpdate?: (state: NonNullable<Window['__pilotdeckStartupState']> & { language?: string; leaving?: boolean; error?: string; logPath?: string }) => void;
+    __pilotdeckStartupCleanup?: () => void;
     __ROUTER_BASENAME__?: string;
     refreshProjects?: () => void | Promise<void>;
     openSettings?: (tab?: string) => void;
@@ -30,6 +34,19 @@ declare global {
     switchProject?: (projectName: string) => boolean;
     pilotdeckDesktop?: {
       platform?: string;
+      getUninstallStatus?: () => Promise<{ supported: boolean }>;
+      uninstall?: () => Promise<{ canceled: boolean }>;
+      getRuntimeStatus?: () => { phase: string; message: string; progress?: number; startedAt?: number; phaseStartedAt?: number; logPath?: string; error?: string } | null;
+      saveRuntimeLogs?: () => Promise<{ canceled: boolean }>;
+      getNotificationStatus?: () => Promise<DesktopNotificationStatus & { preferences: NotificationPreferences }>;
+      setNotificationPreferences?: (value: NotificationPreferences) => Promise<NotificationPreferences>;
+      showNotification?: (value: SystemNotification) => Promise<boolean>;
+      recordTaskReminder?: (value: SystemNotification) => Promise<boolean>;
+      setNotificationScope?: (scope: string | null) => Promise<void>;
+      openNotificationSettings?: () => Promise<boolean>;
+      onNotificationNavigate?: (callback: (data: SystemNotification['data']) => void) => () => void;
+      getZoomFactor?: () => number;
+      resetZoom?: () => void;
       getAboutInfo?: () => Promise<DesktopAboutInfo>;
       setMenuState?: (state: DesktopMenuState) => Promise<void>;
       onCommand?: (callback: (command: DesktopCommand) => void) => () => void;
@@ -59,10 +76,14 @@ declare global {
         message: string;
         logPath?: string;
         error?: string;
+        progress?: number;
+        startedAt?: number;
+        phaseStartedAt?: number;
       }) => void) => () => void;
       retryRuntime: () => Promise<void>;
       openRuntimeLog: () => Promise<void>;
       pickFolder: () => Promise<string | null>;
+      openDirectory?: (directory: string) => Promise<boolean>;
       pickFiles?: (request: { inputId: string; accept: string; multiple: boolean; directory: boolean }) => Promise<'selected' | 'canceled' | 'busy'>;
     };
   }

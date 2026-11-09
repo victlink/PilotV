@@ -40,7 +40,8 @@
     "title": "探索",
     "collapse": "折叠探索",
     "expand": "展开探索",
-    "scheduledTasks": "定时"
+    "scheduledTasks": "定时",
+    "approvalSession": "审批会话"
   },
   "quickActions": {
     "label": "快捷操作",
@@ -57,6 +58,10 @@
   },
   "renamePlaceholder": "重命名 - 留空恢复默认",
   "contextMenu": {
+    "openInFinder": "在 Finder 中打开",
+    "openInFileExplorer": "在文件资源管理器中打开",
+    "openInFileManager": "在文件管理器中打开",
+    "openDirectoryFailed": "无法打开工作目录，该目录可能已移动或删除。",
     "label": "操作菜单"
   },
   "app": {
@@ -78,6 +83,8 @@
     "showMore": "显示更多会话",
     "showMoreCount": "显示更多 ({{count}})",
     "showLess": "收起",
+    "waitingForAnswer": "等待你回答",
+    "waitingForApproval": "等待你审批",
     "processing": "智能体运行中",
     "unread": "有未读消息",
     "idle": "无未读消息",

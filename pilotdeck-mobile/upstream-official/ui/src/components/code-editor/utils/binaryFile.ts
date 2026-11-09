@@ -2,6 +2,14 @@ const IMAGE_EXTENSIONS = [
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'tiff', 'tif', 'avif',
 ];
 
+const VIDEO_EXTENSIONS = [
+  'mp4', 'm4v', 'webm', 'mov', 'mkv', 'avi', 'flv', 'wmv', 'ogv', 'mpeg', 'mpg', '3gp',
+];
+
+const AUDIO_EXTENSIONS = [
+  'mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus', 'weba', 'wma',
+];
+
 const PDF_EXTENSIONS = ['pdf'];
 
 const OFFICE_EXTENSIONS = [
@@ -11,14 +19,6 @@ const OFFICE_EXTENSIONS = [
 const SPREADSHEET_EXTENSIONS = ['xls', 'xlsx', 'et', 'ods'];
 const WORD_EXTENSIONS = ['doc', 'docx', 'wps', 'odt'];
 const PRESENTATION_EXTENSIONS = ['ppt', 'pptx', 'dps', 'odp'];
-
-const VIDEO_EXTENSIONS = [
-  'mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'wmv', 'm4v', 'ogv', '3gp',
-];
-
-const AUDIO_EXTENSIONS = [
-  'mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus', 'weba', 'wma',
-];
 
 const BINARY_EXTENSIONS = [
   // Images

@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from '../components/auth/context/AuthContext';
 import { IS_PLATFORM } from '../constants/config';
 import { withDeviceParam } from '../components/app-shell/pilotvRuntime';
+import { withClientRequestContext } from '../utils/requestContext';
 
 type WSSubscriber = (msg: any) => void;
 
@@ -16,15 +17,14 @@ type WebSocketContextType = {
   ws: WebSocket | null;
   /** Returns true when the frame was sent or safely queued for replay. */
   sendMessage: (message: any) => boolean;
-  latestMessage: any | null;
   isConnected: boolean;
   reconnectInfo: ReconnectInfo;
   /**
    * Subscribe to every incoming WebSocket message synchronously, bypassing
    * React state batching. Returns an unsubscribe function. Use this for
-   * high-frequency event streams (chat stream_delta, etc.) where dropping
-   * intermediate values is not acceptable. For low-frequency one-shot events
-   * the `latestMessage` state is still fine.
+   * all event handling: even infrequent project or configuration updates can
+   * arrive in the same React batch as a stream frame. Message delivery does not
+   * change this context's value; only connection state triggers a render.
    */
   subscribe: (handler: WSSubscriber) => () => void;
 };
@@ -32,7 +32,6 @@ type WebSocketContextType = {
 const DISCONNECTED_SNAPSHOT: WebSocketContextType = {
   ws: null,
   sendMessage: () => false,
-  latestMessage: null,
   isConnected: false,
   reconnectInfo: { attempt: 0, nextRetryMs: 0, status: 'disconnected' },
   subscribe: () => () => {},
@@ -128,7 +127,6 @@ const useWebSocketProviderState = (): WebSocketContextType => {
   const unmountedRef = useRef(false);
   const hasConnectedRef = useRef(false);
   const connectIdRef = useRef(0);
-  const [latestMessage, setLatestMessage] = useState<any>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [reconnectInfo, setReconnectInfo] = useState<ReconnectInfo>({
     attempt: 0,
@@ -215,7 +213,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
 
           while (queuedMessagesRef.current.length > 0 && websocket.readyState === WebSocket.OPEN) {
             const message = queuedMessagesRef.current.shift();
-            websocket.send(JSON.stringify(message));
+            websocket.send(JSON.stringify(withClientRequestContext(message)));
           }
 
           pingTimer = setInterval(() => {
@@ -261,7 +259,6 @@ const useWebSocketProviderState = (): WebSocketContextType => {
                 try { sub(reconnectMsg); } catch { /* Isolate subscriber failures. */ }
               });
             }
-            setLatestMessage(reconnectMsg);
           }
           hasConnectedRef.current = true;
         };
@@ -292,7 +289,6 @@ const useWebSocketProviderState = (): WebSocketContextType => {
                 }
               });
             }
-            setLatestMessage(data);
           } catch (error) {
             console.error('Error parsing WebSocket message:', error);
           }
@@ -398,7 +394,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
     const socket = wsRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
       try {
-        socket.send(JSON.stringify(message));
+        socket.send(JSON.stringify(withClientRequestContext(message)));
         globalModelSelectionStore.trackMessage(message);
         return true;
       } catch (error) {
@@ -426,11 +422,10 @@ const useWebSocketProviderState = (): WebSocketContextType => {
   ({
     ws: wsRef.current,
     sendMessage,
-    latestMessage,
     isConnected,
     reconnectInfo,
     subscribe,
-  }), [sendMessage, latestMessage, isConnected, reconnectInfo, subscribe]);
+  }), [sendMessage, isConnected, reconnectInfo, subscribe]);
 
   return value;
 };

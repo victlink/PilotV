@@ -4,7 +4,10 @@ import type { SessionInfo } from "../session/index.js";
 import { listProjectSessions } from "../session/index.js";
 import { InProcessGateway } from "./client/InProcessGateway.js";
 import { SessionRouter, type GatewaySessionFactory, type SessionRouterOptions } from "./SessionRouter.js";
-import type { Gateway, GatewayCronController, GatewayServerInfo } from "./protocol/types.js";
+import type { Gateway, GatewayCronController, GatewayServerInfo, GatewayTurnOptions } from "./protocol/types.js";
+import type { ApprovalCapableChannel } from "../approval/ApprovalRouter.js";
+import { resolvePilotHome } from "../pilot/paths.js";
+import { attachApprovalRuntime } from "../cli/approval/attachApprovalRuntime.js";
 
 export type GatewayProjectStorageOptions = {
   projectRoot: string;
@@ -23,6 +26,14 @@ export type CreateGatewayOptions = {
   uuid?: () => string;
   serverInfo?: Partial<GatewayServerInfo>;
   cron?: GatewayCronController;
+  /**
+   * Resolves the chat channel of an approval binding. When it is omitted the
+   * approval runtime still runs — guard, audit and TTL sweeper — but no
+   * prompt is mirrored into a chat channel (contract §3).
+   */
+  resolveApprovalChannel?: (channelKey: string) => ApprovalCapableChannel | undefined;
+  /** Logger of the approval runtime (contract §7). */
+  approvalLogger?: { warn?(message: string): void; error?(message: string): void };
 };
 
 export function createGateway(options: CreateGatewayOptions): Gateway {
@@ -37,7 +48,7 @@ export function createGateway(options: CreateGatewayOptions): Gateway {
     now,
   });
 
-  return new InProcessGateway(router, {
+  const gateway = new InProcessGateway(router, {
     now,
     uuid,
     serverInfo: {
@@ -47,6 +58,21 @@ export function createGateway(options: CreateGatewayOptions): Gateway {
     },
     cron: options.cron,
   });
+
+  // Contract §7.4: the approval center, the router and the bridge are wired
+  // in the gateway factory itself. `attachApprovalRuntime` is idempotent per
+  // gateway instance, so a gateway that was already assembled by
+  // `createLocalGateway` is never assembled twice.
+  attachApprovalRuntime({
+    gateway,
+    pilotHome: options.projectStorage?.pilotHome ?? resolvePilotHome(),
+    ...(options.resolveApprovalChannel
+      ? { resolveChannel: options.resolveApprovalChannel }
+      : {}),
+    logger: options.approvalLogger ?? {},
+  });
+
+  return gateway;
 }
 
 function createDefaultSessionFactory(options: CreateGatewayOptions): GatewaySessionFactory {
@@ -87,5 +113,5 @@ function toGatewaySessionInfo(session: SessionInfo): SessionInfo {
   return session;
 }
 
-export type { Gateway, GatewayServerInfo };
+export type { Gateway, GatewayServerInfo, GatewayTurnOptions };
 export { InProcessGateway, SessionRouter };

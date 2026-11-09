@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 afterEach(cleanup);
-import FilesV2 from './FilesV2';
+import FilesPanel from '../file-tree/view/FilesPanel';
 import { FileConversationContext } from './fileConversationContext';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: { defaultValue?: string }) => options?.defaultValue || key }) }));
@@ -16,7 +16,7 @@ vi.mock('../../utils/api', () => ({ api: { get } }));
 const project = { name: 'project', displayName: 'Project', fullPath: '/project' };
 const upload = { busy: false, start: vi.fn() } as never;
 function view(id: string, cwd: string) {
-  return <FileConversationContext.Provider value={{ id, cwd }}><FilesV2 selectedProject={project} workspaceUpload={upload} /></FileConversationContext.Provider>;
+  return <FileConversationContext.Provider value={{ id, cwd }}><FilesPanel selectedProject={project} workspaceUpload={upload} /></FileConversationContext.Provider>;
 }
 describe('conversation file directory', () => {
   it('lists the parent above the project and an arbitrary address as read-only', async () => {

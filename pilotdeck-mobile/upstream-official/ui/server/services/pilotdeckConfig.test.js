@@ -1,4 +1,5 @@
 import {
+    existsSync,
     lstatSync,
     mkdirSync,
     mkdtempSync,
@@ -12,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { SYMLINKS_USABLE } from "../testing/symlinkCapability.js";
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fileSymlinkOrSkip } from '../test-support/symlink.js';
 import { parse as parseYaml } from 'yaml';
 import {
     applyConfigToProcessEnv,
@@ -20,6 +22,7 @@ import {
     buildRuntimeEnv,
     configRevision,
     normalizePilotDeckConfig,
+    maskSecrets,
     readPilotDeckConfigFile,
     resolveConfiguredProviderApiKey,
     resolveModel,
@@ -31,6 +34,22 @@ import {
 } from './pilotdeckConfig.js';
 
 const tempDirs = [];
+
+it('keeps search template references editable without exposing literal secrets or unrelated credentials', () => {
+    const result = maskSecrets({ apiKey: '{{apiKey}}', tools: { webSearch: { providers: { custom: {
+        apiKey: 'actual-secret', customProvider: {
+            headers: { Authorization: 'Bearer {{apiKey}}', 'X-API-Key': 'literal-secret' },
+            requestBody: { auth: [{ api_key: '{{apiKey}}' }], apiKey: 'prefix-secret{{query}}' },
+        },
+    } } } } });
+    expect(result.apiKey).toBe('********');
+    const custom = result.tools.webSearch.providers.custom;
+    expect(custom.apiKey).toBe('********');
+    expect(custom.customProvider.headers.Authorization).toBe('Bearer {{apiKey}}');
+    expect(custom.customProvider.headers['X-API-Key']).toBe('********');
+    expect(custom.customProvider.requestBody.auth[0].api_key).toBe('{{apiKey}}');
+    expect(custom.customProvider.requestBody.apiKey).toBe('********');
+});
 
 afterEach(() => {
     vi.unstubAllEnvs();
@@ -50,6 +69,35 @@ function useTempConfig(contents, filename = 'pilotdeck.yaml') {
     process.env.PILOTDECK_CONFIG_PATH = configPath;
     return configPath;
 }
+
+describe('first-run background config writes', () => {
+    it('does not create a partial config for a background preferences update', async () => {
+        const configPath = useTempConfig(null);
+
+        await expect(updatePilotDeckConfig((config) => {
+            config.alwaysOn = { language: 'zh-CN' };
+        }, { paths: [['alwaysOn', 'language']], settleMs: 0 })).rejects.toMatchObject({
+            code: 'MODEL_CONFIGURATION_REQUIRED',
+        });
+
+        expect(existsSync(configPath)).toBe(false);
+        expect(readdirSync(dirname(configPath))).toEqual([]);
+    });
+
+    it('does not create a bootstrap placeholder config', async () => {
+        const configPath = useTempConfig(null);
+
+        await expect(writePilotDeckConfig({
+            agent: { model: '_placeholder/_placeholder' },
+            model: { providers: { _placeholder: {
+                protocol: 'openai', url: 'https://example.invalid/v1',
+                apiKey: 'PLACEHOLDER_RUN_ONBOARDING_TO_REPLACE', models: { _placeholder: {} },
+            } } },
+        })).rejects.toMatchObject({ code: 'MODEL_CONFIGURATION_REQUIRED' });
+
+        expect(existsSync(configPath)).toBe(false);
+    });
+});
 
 describe('readPilotDeckConfigFile fallback behavior', () => {
     it('uses built-in Office preview by default', () => {
@@ -71,6 +119,7 @@ describe('readPilotDeckConfigFile fallback behavior', () => {
         expect(record.parseError).toBeNull();
         expect(record.config.schemaVersion).toBe(1);
         expect(record.config.webui.officePreview.service).toBe('builtin');
+        expect(record.config.cron).toEqual({ enabled: true });
     });
 
     it('reads and normalizes valid YAML', () => {
@@ -233,9 +282,12 @@ describe('readPilotDeckConfigFile fallback behavior', () => {
         const managedDir = join(dir, 'managed');
         mkdirSync(managedDir);
         const targetPath = join(managedDir, 'pilotdeck.yaml');
-        const configPath = join(dir, 'pilotdeck.yaml');
+        const link = join(dir, type === 'file' ? 'pilotdeck.yaml' : 'linked');
+        const configPath = type === 'file' ? link : join(link, 'pilotdeck.yaml');
         writeFileSync(targetPath, 'schemaVersion: 1\ncustomEnv:\n  VALUE: first\n', 'utf8');
-        symlinkSync(targetPath, configPath);
+        if (type === 'file') {
+            if (!fileSymlinkOrSkip(context, targetPath, configPath)) return;
+        } else symlinkSync(managedDir, link, process.platform === 'win32' ? 'junction' : 'dir');
         process.env.PILOTDECK_CONFIG_PATH = configPath;
 
         const loaded = readPilotDeckConfigFile();
@@ -246,13 +298,29 @@ describe('readPilotDeckConfigFile fallback behavior', () => {
             expectedRevision: configRevision(loaded.raw),
         });
 
-        expect(lstatSync(configPath).isSymbolicLink()).toBe(true);
+        expect(lstatSync(link).isSymbolicLink()).toBe(true);
         expect(readFileSync(targetPath, 'utf8')).toContain('VALUE: updated');
         expect(readFileSync(configPath, 'utf8')).toBe(readFileSync(targetPath, 'utf8'));
     });
 });
 
 describe('optional feature defaults', () => {
+    it.each(['', 'cron:\n', 'cron: {}\n', 'cron:\n  timezone: Asia/Shanghai\n'])('enables cron when YAML omits its switch: %j', (raw) => {
+        const configPath = useTempConfig(raw);
+        const { config } = readPilotDeckConfigFile();
+        expect(config.cron.enabled).toBe(true);
+        if (raw.includes('timezone')) expect(config.cron.timezone).toBe('Asia/Shanghai');
+        expect(normalizePilotDeckConfig(config)).toEqual(config);
+        expect(readFileSync(configPath, 'utf8')).toBe(raw);
+    });
+
+    it('preserves an explicit cron opt-out through a save and read', async () => {
+        useTempConfig('schemaVersion: 1\n');
+        const cron = { enabled: false, timezone: 'Asia/Shanghai', maxConcurrentRuns: 3 };
+        await writePilotDeckConfig({ ...buildDefaultPilotDeckConfig(), cron });
+        expect(readPilotDeckConfigFile().config.cron).toEqual(cron);
+    });
+
     it('keeps advanced features and message channels off for a new user', () => {
         useTempConfig(null);
         expect(readPilotDeckConfigFile().config).toMatchObject({
@@ -796,9 +864,7 @@ describe('validatePilotDeckConfig gateway validation', () => {
     });
 
     it('keeps the bootstrap provider when an unrelated setting is saved before onboarding', async () => {
-        useTempConfig(null);
-
-        const result = await writePilotDeckConfig({
+        const config = {
             agent: { model: '_placeholder/_placeholder' },
             model: {
                 providers: {
@@ -811,7 +877,10 @@ describe('validatePilotDeckConfig gateway validation', () => {
                 },
             },
             tools: { webSearch: { enabled: false } },
-        });
+        };
+        useTempConfig(JSON.stringify(config));
+
+        const result = await writePilotDeckConfig(config);
 
         expect(result.config.agent.model).toBe('_placeholder/_placeholder');
         expect(result.config.model.providers).toHaveProperty('_placeholder');
@@ -819,9 +888,7 @@ describe('validatePilotDeckConfig gateway validation', () => {
     });
 
     it('keeps the bootstrap provider while a real provider is configured but not selected', async () => {
-        useTempConfig(null);
-
-        const result = await writePilotDeckConfig({
+        const config = {
             agent: { model: '_placeholder/_placeholder' },
             model: {
                 providers: {
@@ -838,7 +905,10 @@ describe('validatePilotDeckConfig gateway validation', () => {
                     },
                 },
             },
-        });
+        };
+        useTempConfig(JSON.stringify(config));
+
+        const result = await writePilotDeckConfig(config);
 
         expect(result.config.model.providers).toHaveProperty('_placeholder');
         expect(result.config.model.providers).toHaveProperty('ollama');

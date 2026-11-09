@@ -1,3 +1,4 @@
+import { useSkillConversation } from '../../../contexts/SkillConversationContext';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getSubmittedCommand, isModelIndependentCommand } from '../utils/composerCommand';
 import { attachmentDisplayMetadata, rememberUploadedPreview } from '../utils/uploadedAttachmentPreview';
@@ -235,12 +236,16 @@ export type AttachmentAddResult = {
   droppedCount: number;
 };
 
-function attachmentPathForFile(file: File): string {
-  return file.webkitRelativePath || file.name;
-}
-
+const fileIdentities = new WeakMap<File, string>();
+let nextFileIdentity = 0;
 function fileFingerprint(file: File): string {
-  return `${attachmentPathForFile(file)}::${file.size}::${file.lastModified}`;
+  // Distinct clipboard files may share name, size and lastModified.
+  let identity = fileIdentities.get(file);
+  if (!identity) {
+    identity = String(++nextFileIdentity);
+    fileIdentities.set(file, identity);
+  }
+  return identity;
 }
 
 export function addAttachmentFiles(
@@ -261,15 +266,6 @@ export function addAttachmentFiles(
     files: mergedFiles.slice(0, maxAttachments),
     droppedCount: Math.max(0, mergedFiles.length - maxAttachments),
   };
-}
-
-function matchUploadedAttachment(
-  file: File,
-  attachments: NonNullable<AttachmentUploadRecord['attachments']>,
-) {
-  const relativePath = attachmentPathForFile(file);
-  return attachments.find((attachment) => attachment.relativePath === relativePath)
-    || attachments.find((attachment) => attachment.name === file.name);
 }
 
 export function useChatComposerState({
@@ -504,14 +500,15 @@ export function useChatComposerState({
         if (batch.cancelled) return;
 
         const attachments = Array.isArray(result.attachments) ? result.attachments : [];
-        for (const file of filesToUpload) {
+        for (const [index, file] of filesToUpload.entries()) {
           if (
             removedAttachmentFilesRef.current.has(file)
             || !attachedImagesRef.current.includes(file)
           ) {
             continue;
           }
-          const attachment = matchUploadedAttachment(file, attachments);
+          // uploadAttachmentBatch returns metadata in manifest order.
+          const attachment = attachments[index];
           if (!attachment) {
             setImageErrors((previous) => {
               const next = new Map(previous);
@@ -810,7 +807,7 @@ export function useChatComposerState({
         case 'switchProject': {
           // The server validates that an arg was supplied; project lookup
           // happens here because the client already holds the projects list.
-          // window.switchProject is registered by AppShellV2 and returns
+          // window.switchProject is registered by AppShell and returns
           // false when no project matches, letting us surface a helpful
           // "not found" message in chat without leaving the page.
           if (data.error) {
@@ -1049,6 +1046,15 @@ export function useChatComposerState({
   useEffect(() => {
     setSelectedSkills([]);
   }, [draftStorageKey]);
+
+  const skillConversation = useSkillConversation();
+  useEffect(() => {
+    const request = skillConversation.request;
+    const projectPath = selectedProject?.fullPath || selectedProject?.path;
+    if (!request || request.projectPath !== projectPath || selectedSession || currentSessionId) return;
+    selectSkill(request.skill);
+    skillConversation.consume(request.id);
+  }, [skillConversation, selectedProject, selectedSession, currentSessionId, selectSkill, draftStorageKey]);
 
   const syncInputOverlayScroll = useCallback((target: HTMLTextAreaElement) => {
     if (!inputHighlightRef.current || !target) {
@@ -1524,6 +1530,7 @@ export function useChatComposerState({
         images: uploadedImages,
         attachments: turnAttachments,
         uploadedAttachments: uploadedAttachmentRefs,
+        displayAttachments: [...uploadedFiles, ...turnAttachments].map(attachmentDisplayMetadata),
       });
 
       if (!startedSessionId) {

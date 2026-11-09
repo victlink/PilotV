@@ -9,6 +9,9 @@
     "baseUrl": ".",
     "paths": {
       "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
       "react/jsx-dev-runtime": ["./node_modules/@types/react/jsx-dev-runtime"]
     },
@@ -19,7 +22,6 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "allowJs": true,
-    // "checkJs": true, 
     "types": ["vite/client"]
   },
   "include": ["src", "shared", "vite.config.js"]

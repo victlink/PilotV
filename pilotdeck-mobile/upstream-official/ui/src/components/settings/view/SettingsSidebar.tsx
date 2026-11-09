@@ -24,6 +24,7 @@ const PRIMARY_ITEMS: NavItem[] = [
   { key: "general", labelKey: "settingsPage.menu.general" },
   { key: "appearance", labelKey: "lightAppearance.title" },
   { key: "modelPool", labelKey: "settingsPage.menu.modelPool" },
+  { key: "usage", labelKey: "settingsPage.menu.usage" },
 ];
 
 const AGENT_ITEMS: NavItem[] = [
@@ -31,6 +32,7 @@ const AGENT_ITEMS: NavItem[] = [
   { key: "agentMemory", labelKey: "settingsPage.menu.agentMemory" },
   { key: "agentResident", labelKey: "settingsPage.menu.agentResident" },
   { key: "agentSearch", labelKey: "settingsPage.menu.agentSearch" },
+  { key: "multimodalGeneration", labelKey: "settingsPage.menu.multimodalGeneration" },
   { key: "agentSchedule", labelKey: "settingsPage.menu.agentSchedule" },
   { key: "projectTeam", labelKey: "settingsPage.menu.projectTeam" },
 ];
@@ -44,6 +46,7 @@ const EXTERNAL_ITEMS: NavItem[] = [
 
 const FOOTER_ITEMS: NavItem[] = [
   { key: "privacy", labelKey: "settingsPage.menu.privacy" },
+  { key: "approvalChannel", labelKey: "settingsPage.menu.approvalChannel" },
   { key: "advanced", labelKey: "settingsPage.menu.system" },
   { key: "about", labelKey: "settingsPage.menu.about", showDot: true },
 ];

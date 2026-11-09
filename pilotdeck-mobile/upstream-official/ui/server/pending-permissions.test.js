@@ -119,4 +119,31 @@ describe('pending permissions registry', () => {
         expect(replayLine).toBeTruthy();
         expect(replayLine).not.toContain('trackPermissionFrames');
     });
+
+    it('never classifies the risk locally', () => {
+        // The risk ladder belongs to the authoritative backend policy
+        // (`src/approval/ApprovalPolicy.ts`). A local copy would miss tools
+        // such as `git`, `python` or `keychain` and would report a level the
+        // backend never computed.
+        for (const toolName of ['Bash', 'git', 'python', 'keychain']) {
+            recordPendingPermission({ requestId: `local-${toolName}`, sessionId: 'session-a', toolName, input: {}, context: {} });
+        }
+        for (const entry of listPendingPermissions('session-a')) {
+            expect(entry.risk).toBeUndefined();
+        }
+    });
+
+    it('carries only the risk that the authoritative backend delivered with the frame', () => {
+        trackPermissionFrames([{ ...request, requestId: 'risk-frame', risk: 'high' }], 'session-a');
+        trackPermissionFrames([{ ...request, requestId: 'risk-unknown', risk: 'spicy' }], 'session-a');
+        const entries = listPendingPermissions('session-a');
+        expect(entries.find(entry => entry.requestId === 'risk-frame').risk).toBe('high');
+        expect(entries.find(entry => entry.requestId === 'risk-unknown').risk).toBeUndefined();
+    });
+
+    it('keeps a known risk when a later frame does not repeat it', () => {
+        trackPermissionFrames([{ ...request, requestId: 'risk-keep', risk: 'medium' }], 'session-a');
+        trackPermissionFrames([{ ...request, requestId: 'risk-keep' }], 'session-a');
+        expect(listPendingPermissions('session-a')[0].risk).toBe('medium');
+    });
 });

@@ -5,7 +5,7 @@ import { desktopUpdates } from "../../utils/desktopUpdates";
 import { authenticatedFetch } from "../../utils/api";
 import type { SettingsProps } from "./shared/types";
 import type { SettingsMenuKey } from "./types";
-import { getSettingsPath, mapSettingsSectionToMenuKey } from "./navigation";
+import { getSettingsPath, getSettingsPathFromTab, mapSettingsSectionToMenuKey } from "./navigation";
 import {
   normalizeDesktopVersionResult,
   normalizeWebVersionResult,
@@ -43,7 +43,22 @@ function SettingsInner({
   const [checkingVersion, setCheckingVersion] = useState(false);
 
   useEffect(() => {
+    let active = true;
+    if (isDesktopApp) {
+      void window.pilotdeckDesktop?.getAboutInfo?.().then(info => {
+        if (active) setVersionInfo(previous => ({
+          ...previous, currentVersion: info.version, buildTime: info.buildTime,
+        }));
+      }).catch(() => { /* Older shells fall back to the update check. */ });
+    }
+    return () => { active = false; };
+  }, [isDesktopApp]);
+
+  useEffect(() => {
     if (section === 'agent-model') navigate(`${getSettingsPath('modelPool')}${search}`, { replace: true });
+    if (section === 'image-generation' || section === 'video-generation') {
+      navigate(getSettingsPathFromTab(section + search), { replace: true });
+    }
   }, [section, search, navigate]);
 
   const checkVersion = useCallback(async () => {
