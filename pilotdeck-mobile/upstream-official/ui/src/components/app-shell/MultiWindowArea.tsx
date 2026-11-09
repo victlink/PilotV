@@ -78,7 +78,7 @@ function PaneToolbar({
       ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <button type="button" className={ICON_BUTTON_CLASS} onClick={onRefresh} aria-label="刷新此窗口" title="刷新此窗口"><RefreshCw className="h-3.5 w-3.5" aria-hidden /></button>
-        <button type="button" className={ICON_BUTTON_CLASS} onClick={onFocus} aria-label={focused ? '取消放大' : '放大此窗口'} title={focused ? '取消放大' : '放大此窗口'}>
+        <button type="button" className={ICON_BUTTON_CLASS} onClick={onFocus} aria-label={focused ? '还原此窗口' : '放大此窗口'} title={focused ? '还原此窗口' : '放大此窗口'}>
           {focused ? <Minimize2 className="h-3.5 w-3.5" aria-hidden /> : <Maximize2 className="h-3.5 w-3.5" aria-hidden />}
         </button>
         <button type="button" className={ICON_BUTTON_CLASS} onClick={onPopout} aria-label="弹出为独立窗口" title="弹出为独立浏览器窗口"><ExternalLink className="h-3.5 w-3.5" aria-hidden /></button>
