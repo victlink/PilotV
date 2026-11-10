@@ -33,7 +33,29 @@ export type FileArtifactCollectorOptions = {
 };
 
 const MAX_CACHED_WORKSPACES = 8;
+/**
+ * 一轮对话开始时的工作区基线扫描预算。
+ *
+ * 为什么需要上限：基线要把整个工作区扫一遍并给文件算指纹。真实项目里
+ * 动辄几百 MB（构建产物、素材、备份目录），冷缓存时一次能吃掉几十秒；
+ * 两个会话在同一项目里并发时还会同时扫同一棵树，互相把磁盘打满，
+ * 表现就是「第二个任务要等第一个跑完」。所以基线扫描不再卡在回合开始前，
+ * 并且到点就停 —— 停下来的这一轮放弃「整树 diff」，只保留工具显式报出来的文件。
+ */
+const BASELINE_SCAN_BUDGET_MS = (() => {
+  const raw = Number.parseInt(process.env.PILOTDECK_ARTIFACT_BASELINE_BUDGET_MS ?? "8000", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 8000;
+})();
 const workspaceFingerprintCache = new Map<string, Map<string, FileFingerprint>>();
+/**
+ * 同一工作区里同时在跑的基线扫描只留一份。
+ *
+ * 同一项目的两个会话几乎同时开回合时，各扫一遍同一棵树纯属自残：磁盘被两份
+ * 全量读占满，谁都快不了，看上去就像「第二个会话被第一个堵住」。共享一次
+ * 扫描结果，两个会话拿到的是同一份基线；真出现并发写时 hadConcurrentOverlap
+ * 会把整树 diff 关掉，所以共享不会把别人的改动算成自己的产物。
+ */
+const workspaceBaselineInFlight = new Map<string, Promise<{ files: Array<{ absolutePath: string; fingerprint: FileFingerprint }>; complete: boolean }>>();
 
 const EXCLUDED_DIRECTORY_NAMES = new Set([
   ".git",
@@ -130,6 +152,12 @@ export class FileArtifactCollector {
   private workspaceKey: string;
   private registered = false;
   private hadConcurrentOverlap = false;
+  /** 基线在后台抓，回合不必等它；finish() 才需要它。 */
+  private baselineReady: Promise<void> | undefined;
+  private baselineSettled = false;
+  private baselineComplete = true;
+  /** 基线还没抓完就开始写文件 → 这一轮不做整树 diff，避免把别人的改动算成产物。 */
+  private mutationBeforeBaseline = false;
 
   private constructor(options: FileArtifactCollectorOptions) {
     this.cwd = nativePath(path.resolve(options.cwd), false);
@@ -143,22 +171,46 @@ export class FileArtifactCollector {
     );
   }
 
+  /**
+   * 起步只登记工作区，基线在后台抓。
+   *
+   * 关键在「不 await」：以前这里同步扫全树，把整轮对话卡在扫描上；现在
+   * 扫描和模型调用并行，工具真要写文件时扫描多半已经做完了。真没做完也
+   * 不会产出错误产物 —— finish() 发现有写操作早于基线，就只保留显式路径。
+   */
   static async start(options: FileArtifactCollectorOptions): Promise<FileArtifactCollector> {
     const collector = new FileArtifactCollector(options);
-    collector.baseline.clear();
-    const cachedFingerprints = readCachedWorkspaceFingerprints(collector.cwd);
-    for (const file of await collector.scanWorkspace(cachedFingerprints)) {
-      collector.baseline.set(file.absolutePath, file.fingerprint);
-    }
-    await collector.captureAllowedInputFingerprints(collector.baseline, cachedFingerprints);
-    cacheWorkspaceFingerprints(collector.cwd, collector.baseline);
     collector.register();
+    collector.baselineReady = collector.captureBaseline();
     return collector;
+  }
+
+  private async captureBaseline(): Promise<void> {
+    try {
+      this.baseline.clear();
+      const cachedFingerprints = readCachedWorkspaceFingerprints(this.cwd);
+      const { files, complete } = await shareBaselineScan(this.workspaceKey, async () => ({
+        files: await this.scanWorkspace(cachedFingerprints),
+        complete: this.baselineComplete,
+      }));
+      if (!complete) this.baselineComplete = false;
+      for (const file of files) {
+        this.baseline.set(file.absolutePath, file.fingerprint);
+      }
+      await this.captureAllowedInputFingerprints(this.baseline, cachedFingerprints);
+      cacheWorkspaceFingerprints(this.cwd, this.baseline);
+    } catch {
+      // 基线抓不到只是少一份对照：本轮退化成「只收工具显式声明的文件」。
+      this.baselineComplete = false;
+    } finally {
+      this.baselineSettled = true;
+    }
   }
 
   observeToolResult(result: PilotDeckToolResult): void {
     if (canToolMutateWorkspace(result.toolName) && toolResultCouldHaveMutatedWorkspace(result)) {
       this.sawWorkspaceMutationCandidate = true;
+      if (!this.baselineSettled) this.mutationBeforeBaseline = true;
     }
     if (result.type !== "success") return;
 
@@ -175,6 +227,7 @@ export class FileArtifactCollector {
 
   async finish(status: FileArtifactStatus, ownedPaths?: string[]): Promise<FileArtifact[]> {
     try {
+      await this.whenBaselineReady();
       const candidates = new Map<string, ArtifactCandidate>(this.explicitCandidates);
       // A whole-workspace diff cannot identify which overlapping turn caused a
       // change. Only enable it when this turn actually ran a potentially
@@ -182,7 +235,10 @@ export class FileArtifactCollector {
       // Otherwise keep only paths explicitly reported by this collector's own
       // tool results.
       const collectWorkspaceDiff =
-        this.sawWorkspaceMutationCandidate && !this.hadConcurrentOverlap;
+        this.sawWorkspaceMutationCandidate
+        && !this.hadConcurrentOverlap
+        && !this.mutationBeforeBaseline
+        && this.baselineComplete;
       const finalFingerprints = new Map<string, FileFingerprint>();
       if (collectWorkspaceDiff) {
         for (const file of await this.scanWorkspace(this.baseline)) {
@@ -276,7 +332,12 @@ export class FileArtifactCollector {
       paths.push(absolutePath);
     });
     const files: Array<{ absolutePath: string; fingerprint: FileFingerprint }> = [];
+    const deadline = Date.now() + BASELINE_SCAN_BUDGET_MS;
     for (let index = 0; index < paths.length; index += 8) {
+      if (Date.now() > deadline) {
+        this.baselineComplete = false;
+        break;
+      }
       const batch = await Promise.all(
         paths.slice(index, index + 8).map(async (absolutePath) => {
           const fingerprint = await fingerprintFile(
@@ -292,6 +353,11 @@ export class FileArtifactCollector {
       }
     }
     return files;
+  }
+
+  private async whenBaselineReady(): Promise<void> {
+    if (this.baselineReady) await this.baselineReady;
+    this.baselineSettled = true;
   }
 
   private async captureAllowedInputFingerprints(
@@ -448,6 +514,21 @@ function toolResultCouldHaveMutatedWorkspace(result: PilotDeckToolResult): boole
       // Timeouts, aborts, and execution failures can occur after a tool writes files.
       return true;
   }
+}
+
+type BaselineScanResult = {
+  files: Array<{ absolutePath: string; fingerprint: FileFingerprint }>;
+  complete: boolean;
+};
+
+function shareBaselineScan(workspaceKey: string, run: () => Promise<BaselineScanResult>): Promise<BaselineScanResult> {
+  const existing = workspaceBaselineInFlight.get(workspaceKey);
+  if (existing) return existing;
+  const pending: Promise<BaselineScanResult> = run().finally(() => {
+    if (workspaceBaselineInFlight.get(workspaceKey) === pending) workspaceBaselineInFlight.delete(workspaceKey);
+  });
+  workspaceBaselineInFlight.set(workspaceKey, pending);
+  return pending;
 }
 
 function cacheWorkspaceFingerprints(cwd: string, fingerprints: ReadonlyMap<string, FileFingerprint>): void {
