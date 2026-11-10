@@ -32,7 +32,10 @@ export const DEFAULT_IGNORE_GLOBS: string[] = [
   "**/.DS_Store",
 ];
 
-export const DEFAULT_SNAPSHOT_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
+// 2026-11-10: 「新风机」项目实测约 1.25 GiB（cad 652M + engineering 396M），
+// 1 GiB 硬上限让每轮 Always-On 都在 workspace_prepare 阶段失败。
+// 这套 CLI 由 tsx 直接跑源码，改这里重启 gateway 即生效。
+export const DEFAULT_SNAPSHOT_MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB
 export const DEFAULT_MAX_PLANS_PER_CYCLE = 3;
 
 export function defaultAlwaysOnConfig(): AlwaysOnConfig {
