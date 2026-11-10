@@ -10,7 +10,7 @@ import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { api } from '../../../utils/api';
 import type { ChatInterfaceProps, ChatMessage, ChatRunMode, PermissionMode, Provider } from '../types/types';
-import { fetchProjectTeam, ProjectTeamConflictError, saveProjectTeam } from '../../../lib/projectTeamApi';
+import { fetchProjectTeam, sessionAgentBinding, ProjectTeamConflictError, saveProjectTeam } from '../../../lib/projectTeamApi';
 import type { ProjectAgentModel, ProjectTeamAgent, ProjectTeamConfig } from '../../../lib/projectTeam';
 import { withAgentModel } from './agentModelScope';
 import {
@@ -120,7 +120,7 @@ function ChatInterface({
     root: '',
     config: null,
   });
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [agentBinding, setAgentBinding] = useState<{ scope: string; agentId: string | null | undefined; ready: boolean }>({ scope: "", agentId: undefined, ready: false });
   /**
    * The General workspace is a virtual conversation space rooted at PILOT_HOME,
    * not a project that owns a team configuration. The backend skips it when it
@@ -140,16 +140,8 @@ function ChatInterface({
   const teamAgents = teamState.root === projectRoot
     ? (teamState.config?.agents ?? EMPTY_TEAM_AGENTS).filter((agent) => agent.enabled)
     : EMPTY_TEAM_AGENTS;
-  /**
-   * The selection only counts while the loaded team still contains it, so a
-   * stale agent id can never reach the turn payload after a workspace switch.
-   */
-  const activeAgentId = teamAgents.some((agent) => agent.id === selectedAgentId)
-    ? selectedAgentId
-    : null;
   useEffect(() => {
     const controller = new AbortController();
-    setSelectedAgentId(null);
     if (!projectRoot) {
       setTeamState({ root: '', config: null });
       return () => controller.abort();
@@ -163,9 +155,6 @@ function ChatInterface({
     });
     return () => controller.abort();
   }, [projectRoot]);
-  useEffect(() => {
-    if (selectedAgentId && !teamAgents.some((agent) => agent.id === selectedAgentId)) setSelectedAgentId(null);
-  }, [selectedAgentId, teamAgents]);
   const [participantsState, setParticipantsState] = useState<{sessionId: string; participants: Array<{agentId: string; name: string; role: string}>}>({sessionId: '', participants: []});
   const setViewReady = useContext(SessionViewReadyContext);
   const { subscribe: contextSubscribe } = useWebSocket();
@@ -359,6 +348,57 @@ function ChatInterface({
     sessionStore,
   });
 
+  const bindingSessionId = selectedSession?.id || currentSessionId || '';
+  const bindingScope = JSON.stringify([projectRoot, !bindingSessionId || bindingSessionId.startsWith('new-session-') ? 'draft' : bindingSessionId]);
+  const [bindingReload, setBindingReload] = useState(0);
+  const [bindingError, setBindingError] = useState<{ scope: string; operation: 'load' | 'save'; message: string } | null>(null);
+  const bindingRequestRef = useRef(0);
+  const bindingSavesRef = useRef(new Map<string, Promise<unknown>>());
+  const bindingReady = !projectRoot || (agentBinding.scope === bindingScope && agentBinding.ready);
+  const activeAgentId = agentBinding.scope === bindingScope ? agentBinding.agentId : undefined;
+  useEffect(() => {
+    let cancelled = false;
+    const request = ++bindingRequestRef.current;
+    setBindingError(null);
+    if (!projectRoot || !bindingSessionId || bindingSessionId.startsWith('new-session-')) {
+      setAgentBinding(current => current.scope === bindingScope ? current : { scope: bindingScope, agentId: undefined, ready: true });
+      return;
+    }
+    setAgentBinding(current => ({ ...current, ready: false }));
+    // Wait for this scope's PUT to settle, then read authoritative state even
+    // when it failed. A rejected save must not poison every future revisit.
+    void (bindingSavesRef.current.get(bindingScope) ?? Promise.resolve()).catch(() => undefined)
+      .then(() => sessionAgentBinding(projectRoot, bindingSessionId)).then((agentId) => {
+      if (!cancelled && request === bindingRequestRef.current) setAgentBinding({ scope: bindingScope, agentId, ready: true });
+    }).catch((error) => {
+      if (!cancelled && request === bindingRequestRef.current) {
+        setAgentBinding({ scope: bindingScope, agentId: undefined, ready: false });
+        setBindingError({ scope: bindingScope, operation: 'load', message: error.message });
+        addToast('error', error.message);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [projectRoot, bindingSessionId, bindingScope, bindingReload]);
+  const selectSessionAgent = useCallback((agentId: string | null) => {
+    const request = ++bindingRequestRef.current;
+    setBindingError(null);
+    setAgentBinding({ scope: bindingScope, agentId, ready: false });
+    if (!bindingSessionId || bindingSessionId.startsWith('new-session-')) {
+      setAgentBinding({ scope: bindingScope, agentId, ready: true });
+      return;
+    }
+    const save = (bindingSavesRef.current.get(bindingScope) ?? Promise.resolve()).catch(() => undefined).then(() => sessionAgentBinding(projectRoot, bindingSessionId, agentId));
+    bindingSavesRef.current.set(bindingScope, save);
+    void save.then(() => {
+      if (request === bindingRequestRef.current) setAgentBinding(current => current.scope === bindingScope && current.agentId === agentId ? { ...current, ready: true } : current);
+    }).catch(error => {
+      if (request === bindingRequestRef.current) {
+        setBindingError({ scope: bindingScope, operation: 'save', message: error.message });
+        addToast('error', error.message);
+      }
+    });
+  }, [bindingScope, projectRoot, bindingSessionId, addToast]);
+
   const bindReview = review?.bind;
   useEffect(() => {
     bindReview?.(selectedProject && !isGeneralProject(selectedProject) ? selectedProject : null, selectedSession?.id ?? currentSessionId ?? null, isLoading, sessionIsReadOnly);
@@ -502,8 +542,8 @@ function ChatInterface({
     currentSessionId,
     model,
     modelSelection,
-    agentId: activeAgentId || undefined,
-    isModelSelectionReady,
+    agentId: activeAgentId,
+    isModelSelectionReady: isModelSelectionReady && bindingReady,
     isPermissionModeReady,
     runMode,
     permissionMode: effectivePermissionMode,
@@ -774,6 +814,7 @@ function ChatInterface({
       throw new Error(t('edit.missingTarget', { defaultValue: 'The last message can no longer be edited.' }));
     }
 
+    if (!bindingReady) throw new Error("会话角色尚未加载或保存完成。");
     if (!isPermissionModeReady) throw new Error(permissionModeError || "Permission preference is still loading.");
     if (!isModelSelectionReady || !modelSelection) throw new Error(modelCatalogError || "Model selection is still loading.");
     const attachments = Array.isArray(message.attachments) ? message.attachments : [];
@@ -824,7 +865,7 @@ function ChatInterface({
       runId,
       userVisibleInput: editedText,
       modelSelection: { ...modelSelection },
-      agentId: activeAgentId || undefined,
+      agentId: activeAgentId,
       toolsSettings: getPilotDeckSettings(),
       runMode,
       permissionMode: effectivePermissionMode,
@@ -845,6 +886,7 @@ function ChatInterface({
     return result;
   }, [
     currentSessionId,
+    bindingReady,
     isModelSelectionReady,
     isPermissionModeReady,
     permissionModeError,
@@ -1006,7 +1048,7 @@ function ChatInterface({
       modelCatalog={modelCatalog}
       modelSelection={modelSelection}
       isModelCatalogLoading={isModelCatalogLoading}
-      isModelSelectionReady={isModelSelectionReady}
+      isModelSelectionReady={isModelSelectionReady && bindingReady}
       isPermissionModeReady={isPermissionModeReady}
       permissionModeError={permissionModeError}
       onRetryPermissionMode={reloadPermissionMode}
@@ -1015,7 +1057,7 @@ function ChatInterface({
       projectKey={selectedProject?.fullPath || selectedProject?.path || ''}
       agents={teamAgents}
       selectedAgentId={activeAgentId}
-      onAgentSelectionChange={setSelectedAgentId}
+      onAgentSelectionChange={selectSessionAgent}
       onAgentModelChange={handleAgentModelChange}
       reviewRequestTarget={teamReviewer ? { reviewerId: teamReviewer.id, reviewerName: teamReviewer.name } : null}
       onRequestReview={handleRequestProjectReview}
@@ -1047,6 +1089,15 @@ function ChatInterface({
   );
   const composerSlot = (
     <div data-chat-composer-slot className="min-h-0 shrink-0">
+      {bindingError?.scope === bindingScope && (
+        <div role="alert" className="flex items-center gap-2 px-3 py-2 text-sm text-red-600">
+          <span>{bindingError.message}</span>
+          <button type="button" className="underline" onClick={() => {
+            if (bindingError.operation === 'save' && activeAgentId !== undefined) selectSessionAgent(activeAgentId);
+            else setBindingReload(value => value + 1);
+          }}>重试会话角色</button>
+        </div>
+      )}
       {composer}
     </div>
   );

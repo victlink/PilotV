@@ -5,6 +5,11 @@ import { regenerateLastSessionCommand, startSessionCommand } from './sessionLaun
 const project = { name: 'demo', path: '/demo', fullPath: '/demo' } as Project;
 
 describe('project agent propagation in session launch payloads', () => {
+  it('preserves explicit null rather than treating it as an omitted binding', () => {
+    const sendMessage = vi.fn();
+    startSessionCommand({ sendMessage, selectedProject: project, command: 'hello', agentId: null });
+    expect(sendMessage.mock.calls[0][0].options).toHaveProperty('agentId', null);
+  });
   it('forwards the selected project agent on the new-turn path', () => {
     const sendMessage = vi.fn();
 

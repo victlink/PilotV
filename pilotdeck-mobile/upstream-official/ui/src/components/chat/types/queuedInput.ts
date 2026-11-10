@@ -37,7 +37,7 @@ export type PreparedQueuedInput = {
     basePermissionMode?: string;
     model?: string;
     modelSelection?: ChatModelSelection;
-    agentId?: string;
+    agentId?: string | null;
     modelOverride?: {
       mode: 'model';
       provider: string;

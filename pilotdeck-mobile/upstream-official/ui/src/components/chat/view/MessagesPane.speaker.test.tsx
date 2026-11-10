@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { FindShortcutProvider } from '../../../contexts/FindShortcutContext';
 import type { ChatMessage } from '../types/types';
@@ -118,7 +118,7 @@ function Pane({
   onSelectSpeaker,
   isAssistantWorking = false,
   scrollContainerRef,
-}: PaneProps & { scrollContainerRef: React.RefObject<HTMLDivElement> }) {
+}: PaneProps & { scrollContainerRef: React.RefObject<HTMLDivElement | null> }) {
   return (
     <FindShortcutProvider activeScope="chat">
       <MessagesPaneV2
@@ -261,6 +261,21 @@ describe('final result detection helpers', () => {
     expect(finals.has(question)).toBe(false);
   });
 
+  it('uses the last valid prose after multiple speakers and intervening or trailing tools', () => {
+    const question = userMessage('u-multi', '检查代码');
+    const earlier = assistantMessage('a-other', '中间意见。', { agentName: '阿强' });
+    const final = assistantMessage('a-final', '最终结论。', { agentName: '小林' });
+    const tool = toolMessage('tool-between');
+    const trace = item(assistantMessage('trace-multi', ''), 0.01, {
+      turnTrace: { id: 'trace-multi', isLive: false, defaultExpanded: false, items: [] },
+    });
+    const items = [item(question, 0), trace, item(earlier, 1), item(tool, 2), item(final, 3), item(toolMessage('tool-tail'), 4)];
+
+    expect([...collectFinalResultMessages(items, [0])]).toEqual([final]);
+    // An explicit valid process output remains authoritative, rather than the next trace neighbor.
+    expect([...collectFinalResultMessages(items.map(entry => entry.message === final ? { ...entry, processOutput: true } : entry), [0])]).toEqual([final]);
+  });
+
   it('splits turns on user messages', () => {
     expect(getTurnStartIndices([userMessage('u-1', 'a'), assistantMessage('x-1', 'b')])).toEqual([0]);
     expect(
@@ -380,7 +395,7 @@ describe('MessagesPaneV2 speaker filter and reply expansion', () => {
   });
 
   it('filters trace children recursively and keeps the tool process visible', () => {
-    renderPane({
+    const view = renderPane({
       messages: turnMessages(),
       speakerFilterKey: 'name:小林',
     });
@@ -393,8 +408,14 @@ describe('MessagesPaneV2 speaker filter and reply expansion', () => {
 
     expect(screen.getByText('小林：我先看看。')).toBeTruthy();
     expect(screen.queryByText('阿强：我看看测试。')).toBeNull();
+    // 外层轮过程和内层工具组分别展开，不改变产品的两级 disclosure。
+    const toolGroup = view.container.querySelector<HTMLElement>('[data-process-block]')!;
+    const toolToggle = within(toolGroup).getByRole('button', { expanded: false });
+    fireEvent.click(toolToggle);
+    expect(toolToggle.getAttribute('aria-expanded')).toBe('true');
     // 工具过程挂在保留下来的那一行上，不会因为换视角消失。
     expect(screen.getByText('ReadHidden.tsx')).toBeTruthy();
+    expect(screen.queryByText('阿强：我看看测试。')).toBeNull();
   });
 
   it('keeps the final result expanded and collapses the finished replies', () => {

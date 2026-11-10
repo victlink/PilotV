@@ -119,6 +119,8 @@ type MessageRowProps = {
   forkCarriedMessageCount?: number;
   forkDisabled?: boolean;
   showAssistantActions?: boolean;
+  /** Turn-level hosts render their own file footer instead of the legacy inline card. */
+  showInlineTurnChanges?: boolean;
   canEdit?: boolean;
   onRegenerate?: (message: ChatMessage, editedText: string) => Promise<void>;
   /** Stop the running turn and move this user message back into the composer. */
@@ -174,6 +176,7 @@ function MessageRow({
   forkCarriedMessageCount = 0,
   forkDisabled = false,
   showAssistantActions,
+  showInlineTurnChanges = true,
   canEdit = false,
   onRegenerate,
   onReturnToComposer,
@@ -326,6 +329,7 @@ function MessageRow({
           onGrantSessionToolPermission={onGrantSessionToolPermission}
           autoExpandTools={autoExpandTools}
           showThinking={showThinking}
+          showInlineTurnChanges={showInlineTurnChanges}
           isProcessExpanded={isProcessExpanded}
           onProcessExpandedChange={onProcessExpandedChange}
           isToolSectionExpanded={isToolSectionExpanded}
@@ -724,14 +728,14 @@ function MessageRow({
               onFileOpen={onFileOpen} isStreaming={Boolean(message.isStreaming) || contentDisplayText !== formattedContent} artifactFiles={assistantArtifacts}>{contentDisplayText}</Markdown>
             </div>
           )}
-          <TurnChangesCard
+          {showInlineTurnChanges ? <TurnChangesCard
             turnId={message.turnId || message.runId}
             artifacts={assistantArtifacts}
             project={selectedProject}
             onBrowse={onFileOpen}
             includeCheckpoint={showAssistantActions === true && !message.isStreaming}
             streaming={Boolean(message.isStreaming)}
-          />
+          /> : null}
         </>
       )}
       {shouldRenderAssistantActions ? (

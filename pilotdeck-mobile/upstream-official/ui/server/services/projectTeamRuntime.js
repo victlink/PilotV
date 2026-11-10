@@ -1,5 +1,61 @@
 import { ProjectTeamConfigError, readProjectTeamConfig } from './projectTeamConfig.js';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { resolvePilotHome } from '../utils/pilotPaths.js';
+
+function sessionBindingPath(projectRoot, sessionKey) {
+    if (typeof sessionKey !== 'string' || !sessionKey || sessionKey.length > 512) {
+        throw new ProjectTeamConfigError('A session key is required.', { statusCode: 400, code: 'SESSION_KEY_REQUIRED' });
+    }
+    const key = createHash('sha256').update(JSON.stringify([path.resolve(projectRoot), sessionKey])).digest('hex');
+    return path.join(resolvePilotHome(), 'session-agent-bindings', `${key}.json`);
+}
+
+export function readSessionAgentBinding(projectRoot, sessionKey) {
+    try {
+        const value = JSON.parse(readFileSync(sessionBindingPath(projectRoot, sessionKey), 'utf8'));
+        if (value.agentId !== null && typeof value.agentId !== 'string') throw new Error('Invalid session agent binding.');
+        return value.agentId;
+    } catch (error) {
+        if (error.code === 'ENOENT') return undefined;
+        throw error;
+    }
+}
+
+function writeSessionAgentBinding(projectRoot, sessionKey, agentId) {
+    const file = sessionBindingPath(projectRoot, sessionKey);
+    mkdirSync(path.dirname(file), { recursive: true });
+    const temp = `${file}.${randomUUID()}.tmp`;
+    try {
+        writeFileSync(temp, JSON.stringify({ agentId }), { mode: 0o600 });
+        renameSync(temp, file);
+    } finally {
+        rmSync(temp, { force: true });
+    }
+}
+
+export async function getSessionAgentBinding({ projectRoot, sessionKey, snapshotProvider = defaultSnapshotProvider }) {
+    const config = await readProjectTeamConfig({ projectRoot, snapshotProvider });
+    const agentId = readSessionAgentBinding(projectRoot, sessionKey);
+    if (agentId != null && !config.agents.some(agent => agent.id === agentId && agent.enabled)) {
+        throw new ProjectTeamConfigError(`Project agent is not enabled or does not exist: ${agentId}`, { statusCode: 404, code: 'PROJECT_AGENT_UNAVAILABLE' });
+    }
+    // JSON omits undefined (follow configured defaults); null explicitly opts
+    // out of the team runtime, including commander fallback.
+    return { agentId };
+}
+
+export async function setSessionAgentBinding({ projectRoot, sessionKey, agentId, snapshotProvider = defaultSnapshotProvider }) {
+    if (agentId !== null && (typeof agentId !== 'string' || !agentId)) {
+        throw new ProjectTeamConfigError('agentId must be a member id or null.', { statusCode: 400, code: 'PROJECT_AGENT_INVALID' });
+    }
+    const config = await readProjectTeamConfig({ projectRoot, snapshotProvider });
+    if (agentId !== null && !config.agents.some(agent => agent.id === agentId && agent.enabled)) {
+        throw new ProjectTeamConfigError(`Project agent is not enabled or does not exist: ${agentId}`, { statusCode: 404, code: 'PROJECT_AGENT_UNAVAILABLE' });
+    }
+    writeSessionAgentBinding(projectRoot, sessionKey, agentId);
+    return { agentId };
+}
 import path from 'node:path';
 
 async function defaultSnapshotProvider() {
@@ -134,12 +190,17 @@ export function buildProjectAgentToolPolicy(agent, { projectRoot } = {}) {
     return policy;
 }
 
-export async function resolveProjectTeamRuntime({ projectKey, cwd, agentId, snapshotProvider = defaultSnapshotProvider } = {}) {
+export async function resolveProjectTeamRuntime({ projectKey, cwd, agentId, sessionKey, persistBinding = true, snapshotProvider = defaultSnapshotProvider } = {}) {
     const root = projectKey || cwd;
+    if (root && sessionKey) {
+        if (agentId !== undefined && persistBinding) await setSessionAgentBinding({ projectRoot: root, sessionKey, agentId, snapshotProvider });
+        else if (agentId === undefined) agentId = readSessionAgentBinding(root, sessionKey);
+    }
     if (typeof root !== 'string' || !root) {
         if (agentId === undefined || agentId === null || agentId === '') return null;
         throw new ProjectTeamConfigError('An agent requires a project root.', { statusCode: 400, code: 'PROJECT_ROOT_REQUIRED' });
     }
+    if (agentId === null) return null;
     // In commander/automated collaboration, an omitted UI selection still
     // runs through the configured commander (or first enabled worker). This
     // keeps the default chat turn eligible for a bounded reviewer turn.

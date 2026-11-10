@@ -12,7 +12,7 @@ export function ConversationTurnNav({ messages, items, heights, scrollRef, onPau
   messages: ChatMessage[];
   items: { message: ChatMessage; itemKey: string; renderIndex: number }[];
   heights: number[];
-  scrollRef: RefObject<HTMLDivElement>;
+  scrollRef: RefObject<HTMLDivElement | null>;
   onPause?: (key?: string) => void;
   loadAll: () => void | Promise<void>;
   hasMore: boolean;

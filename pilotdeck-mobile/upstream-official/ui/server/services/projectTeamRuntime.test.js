@@ -1,17 +1,20 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
     buildProjectAgentBriefing,
     buildProjectAgentToolPolicy,
     resolveProjectTeamRuntime,
+    getSessionAgentBinding,
+    setSessionAgentBinding,
 } from './projectTeamRuntime.js';
 import { writeProjectTeamConfig } from './projectTeamConfig.js';
 
 const roots = [];
 afterEach(() => {
+    vi.unstubAllEnvs();
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -253,6 +256,37 @@ describe('project agent capability scoping', () => {
             'bash', 'execute_code', 'agent', 'task_create', 'mcp*',
         ]));
         expect(resolved.toolPolicy.ask).not.toContain('bash');
+    });
+});
+
+describe('session agent binding', () => {
+    it('keeps unbound distinct from explicit null across JSON and commander fallback', async () => {
+        vi.stubEnv('PILOT_HOME', root());
+        const projectRoot = root();
+        const snapshotProvider = async () => [{ fullPath: projectRoot }];
+        await writeProjectTeamConfig({ projectRoot, revision: '0', collaboration: { mode: 'commander' }, agents: [agent({ role: 'commander' })], snapshotProvider });
+        const scope = { projectRoot, sessionKey: 'web:three-state', snapshotProvider };
+        expect(JSON.parse(JSON.stringify(await getSessionAgentBinding(scope)))).not.toHaveProperty('agentId');
+        expect((await resolveProjectTeamRuntime({ projectKey: projectRoot, sessionKey: scope.sessionKey, snapshotProvider }))?.agentId).toBe('worker');
+        await setSessionAgentBinding({ ...scope, agentId: null });
+        expect(JSON.parse(JSON.stringify(await getSessionAgentBinding(scope)))).toEqual({ agentId: null });
+        expect(await resolveProjectTeamRuntime({ projectKey: projectRoot, sessionKey: scope.sessionKey, snapshotProvider })).toBeNull();
+    });
+    it('isolates A/B, restores omitted selections, clears with null and keeps background reviewers transient', async () => {
+        vi.stubEnv('PILOT_HOME', root());
+        const projectRoot = root();
+        const snapshotProvider = async () => [{ fullPath: projectRoot }];
+        await writeProjectTeamConfig({ projectRoot, revision: '0', agents: [agent(), agent({ id: 'reviewer', role: 'reviewer' })], snapshotProvider });
+        const resolve = (sessionKey, options = {}) => resolveProjectTeamRuntime({ projectKey: projectRoot, sessionKey, snapshotProvider, ...options });
+        await resolve('web:binding-a', { agentId: 'worker' });
+        expect((await resolve('web:binding-a'))?.agentId).toBe('worker');
+        expect(await resolve('web:binding-b')).toBeNull();
+        await resolve('web:binding-a', { agentId: 'reviewer', persistBinding: false });
+        expect((await resolve('web:binding-a'))?.agentId).toBe('worker');
+        await expect(resolve('web:binding-a', { agentId: 'missing' })).rejects.toMatchObject({ code: 'PROJECT_AGENT_UNAVAILABLE' });
+        expect((await resolve('web:binding-a'))?.agentId).toBe('worker');
+        await resolve('web:binding-a', { agentId: null });
+        expect(await resolve('web:binding-a')).toBeNull();
     });
 });
 

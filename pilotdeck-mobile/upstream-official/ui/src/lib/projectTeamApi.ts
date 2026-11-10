@@ -20,6 +20,16 @@ import {
 
 export const PROJECT_TEAM_API_BASE = '/api/project-team';
 
+// Missing agentId follows defaults; null explicitly disables team fallback.
+export async function sessionAgentBinding(projectRoot: string, sessionKey: string, agentId?: string | null): Promise<string | null | undefined> {
+    const response = await authenticatedFetch(`${PROJECT_TEAM_API_BASE}/session-agent?projectRoot=${encodeURIComponent(projectRoot)}&sessionKey=${encodeURIComponent(sessionKey)}`, {
+        method: agentId === undefined ? 'GET' : 'PUT',
+        ...(agentId !== undefined ? { body: JSON.stringify({ agentId }) } : {}),
+    });
+    if (!response.ok) throw new ProjectTeamRequestError(await readErrorDetail(response) || '会话角色加载或保存失败', response.status);
+    return (await response.json()).agentId;
+}
+
 /** 后端返回 409 时抛出，调用方据此提示"配置已被他人修改"。 */
 export class ProjectTeamConflictError extends Error {
     constructor(message = '项目团队配置已被其他窗口修改，请重新加载后再保存。') {

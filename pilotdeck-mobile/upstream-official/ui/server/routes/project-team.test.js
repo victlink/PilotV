@@ -6,6 +6,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createProjectTeamRouter, SNAPSHOT_TIMEOUT_MS } from './project-team.js';
 
+// Match the safe database mock used by agent.requestContext.test.js: never
+// load the authentication database (whose migration can copy a real auth.db).
+vi.mock('../database/db.js', () => ({
+    userDb: { getFirstUser: () => ({ id: 'platform-user' }) },
+    apiKeysDb: { validateApiKey: () => null },
+    githubTokensDb: {},
+}));
+
 const nativeFetch = globalThis.fetch;
 const workspaces = [];
 
@@ -70,6 +78,33 @@ async function requestJson(app, path, init = {}) {
         await new Promise((resolve) => server.close(resolve));
     }
 }
+
+describe('session agent binding API', () => {
+    it('persists across router recreation, isolates projects and sessions, clears and rejects unavailable members', async () => {
+        const workspace = createWorkspace();
+        const root = workspace.registerProject('binding');
+        const other = workspace.registerProject('other');
+        const app = createApp();
+        const teamUrl = `/api/project-team?projectRoot=${encodeURIComponent(root)}`;
+        const saved = await requestJson(app, teamUrl, { method: 'PUT', body: JSON.stringify({ version: 1, revision: '0', agents: [buildAgent()] }) });
+        expect(saved.status).toBe(200);
+        const url = (project, session) => `/api/project-team/session-agent?projectRoot=${encodeURIComponent(project)}&sessionKey=${session}`;
+        const put = (agentId) => ({ method: 'PUT', body: JSON.stringify({ agentId }) });
+        expect((await requestJson(app, url(root, 'web:a'), put('reviewer-1'))).body.agentId).toBe('reviewer-1');
+        expect((await requestJson(createApp(), url(root, 'web:a'))).body.agentId).toBe('reviewer-1');
+        expect((await requestJson(app, url(root, 'web:b'))).body).not.toHaveProperty('agentId');
+        expect((await requestJson(app, url(other, 'web:a'))).body).not.toHaveProperty('agentId');
+        expect((await requestJson(app, url(root, 'web:a'), put('missing'))).status).toBe(404);
+        expect((await requestJson(app, url(root, 'web:a'))).body.agentId).toBe('reviewer-1');
+        expect((await requestJson(app, url(root, 'web:a'), put(null))).status).toBe(200);
+        expect((await requestJson(createApp(), url(root, 'web:a'))).body.agentId).toBeNull();
+        await requestJson(app, url(root, 'web:a'), put('reviewer-1'));
+        await requestJson(app, teamUrl, { method: 'PUT', body: JSON.stringify({ version: 1, revision: saved.body.revision, agents: [buildAgent({ enabled: false })] }) });
+        expect((await requestJson(app, url(root, 'web:a'))).status).toBe(404);
+        expect((await requestJson(app, url(root, 'web:a'), put('reviewer-1'))).status).toBe(404);
+        expect((await requestJson(app, url(join(workspace.base, 'unregistered'), 'web:a'), put(null))).status).toBe(404);
+    }, 20_000);
+});
 
 describe('GET /api/project-team', () => {
     it('returns the empty configuration for a registered project', async () => {

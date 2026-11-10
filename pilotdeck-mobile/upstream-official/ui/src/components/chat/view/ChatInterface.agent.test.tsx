@@ -4,15 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ChatInterfaceV2 from './ChatInterface';
 
 const chatMocks = vi.hoisted(() => ({
+  realComposer: false,
   useSessionInputQueue: vi.fn(),
   useChatSessionState: vi.fn(),
   fetchProjectTeam: vi.fn(),
+  sessionAgentBinding: vi.fn(async (_root: string, _session: string, agentId?: string | null): Promise<string | null | undefined> => agentId),
   /**
    * Every `agentId` that `ChatInterfaceV2` handed to `useChatComposerState`.
    * The composer state copies it into a ref that the submit path reads, so
    * every entry here is a value that could reach the real turn payload.
    */
-  composerAgentIds: [] as Array<string | undefined>,
+  composerAgentIds: [] as Array<string | null | undefined>,
   /** The `onRegenerate` handler of every rendered message pane. */
   regenerateHandlers: [] as Array<
     ((message: unknown, editedText: string) => Promise<void>) | undefined
@@ -35,26 +37,26 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('../../contexts/TasksSettingsContext', () => ({
+vi.mock('../../../contexts/TasksSettingsContext', () => ({
   useTasksSettings: () => ({ tasksEnabled: false, isTaskMasterInstalled: false }),
 }));
 
-vi.mock('../../contexts/ToastContext', () => ({
+vi.mock('../../../contexts/ToastContext', () => ({
   useToast: () => ({ addToast: vi.fn() }),
 }));
 
-vi.mock('../../contexts/WebSocketContext', () => ({
+vi.mock('../../../contexts/WebSocketContext', () => ({
   useWebSocket: () => ({ subscribe: vi.fn(() => vi.fn()) }),
 }));
 
-vi.mock('../../stores/useSessionStore', () => ({
+vi.mock('../../../stores/useSessionStore', () => ({
   useSessionStore: () => ({ refreshFromServer: vi.fn() }),
 }));
 
-vi.mock('../../hooks/useSessionWatch', () => ({ useSessionWatch: vi.fn() }));
-vi.mock('../chat/hooks/useChatRealtimeHandlers', () => ({ useChatRealtimeHandlers: vi.fn() }));
+vi.mock('../../../hooks/useSessionWatch', () => ({ useSessionWatch: vi.fn() }));
+vi.mock('../hooks/useChatRealtimeHandlers', () => ({ useChatRealtimeHandlers: vi.fn() }));
 
-vi.mock('../chat/hooks/useChatProviderState', () => ({
+vi.mock('../hooks/useChatProviderState', () => ({
   useChatProviderState: () => ({
     model: 'openai/gpt-test',
     modelCatalog: [],
@@ -74,16 +76,24 @@ vi.mock('../chat/hooks/useChatProviderState', () => ({
   }),
 }));
 
-vi.mock('../chat/hooks/useChatSessionState', () => ({
+vi.mock('../hooks/useChatSessionState', () => ({
   useChatSessionState: chatMocks.useChatSessionState,
 }));
 
-vi.mock('../chat/hooks/useSessionInputQueue', () => ({
+vi.mock('../hooks/useSessionInputQueue', () => ({
   useSessionInputQueue: chatMocks.useSessionInputQueue,
 }));
 
-vi.mock('../chat/hooks/useChatComposerState', () => ({
-  useChatComposerState: (args: { agentId?: string }) => {
+vi.mock('../../../utils/api', () => ({
+  api: {},
+  authenticatedFetch: vi.fn(async () => ({ ok: true, json: async () => ({ pinned: [], custom: [], builtIn: [] }) })),
+}));
+
+vi.mock('../hooks/useChatComposerState', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../hooks/useChatComposerState')>();
+  return {
+  useChatComposerState: (args: any) => {
+    if (chatMocks.realComposer) return actual.useChatComposerState(args);
     chatMocks.composerAgentIds.push(args.agentId);
     return {
       input: '', setInput: vi.fn(), textareaRef: { current: null }, inputHighlightRef: { current: null },
@@ -104,13 +114,15 @@ vi.mock('../chat/hooks/useChatComposerState', () => ({
       handleGrantSessionToolPermission: vi.fn(), handleInputFocusChange: vi.fn(),
     };
   },
-}));
+};
+});
 
-vi.mock('../../lib/projectTeamApi', () => ({
+vi.mock('../../../lib/projectTeamApi', () => ({
   fetchProjectTeam: chatMocks.fetchProjectTeam,
+  sessionAgentBinding: chatMocks.sessionAgentBinding,
 }));
 
-vi.mock('./MessagesPaneV2', () => ({
+vi.mock('./MessagesPane', () => ({
   default: ({
     onRegenerate,
     speakerFilterKey,
@@ -140,14 +152,20 @@ vi.mock('./MessagesPaneV2', () => ({
   },
 }));
 
-vi.mock('./ComposerV2', () => ({
+vi.mock('./Composer', () => ({
   default: ({
+    input,
+    onInputChange,
+    onSubmit,
     onAgentSelectionChange,
     selectedAgentId,
     agents,
     reviewRequestTarget,
     onRequestReview,
   }: {
+    input?: string;
+    onInputChange?: (event: any) => void;
+    onSubmit?: (event: any) => void;
     onAgentSelectionChange?: (agentId: string | null) => void;
     selectedAgentId?: string | null;
     agents?: Array<{ id: string }>;
@@ -155,6 +173,8 @@ vi.mock('./ComposerV2', () => ({
     onRequestReview?: () => void;
   }) => (
     <div data-testid="composer">
+      <input data-testid="message-input" value={input ?? ""} onChange={event => onInputChange?.(event)} />
+      <button data-testid="send-input" onClick={() => onSubmit?.({ preventDefault() {} })}>send</button>
       <span data-testid="selected-agent">{selectedAgentId ?? 'none'}</span>
       <span data-testid="agent-ids">{(agents ?? []).map((agent) => agent.id).join(',')}</span>
       <span data-testid="review-target">{reviewRequestTarget?.reviewerId ?? 'none'}</span>
@@ -165,6 +185,7 @@ vi.mock('./ComposerV2', () => ({
       >
         select agent b
       </button>
+      <button data-testid="clear-agent" onClick={() => onAgentSelectionChange?.(null)}>clear</button>
       {reviewRequestTarget ? (
         <button type="button" data-testid="request-review" onClick={() => onRequestReview?.()}>
           request review
@@ -246,6 +267,9 @@ function renderChat(
 }
 
 beforeEach(() => {
+  chatMocks.realComposer = false;
+  chatMocks.sessionAgentBinding.mockReset();
+  chatMocks.sessionAgentBinding.mockImplementation(async (_root, _session, agentId) => agentId);
   chatMocks.composerAgentIds.length = 0;
   chatMocks.regenerateHandlers.length = 0;
   chatMocks.messagesPaneProps.length = 0;
@@ -284,6 +308,207 @@ function teamStripButton(): HTMLElement {
 }
 
 describe('ChatInterfaceV2 project agents', () => {
+  it('offers an explicit retry after GET failure and blocks sending until recovery', async () => {
+    chatMocks.sessionAgentBinding.mockRejectedValueOnce(new Error('read failed')).mockResolvedValueOnce('agent-a');
+    const sendMessage = vi.fn();
+    renderChat(sendMessage);
+    await waitFor(() => expect(screen.getByRole('button', { name: '重试会话角色' })).toBeTruthy());
+    fireEvent.click(screen.getByTestId('regenerate'));
+    expect(sendMessage).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '重试会话角色' }));
+    await waitFor(() => expect(screen.getByTestId('selected-agent').textContent).toBe('agent-a'));
+    fireEvent.click(screen.getByTestId('regenerate'));
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    expect(sendMessage.mock.calls[0][0].options.agentId).toBe('agent-a');
+    expect(screen.queryByRole('button', { name: '重试会话角色' })).toBeNull();
+  });
+
+  it('retries the failed save explicitly without silently discarding the selected agent', async () => {
+    let fail = true;
+    chatMocks.sessionAgentBinding.mockImplementation(async (_root, _session, agentId) => {
+      if (agentId !== undefined && fail) throw new Error('save failed');
+      return agentId;
+    });
+    const sendMessage = vi.fn();
+    renderChat(sendMessage);
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('select-agent-b'));
+    await waitFor(() => expect(screen.getByRole('button', { name: '重试会话角色' })).toBeTruthy());
+    fireEvent.click(screen.getByTestId('regenerate'));
+    expect(sendMessage).not.toHaveBeenCalled();
+    fail = false;
+    fireEvent.click(screen.getByRole('button', { name: '重试会话角色' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: '重试会话角色' })).toBeNull());
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('regenerate'));
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    expect(sendMessage.mock.calls[0][0].options.agentId).toBe('agent-b');
+  });
+
+  it('rereads after a rejected save on revisit and blocks sends until the read completes', async () => {
+    let finishRead!: (value: string) => void;
+    const reread = new Promise<string>(resolve => { finishRead = resolve; });
+    let reads = 0;
+    chatMocks.sessionAgentBinding.mockImplementation(async (_root, session, agentId) => {
+      if (agentId !== undefined) throw new Error('save failed');
+      if (session !== 'web:s_agent') return undefined;
+      return ++reads === 1 ? 'agent-a' : reread;
+    });
+    const sendMessage = vi.fn();
+    const view = renderChat(sendMessage);
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('select-agent-b'));
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('regenerate'));
+    expect(sendMessage).not.toHaveBeenCalled();
+    view.rerender(<ChatInterfaceV2 {...(chatProps(DEMO_PROJECT, sendMessage, 'web:other') as any)} />);
+    await act(async () => {});
+    view.rerender(<ChatInterfaceV2 {...(chatProps(DEMO_PROJECT, sendMessage) as any)} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('regenerate'));
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(reads).toBe(2);
+    await act(async () => { finishRead('agent-a'); });
+    fireEvent.click(screen.getByTestId('regenerate'));
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    expect(sendMessage.mock.calls[0][0].options.agentId).toBe('agent-a');
+  });
+
+  it('allows retrying the same selection after a rejected save', async () => {
+    let fail = true;
+    chatMocks.sessionAgentBinding.mockImplementation(async (_root, _session, agentId) => {
+      if (agentId !== undefined && fail) throw new Error('save failed');
+      return agentId;
+    });
+    const sendMessage = vi.fn();
+    renderChat(sendMessage);
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('select-agent-b'));
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('regenerate'));
+    expect(sendMessage).not.toHaveBeenCalled();
+    fail = false;
+    fireEvent.click(screen.getByTestId('select-agent-b'));
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('regenerate'));
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    expect(sendMessage.mock.calls[0][0].options.agentId).toBe('agent-b');
+  });
+
+  it.each([null, undefined])('preserves persisted binding %s through remount into real send and queue payloads', async (binding) => {
+    const bindings = new Map<string, string | null>();
+    chatMocks.sessionAgentBinding.mockImplementation(async (_root, session, agentId) => {
+      if (agentId !== undefined) bindings.set(session, agentId);
+      return bindings.get(session);
+    });
+    const view = renderChat(vi.fn());
+    await act(async () => {});
+    if (binding === null) {
+      fireEvent.click(screen.getByTestId('clear-agent'));
+      await act(async () => {});
+    }
+    view.unmount();
+    chatMocks.realComposer = true;
+    const sendMessage = vi.fn((_message: any) => true);
+    const remount = renderChat(sendMessage);
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('regenerate'));
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    expect(sendMessage.mock.calls[0][0].options.agentId).toBe(binding);
+    sendMessage.mockClear();
+    const enqueue = vi.fn(async (_item: any) => ({ ok: true }));
+    chatMocks.useSessionInputQueue.mockReturnValue({ ...emptyQueue(), enqueue });
+    chatMocks.useChatSessionState.mockReturnValue(createChatSessionState({ isLoading: true }));
+    remount.rerender(<ChatInterfaceV2 {...(chatProps(DEMO_PROJECT, sendMessage) as any)} />);
+    fireEvent.change(screen.getByTestId('message-input'), { target: { value: 'queue task' } });
+    fireEvent.click(screen.getByTestId('send-input'));
+    await waitFor(() => expect(enqueue).toHaveBeenCalled());
+    expect(enqueue.mock.calls[0][0].options.agentId).toBe(binding);
+  });
+
+  it('preserves an explicit draft clear through the real composer into the wire payload', async () => {
+    chatMocks.realComposer = true;
+    const sendMessage = vi.fn((_message: unknown) => true);
+    const view = renderChat(sendMessage);
+    chatMocks.useChatSessionState.mockReturnValue(createChatSessionState({ currentSessionId: null }));
+    view.rerender(<ChatInterfaceV2 {...({ ...chatProps(DEMO_PROJECT, sendMessage), selectedSession: null } as any)} />);
+    await act(async () => {});
+    fireEvent.change(screen.getByTestId('message-input'), { target: { value: 'draft task' } });
+    fireEvent.click(screen.getByTestId('clear-agent'));
+    fireEvent.click(screen.getByTestId('send-input'));
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    expect(sendMessage.mock.calls[0][0]).toMatchObject({ type: 'pilotdeck-command', options: { agentId: null } });
+  });
+
+  it('preserves an explicit clear in the real regenerate payload', async () => {
+    const sendMessage = vi.fn();
+    renderChat(sendMessage);
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('clear-agent'));
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('regenerate'));
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    expect(sendMessage.mock.calls[0][0].options.agentId).toBeNull();
+  });
+
+  it('waits for a pending A save before rereading after A to B to A', async () => {
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    let saved: string | null = null;
+    chatMocks.sessionAgentBinding.mockImplementation(async (_root, session, agentId) => {
+      if (agentId !== undefined) { await pending; saved = agentId; return agentId; }
+      return session === 'web:s_agent' ? saved : null;
+    });
+    const sendMessage = vi.fn();
+    const view = renderChat(sendMessage);
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('select-agent-b'));
+    await act(async () => {});
+    view.rerender(<ChatInterfaceV2 {...(chatProps(DEMO_PROJECT, sendMessage, 'web:other') as any)} />);
+    await act(async () => {});
+    view.rerender(<ChatInterfaceV2 {...(chatProps(DEMO_PROJECT, sendMessage) as any)} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('regenerate'));
+    expect(sendMessage).not.toHaveBeenCalled();
+    await act(async () => { finish(); await pending; });
+    await waitFor(() => expect(screen.getByTestId('selected-agent').textContent).toBe('agent-b'));
+    fireEvent.click(screen.getByTestId('regenerate'));
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    expect(sendMessage.mock.calls[0][0].options.agentId).toBe('agent-b');
+    chatMocks.sessionAgentBinding.mockImplementation(async (_root, _session, agentId) => agentId ?? null);
+  });
+
+  it('restores the session binding and isolates same-project session switches', async () => {
+    chatMocks.sessionAgentBinding.mockImplementation(async (_root, session, agentId) => agentId === undefined ? (session === 'web:s_agent' ? 'agent-b' : null) : agentId);
+    const sendMessage = vi.fn();
+    const view = renderChat(sendMessage);
+    await waitFor(() => expect(screen.getByTestId('selected-agent').textContent).toBe('agent-b'));
+    const before = chatMocks.composerAgentIds.length;
+    view.rerender(<ChatInterfaceV2 {...(chatProps(DEMO_PROJECT, sendMessage, 'web:other') as any)} />);
+    await waitFor(() => expect(screen.getByTestId('selected-agent').textContent).toBe('none'));
+    expect(chatMocks.composerAgentIds.slice(before)).not.toContain('agent-b');
+    chatMocks.sessionAgentBinding.mockImplementation(async (_root, _session, agentId) => agentId ?? null);
+  });
+  it('saves clear and restores a selection after remount without a prompt change', async () => {
+    const bindings = new Map<string, string | null>();
+    chatMocks.sessionAgentBinding.mockImplementation(async (root, session, agentId) => {
+      const key = `${root}:${session}`;
+      if (agentId !== undefined) bindings.set(key, agentId);
+      return bindings.get(key) ?? null;
+    });
+    const view = renderChat(vi.fn());
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId('select-agent-b'));
+    await waitFor(() => expect(chatMocks.sessionAgentBinding).toHaveBeenCalledWith(DEMO_PROJECT.fullPath, 'web:s_agent', 'agent-b'));
+    view.unmount();
+    renderChat(vi.fn());
+    await waitFor(() => expect(screen.getByTestId('selected-agent').textContent).toBe('agent-b'));
+    fireEvent.click(screen.getByTestId('clear-agent'));
+    await waitFor(() => expect(chatMocks.sessionAgentBinding).toHaveBeenCalledWith(DEMO_PROJECT.fullPath, 'web:s_agent', null));
+    expect(screen.getByTestId('selected-agent').textContent).toBe('none');
+    chatMocks.sessionAgentBinding.mockImplementation(async (_root, _session, agentId) => agentId ?? null);
+  });
+
   it('carries the selected project agent into the turn payload', async () => {
     const sendMessage = vi.fn();
     renderChat(sendMessage);
@@ -357,6 +582,8 @@ describe('ChatInterfaceV2 project agents', () => {
     await waitFor(() => expect(screen.getByTestId('selected-agent').textContent).toBe('agent-b'));
 
     view.rerender(<ChatInterfaceV2 {...(chatProps(OTHER_PROJECT, sendMessage) as any)} />);
+    await waitFor(() => expect(screen.getByTestId('agent-ids').textContent).toBe('agent-c'));
+    await act(async () => {});
     fireEvent.click(screen.getByTestId('regenerate'));
 
     await waitFor(() => expect(sendMessage).toHaveBeenCalled());
@@ -383,16 +610,11 @@ describe('ChatInterfaceV2 project agents', () => {
      */
     const staleRenderHandler = chatMocks.regenerateHandlers[handlersBeforeSwitch];
     expect(staleRenderHandler).toBeTypeOf('function');
-    // The edit acknowledgement never arrives in this test, so the pending
-    // promise is dropped on purpose.
-    void staleRenderHandler?.(
+    await expect(staleRenderHandler?.(
       { id: 'message-1', role: 'user', content: 'original request', turnId: 'turn-1' },
       'edited request',
-    )?.catch(() => undefined);
-
-    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
-    const [frame] = sendMessage.mock.calls[0] as [{ type: string; options: Record<string, unknown> }];
-    expect(frame.options).not.toHaveProperty('agentId');
+    )).rejects.toThrow('会话角色尚未加载或保存完成');
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 });
 

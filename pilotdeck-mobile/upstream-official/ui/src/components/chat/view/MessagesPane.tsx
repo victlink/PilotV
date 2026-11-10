@@ -60,7 +60,7 @@ import {
 type DiffLine = { type: string; content: string; lineNum: number };
 
 type MessagesPaneProps = {
-  scrollContainerRef: RefObject<HTMLDivElement>;
+  scrollContainerRef: RefObject<HTMLDivElement | null>;
   showReturnToLatest?: boolean;
   onResumeScroll?: () => void;
   onPauseScroll?: (messageKey?: string) => void;
@@ -207,9 +207,9 @@ function findTurnIndex(originalIndex: number, starts: number[], ends: number[]):
  *
  * 只有当前任务（最后一次用户提问所在的那一轮）的结论默认展开：
  *
- * - 折叠之后紧跟在 turnTrace 后面的那条，就是这一轮的结果；
- * - 没有过程可折叠的那一轮（没有 trace），最后一条回复就是这一轮的结果：
- *   没有过程要折叠，就不该把结论也折起来。
+ * - 优先复用当前轮的 processOutput 标记；
+ * - 没有有效输出标记时，使用当前轮最后一条有效正文回复，
+ *   不把 trace 后的中间发言或尾随工具误认为结论。
  *
  * 更早的轮次属于已完成的历史，按「已经完成的回复默认折叠」收起：
  * 否则历史越长越没法看——每条旧回复都摊开，跟没折叠没有区别。
@@ -222,40 +222,27 @@ export function collectFinalResultMessages(
   const finalResults = new Set<ChatMessage>();
   const ends = turnStarts.map((start, index) => turnStarts[index + 1] ?? Number.POSITIVE_INFINITY);
 
-  const lastItemOfTurn = new Map<number, RenderableMessageItem>();
-  const foldedTurns = new Set<number>();
+  const lastProseOfTurn = new Map<number, RenderableMessageItem>();
+  const outputOfTurn = new Map<number, RenderableMessageItem>();
   // 最后一次用户提问所在的那一轮，就是「当前任务」。
   let currentTurn = -1;
   for (const item of items) {
     const turnIndex = findTurnIndex(Math.floor(item.originalIndex), turnStarts, ends);
     if (turnIndex < 0) continue;
-    if (item.turnTrace) foldedTurns.add(turnIndex);
-    lastItemOfTurn.set(turnIndex, item);
+    if (!item.turnTrace && isRenderableAssistantProse(item.message) && isSpeakerUtterance(item.message)) {
+      lastProseOfTurn.set(turnIndex, item);
+      if (item.processOutput) outputOfTurn.set(turnIndex, item);
+    }
     if (item.message.type === 'user') currentTurn = turnIndex;
   }
   if (currentTurn < 0) {
     // 没有用户提问的纯回复（导入的历史等）：退回最后一个有发言的轮次。
-    for (const [turnIndex, item] of lastItemOfTurn) {
-      if (isSpeakerUtterance(item.message)) currentTurn = turnIndex;
-    }
+    for (const turnIndex of lastProseOfTurn.keys()) currentTurn = turnIndex;
   }
   if (currentTurn < 0) return finalResults;
 
-  // 折叠之后紧跟 turnTrace 的那条，就是当前任务的结果。
-  for (let index = 0; index < items.length - 1; index += 1) {
-    if (!items[index].turnTrace) continue;
-    const next = items[index + 1];
-    if (!next || next.turnTrace) continue;
-    if (findTurnIndex(Math.floor(next.originalIndex), turnStarts, ends) === currentTurn) {
-      finalResults.add(next.message);
-    }
-  }
-
-  // 当前任务没有 trace：它的最后一条回复就是结果。
-  const currentItem = lastItemOfTurn.get(currentTurn);
-  if (currentItem && !foldedTurns.has(currentTurn) && isSpeakerUtterance(currentItem.message)) {
-    finalResults.add(currentItem.message);
-  }
+  const currentItem = outputOfTurn.get(currentTurn) ?? lastProseOfTurn.get(currentTurn);
+  if (currentItem) finalResults.add(currentItem.message);
 
   return finalResults;
 }
@@ -841,10 +828,16 @@ function MessagesPane({
     }
     return null;
   }, [getMessageKey, keyedMessageItems, messageWindowScope]);
+  // 已在运行期间展示的正文保持挂载；历史加载仍按已完成回复的默认规则折叠。
+  const liveExpandedReplyKeys = useRef(new Set<string>());
   // 手动展开 / 折叠优先于默认状态。
   const isReplyExpanded = useCallback((rowKey: string, message: ChatMessage): boolean => {
     const override = replyExpandedOverrides.get(rowKey);
     if (override !== undefined) return override;
+    if (isAssistantWorking && (rowKey === newestReplyItemKey || message.isStreaming)) {
+      liveExpandedReplyKeys.current.add(rowKey);
+    }
+    if (liveExpandedReplyKeys.current.has(rowKey)) return true;
     return isReplyExpandedByDefault(message, {
       isFinalResult: finalResultMessages.has(message),
       isNewestReply: rowKey === newestReplyItemKey,
@@ -1268,6 +1261,7 @@ function MessagesPane({
         forkCarriedMessageCount={forkCarriedMessageCount}
         forkDisabled={forkDisabled}
         showAssistantActions={!inTrace && showAssistantActions}
+        showInlineTurnChanges={false}
         canEdit={Boolean(
           onRegenerate
           && !sessionIsReadOnly

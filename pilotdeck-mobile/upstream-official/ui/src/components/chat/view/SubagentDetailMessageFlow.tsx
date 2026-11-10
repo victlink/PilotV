@@ -206,6 +206,7 @@ export default function SubagentDetailMessageFlow({
         createDiff={createDiff}
         onFileOpen={onFileOpen}
         showThinking={showThinking}
+        showInlineTurnChanges={false}
         isSessionRunning={isRunning}
         isProcessExpanded={isProcessExpanded}
         onProcessExpandedChange={handleProcessExpandedChange}
@@ -278,6 +279,7 @@ export default function SubagentDetailMessageFlow({
                     createDiff={createDiff}
                     onFileOpen={onFileOpen}
                     showThinking={showThinking}
+                    showInlineTurnChanges={false}
                     isSessionRunning={isRunning}
                     isProcessExpanded={isProcessExpanded}
                     onProcessExpandedChange={handleProcessExpandedChange}

@@ -18,8 +18,108 @@ import { randomUUID } from 'node:crypto';
 import { createRequestContextMiddleware, withAuthenticatedRequest } from './middleware/requestContext.js';
 import { anonymousRequestId, withRequestContext } from '../../src/network/requestContext.js';
 import { requestLimiters } from './middleware/rateLimits.js';
+import { writeProjectTeamConfig } from './services/projectTeamConfig.js';
+import { getSessionAgentBinding } from './services/projectTeamRuntime.js';
+import { regenerateLastMessageTransaction } from './services/regenerateLastMessage.js';
+
+it('binds a new real session, restores omitted sends and snapshots queued agent choices', async () => {
+    const projectRoot = path.join(mock.home, 'binding-workspace');
+    await mkdir(projectRoot, { recursive: true });
+    await mkdir(path.join(mock.home, 'projects', 'binding-test'), { recursive: true });
+    await writeFile(path.join(mock.home, 'projects', 'binding-test', '.cwd'), projectRoot);
+    const permissions = { toolAccess: 'all', allowedTools: [], deniedTools: [], network: 'none', writeScope: 'read-only', requireApproval: false };
+    await writeProjectTeamConfig({ projectRoot, revision: '0', agents: [
+        { id: 'worker', name: 'Worker', role: 'executor', enabled: true, description: '', roleDefinition: '', model: null, permissions },
+        { id: 'reviewer', name: 'Reviewer', role: 'reviewer', enabled: true, description: '', roleDefinition: '', model: null, permissions },
+    ] });
+    const calls = [], frames = [];
+    mock.gateway = {
+        getActiveTurnSnapshot: async () => ({ active: false, events: [] }),
+        async *submitTurn(input) {
+            calls.push(input);
+            yield { type: 'input_accepted', runId: input.runId };
+            yield { type: 'turn_completed', runId: input.runId, finishReason: 'completed', usage: {} };
+        },
+    };
+    const writer = { send: frame => frames.push(frame) };
+    const first = await runChatViaGateway('hello', { projectPath: projectRoot, agentId: 'worker' }, writer);
+    expect(frames.some(frame => frame.kind === 'session_created' || frame.newSessionId === first.sessionKey)).toBe(true);
+    expect((await getSessionAgentBinding({ projectRoot, sessionKey: first.sessionKey })).agentId).toBe('worker');
+    await runChatViaGateway('again', { projectPath: projectRoot, sessionId: first.sessionKey }, writer);
+    expect(calls.at(-1).syntheticMessages[0].text).toContain('Worker');
+    const regenerated = await regenerateLastMessageTransaction({
+        data: { command: 'edited', options: { projectPath: projectRoot, sessionId: first.sessionKey, runId: 'binding-edit' } },
+        sessionId: first.sessionKey, requestId: 'binding-edit', expectedTurnId: 'old', provider: 'pilotdeck',
+        writer, streamWriter: writer, runChat: runChatViaGateway,
+        replaceLastTurn: async () => ({ replacedTurnId: 'old', transactionId: 'binding-tx' }),
+        finalizeLastTurnReplacement: vi.fn(),
+    });
+    expect(regenerated.success).toBe(true);
+    expect(calls.at(-1).syntheticMessages[0].text).toContain('Worker');
+    expect((await getSessionAgentBinding({ projectRoot, sessionKey: first.sessionKey })).agentId).toBe('worker');
+    await runChatViaGateway('review', { projectPath: projectRoot, sessionId: first.sessionKey, agentId: 'reviewer', reviewDepth: 1 }, writer);
+    expect((await getSessionAgentBinding({ projectRoot, sessionKey: first.sessionKey })).agentId).toBe('worker');
+    await enqueueInputViaGateway(first.sessionKey, { id: 'bound-queue', command: 'queued', options: { projectPath: projectRoot } }, writer);
+    await vi.waitFor(() => expect(calls.at(-1).message).toBe('queued'));
+    expect(calls.at(-1).syntheticMessages[0].text).toContain('Worker');
+    expect(calls.at(-1).toolPolicy.deny).toContain('agent');
+    await runChatViaGateway('clear', { projectPath: projectRoot, sessionId: first.sessionKey, agentId: null }, writer);
+    expect(calls.at(-1).syntheticMessages).toBeUndefined();
+    expect((await getSessionAgentBinding({ projectRoot, sessionKey: first.sessionKey })).agentId).toBeNull();
+});
+
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const item = id => ({ id, runId: id, command: 'fixture', displayText: id, options: { projectPath: '/tmp/sending-project' } });
+
+it('queues commander defaults for unbound sessions but preserves explicit and restored clears', async () => {
+    const projectRoot = path.join(mock.home, 'three-state-workspace');
+    await mkdir(projectRoot, { recursive: true });
+    await mkdir(path.join(mock.home, 'projects', 'three-state'), { recursive: true });
+    await writeFile(path.join(mock.home, 'projects', 'three-state', '.cwd'), projectRoot);
+    await writeProjectTeamConfig({ projectRoot, revision: '0', collaboration: { mode: 'commander' }, agents: [
+        { id: 'commander', name: 'Commander', role: 'commander', enabled: true, description: '', roleDefinition: '', model: null,
+            permissions: { toolAccess: 'all', allowedTools: [], deniedTools: [], network: 'none', writeScope: 'read-only', requireApproval: false } },
+    ] });
+    const calls = [];
+    mock.gateway = {
+        getActiveTurnSnapshot: async () => ({ active: false, events: [] }),
+        async *submitTurn(input) {
+            calls.push(input);
+            yield { type: 'input_accepted', runId: input.runId };
+            yield { type: 'turn_completed', runId: input.runId, finishReason: 'completed', usage: {} };
+        },
+    };
+    const writer = { send() {} };
+    const sid = 'web:three-state-queue';
+    const queue = (id, options = {}) => enqueueInputViaGateway(sid, { id, command: id, options: { projectPath: projectRoot, ...options } }, writer);
+    expect((await queue('default')).ok).toBe(true);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].syntheticMessages[0].text).toContain('Commander');
+    expect((await queue('explicit-clear', { agentId: null })).ok).toBe(true);
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1].syntheticMessages).toBeUndefined();
+    expect((await getSessionAgentBinding({ projectRoot, sessionKey: sid })).agentId).toBeNull();
+    expect((await queue('restored-clear')).ok).toBe(true);
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    expect(calls[2].syntheticMessages).toBeUndefined();
+});
+
+it('atomically rejects duplicate concurrent admission after runtime resolution', async () => {
+    mock.gateway = { getActiveTurnSnapshot: async () => ({ active: true, runId: 'busy', events: [] }) };
+    const sid = 'web:concurrent-duplicate';
+    const results = await Promise.all(Array.from({ length: 8 }, () => enqueueInputViaGateway(sid, item('same-id'), { send() {} })));
+    expect(results.every(result => result.ok)).toBe(true);
+    expect((await getInputQueueStateViaGateway(sid)).items.map(entry => entry.id)).toEqual(['same-id']);
+});
+
+it('limits concurrent admissions to twenty after runtime resolution', async () => {
+    mock.gateway = { getActiveTurnSnapshot: async () => ({ active: true, runId: 'busy', events: [] }) };
+    const sid = 'web:concurrent-capacity';
+    const results = await Promise.all(Array.from({ length: 25 }, (_, i) => enqueueInputViaGateway(sid, item(`capacity-${i}`), { send() {} })));
+    expect(results.filter(result => result.ok)).toHaveLength(20);
+    expect(results.filter(result => !result.ok).every(result => result.error === 'The message queue is full.')).toBe(true);
+    expect((await getInputQueueStateViaGateway(sid)).items).toHaveLength(20);
+});
 
 it('serializes authenticated HTTP attribution before crossing the gateway boundary', async () => {
     const calls = [];

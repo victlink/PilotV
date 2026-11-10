@@ -19,7 +19,7 @@ export function AnimatedDisclosure({ expanded, children, className = '', content
     setVisible(expanded);
   }, [expanded]);
   return <div {...props} ref={root} className={`chat-process-disclosure ${className}`}
-    data-expanded={visible} aria-hidden={!expanded} {...(!expanded ? { inert: '' } : {})}>
+    data-expanded={visible} aria-hidden={!expanded} {...(!expanded ? { inert: true } : {})}>
     <div className="min-h-0 min-w-0 overflow-hidden">
       <div className={`flow-root min-w-0 ${contentClassName}`}>{keepMounted || visited || expanded ? children : null}</div>
     </div>

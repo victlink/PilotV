@@ -1,4 +1,5 @@
 import express from 'express';
+import { getSessionAgentBinding, setSessionAgentBinding } from '../services/projectTeamRuntime.js';
 
 import {
     ProjectTeamConfigError,
@@ -121,6 +122,17 @@ function sendError(res, error) {
 export function createProjectTeamRouter({ snapshotProvider = null } = {}) {
     const router = express.Router();
     const provider = createSnapshotCache(snapshotProvider ?? defaultSnapshotProvider);
+
+    router.get('/session-agent', async (req, res) => {
+        try {
+            res.json(await getSessionAgentBinding({ projectRoot: readProjectRootParam(req), sessionKey: req.query.sessionKey, snapshotProvider: provider }));
+        } catch (error) { sendError(res, error); }
+    });
+    router.put('/session-agent', async (req, res) => {
+        try {
+            res.json(await setSessionAgentBinding({ projectRoot: readProjectRootParam(req), sessionKey: req.query.sessionKey, agentId: req.body?.agentId, snapshotProvider: provider }));
+        } catch (error) { sendError(res, error); }
+    });
 
     router.get('/', async (req, res) => {
         try {

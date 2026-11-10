@@ -14,7 +14,7 @@ vi.mock('react-i18next', () => ({
 afterEach(cleanup);
 
 describe('MessageRow generated file presentation', () => {
-  it('uses the artifact card as the only file navigation affordance', () => {
+  it.each([undefined, true, false])('preserves artifact Markdown navigation with showInlineTurnChanges=%s', (showInlineTurnChanges) => {
     const fileName = '今日热点-2026-08-0803.docx';
     const filePath = `reports/${fileName}`;
     const message: ChatMessage = {
@@ -50,6 +50,7 @@ describe('MessageRow generated file presentation', () => {
         createDiff={() => []}
         onFileOpen={vi.fn()}
         showAssistantActions={false}
+        showInlineTurnChanges={showInlineTurnChanges}
       />
       <TurnFileFooter files={{ artifacts: message.artifacts!, visible: true }} project={{
         name: 'office', displayName: 'office', fullPath: '/workspace/office',
@@ -62,5 +63,24 @@ describe('MessageRow generated file presentation', () => {
     const card = container.querySelector(`[data-file-artifact="${filePath}"]`);
     expect(card).not.toBeNull();
     expect(card?.textContent).toContain(fileName);
+    expect(screen.getAllByTestId('turn-changes-card')).toHaveLength(showInlineTurnChanges === false ? 1 : 2);
+  });
+
+  it.each([undefined, false])('passes showInlineTurnChanges=%s into process attachment details', (showInlineTurnChanges) => {
+    const detail: ChatMessage = {
+      id: 'nested-file-result', type: 'assistant', timestamp: '2026-08-03T08:00:00.000Z',
+      content: 'Generated [report.txt](report.txt)',
+      artifacts: [{ id: 'nested-artifact', name: 'report.txt', path: 'reports/report.txt',
+        operation: 'created', source: 'workspace_diff', status: 'complete', size: 42,
+        sha256: 'sha256', createdAt: '2026-08-03T08:00:00.000Z' }],
+    };
+    render(<MessageRow message={{ ...detail, id: 'host', content: 'Done.', artifacts: [] }}
+      prevMessage={null} provider="pilotdeck" selectedProject={null} createDiff={() => []}
+      showInlineTurnChanges={showInlineTurnChanges} isProcessExpanded={() => true}
+      beforeProcessAttachments={[{ id: 'attachment', processSummary: { ...detail, artifacts: [] },
+        processMessages: [detail], processDetailMessages: [detail], startIndex: 0, endIndex: 0, inlineImages: [] }]} />);
+    expect(screen.queryByRole('link', { name: 'report.txt' })).toBeNull();
+    expect(screen.getByText('Generated report.txt')).toBeTruthy();
+    expect(screen.queryAllByTestId('turn-changes-card')).toHaveLength(showInlineTurnChanges === false ? 0 : 1);
   });
 });

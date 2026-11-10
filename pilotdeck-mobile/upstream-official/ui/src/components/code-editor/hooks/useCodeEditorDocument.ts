@@ -25,7 +25,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
   // persist the placeholder text and overwrite the user's real file.
   const [content, setContent] = useState('');
   const [savedContent, setSavedContent] = useState('');
-  const savedHash = useRef<string | undefined>();
+  const savedHash = useRef<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);

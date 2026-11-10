@@ -67,7 +67,7 @@ interface UseChatComposerStateArgs {
   currentSessionId: string | null;
   model: string;
   modelSelection?: ChatModelSelection | null;
-  agentId?: string;
+  agentId?: string | null;
   isModelSelectionReady?: boolean;
   isPermissionModeReady?: boolean;
   permissionMode: PermissionMode | string;
@@ -326,7 +326,7 @@ export function useChatComposerState({
   // The selected project agent is read at submit time, not at callback
   // creation time: the submit callback is memoized without `agentId`, so a
   // captured value would keep sending the previously selected agent.
-  const agentIdRef = useRef<string | undefined>(agentId);
+  const agentIdRef = useRef<string | null | undefined>(agentId);
   agentIdRef.current = agentId;
   const [documentReferences, setDocumentReferences] = useState<ContentReference[]>([]);
   const documentReferencesRef = useRef<ContentReference[]>([]);
@@ -1476,7 +1476,7 @@ export function useChatComposerState({
               displayAttachments: [...uploadedFiles, ...turnAttachments].map(attachmentDisplayMetadata),
               uploadedAttachments: uploadedAttachmentRefs,
               modelSelection: submittedModelSelection,
-              ...(agentIdRef.current ? { agentId: agentIdRef.current } : {}),
+              ...(agentIdRef.current !== undefined ? { agentId: agentIdRef.current } : {}),
             },
           }) ?? { ok: false, error: 'Message queue is unavailable.' };
         } catch (error) {

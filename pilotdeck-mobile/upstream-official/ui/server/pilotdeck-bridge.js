@@ -1742,6 +1742,8 @@ export async function runChatViaGateway(
             projectKey,
             cwd: options.cwd,
             agentId: options.agentId,
+            sessionKey,
+            persistBinding: !hooks.fromQueue && !options.reviewDepth,
         });
         state.agentId = projectRuntime?.agentId;
         if (projectRuntime) {
@@ -2151,7 +2153,7 @@ async function dispatchNextQueuedInput(state, writer, provider = 'pilotdeck') {
                 sessionId: state.sessionKey,
                 sessionKey: state.sessionKey,
                 runId,
-                agentId: hydratedItem.agentId ?? hydratedItem.options?.agentId,
+                agentId: hydratedItem.agentId !== undefined ? hydratedItem.agentId : hydratedItem.options?.agentId,
             },
             writer,
             provider,
@@ -2333,6 +2335,18 @@ export async function enqueueInputViaGateway(sessionId, item, writer, provider =
     if (state.inputQueue.length >= 20) {
         return { ok: false, error: 'The message queue is full.' };
     }
+    let queuedAgentId;
+    try {
+        const runtime = await resolveProjectTeamRuntime({ projectKey: state.projectKey, sessionKey: sessionId, agentId: item.options?.agentId });
+        queuedAgentId = runtime?.agentId ?? null;
+    } catch (error) { return { ok: false, error: error.message }; }
+    // Runtime resolution yields: admission must be checked again atomically.
+    if (state.acceptedInputIds.has(item.id) || state.inputQueue.some((entry) => entry.id === item.id)) {
+        return { ok: true, state: inputQueueSnapshot(state) };
+    }
+    if (state.inputQueue.length >= 20) {
+        return { ok: false, error: 'The message queue is full.' };
+    }
     const submitting = !state.active && !state.queuePaused && !state.queueDispatching && state.inputQueue.length === 0;
     const previousSelection = state.lastAcceptedModelSelection;
     const previousRevision = state.queueRevision;
@@ -2344,7 +2358,7 @@ export async function enqueueInputViaGateway(sessionId, item, writer, provider =
         displayText: String(item.displayText || item.command).trim(),
         createdAt: item.createdAt || new Date().toISOString(),
         options: item.options || {},
-        agentId: item.options?.agentId,
+        agentId: queuedAgentId,
         status: submitting ? 'submitting' : 'queued',
     });
     captureAcceptedModel(state, item.options?.modelSelection, item.id);

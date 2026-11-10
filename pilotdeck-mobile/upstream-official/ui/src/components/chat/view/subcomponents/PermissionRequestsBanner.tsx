@@ -73,7 +73,7 @@ export default function PermissionRequestsBanner({
         const CustomPanel = getPermissionPanel(request.toolName)!;
         const active = pendingPermissionRequests.some(next => next.requestId === request.requestId);
         return <div key={request.requestId} className="chat-process-disclosure" data-expanded={active}
-          data-question-seat={request.requestId} aria-hidden={!active} {...(!active ? { inert: '' } : {})}>
+          data-question-seat={request.requestId} aria-hidden={!active} {...(!active ? { inert: true } : {})}>
           <div className="min-h-0 overflow-hidden"><div className="pb-3">
             <CustomPanel request={request} onDecision={handlePermissionDecision}
               onPlanExecutionApproved={onPlanExecutionApproved} />
