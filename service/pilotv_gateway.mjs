@@ -17,6 +17,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { decideUnknownDevice, syncDeviceManifestSync } from './deviceManifest.mjs';
+import { renderPairPage } from './pairPage.mjs';
 import {
   DeviceRegistry,
   isSameOrigin,
@@ -722,6 +723,22 @@ export function createGateway(config) {
     }
 
     if (url.pathname === '/' || url.pathname === '/index.html') return serveIndex(request, response);
+
+    // 手机扫码页：由网关自己出，因为手机要连的就是这个入口（HTTPS + 设备路由）。
+    // 它只调用 /api/pilotv/pair/*，与上游前端构建无关，换版本也不会丢。
+    if (url.pathname === '/pair' || url.pathname === '/pair/') {
+      response.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+      });
+      const backend = resolveBackend(request, config, devices);
+      response.end(renderPairPage({
+        device: backend.origin,
+        deviceName: backend.device?.name || '',
+      }));
+      return;
+    }
 
     const file = resolveStaticFile(distDir, url.pathname);
     if (!file) { response.writeHead(400); response.end('bad path'); return; }

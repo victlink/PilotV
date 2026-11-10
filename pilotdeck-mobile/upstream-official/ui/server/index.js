@@ -15,6 +15,7 @@ import { installGlobalProxy } from './utils/proxy.js';
 installGlobalProxy();
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
@@ -123,6 +124,7 @@ import imageGenerationRoutes from './routes/image-generation.js';
 import modelsRoutes, { createSessionModelHandlers } from './routes/models.js';
 import settingsRoutes from './routes/settings.js';
 import approvalSessionRoutes from './routes/approval-session.js';
+import { createPilotVPairRouter } from './routes/pilotv-pair.js';
 import { createUsageRouter } from './routes/usage.js';
 import configRoutes from './routes/config.js';
 import gatewayRoutes from './routes/gateway.js';
@@ -666,6 +668,12 @@ app.use('/api/approval-session', authenticateToken, approvalSessionRoutes({
     },
 }));
 app.use('/api/usage', authenticateToken, createUsageRouter());
+
+// 手机/平板扫码配对：签发一次性码（需登录）、兑换（凭 secret，免登录）。
+// 挂在这里而不是网关：JWT 的签发密钥只在本进程里，网关不该持有它。
+app.use('/api/pilotv/pair', createPilotVPairRouter({
+    serverName: process.env.PILOTV_SERVER_NAME || os.hostname(),
+}));
 
 // PilotV unified YAML config routes (protected)
 app.use('/api/config', authenticateToken, configRoutes);
