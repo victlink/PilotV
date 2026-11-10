@@ -6,10 +6,10 @@
 # 校验：node scripts/ci/check-upstream-patches.mjs
 #
 diff --git a/pilotdeck-mobile/upstream-official/src/cli/pilotdeck.ts b/pilotdeck-mobile/upstream-official/src/cli/pilotdeck.ts
-index 823db31..b68b8d0 100644
+index 55c2e2c..abcef04 100644
 --- a/pilotdeck-mobile/upstream-official/src/cli/pilotdeck.ts
 +++ b/pilotdeck-mobile/upstream-official/src/cli/pilotdeck.ts
-@@ -20,6 +20,7 @@ import { createLocalGateway } from "./createLocalGateway.js";
+@@ -19,6 +19,7 @@ import { createLocalGateway } from "./createLocalGateway.js";
  import { startPilotDeckServer } from "./pilotdeckServer.js";
  import { installGlobalProxy, reinstallGlobalProxy } from "./proxy.js";
  import { createShutdownAndExit } from "./shutdownCoordinator.js";
@@ -17,7 +17,7 @@ index 823db31..b68b8d0 100644
  import { createTelemetryCollector } from "../telemetry/index.js";
  
  await installGlobalProxy();
-@@ -427,14 +428,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
+@@ -493,14 +494,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
        }
      };
      const shutdownAndExit = createShutdownAndExit(stop, (exitCode) => process.exit(exitCode));
@@ -35,7 +35,7 @@ index 823db31..b68b8d0 100644
      });
 diff --git a/pilotdeck-mobile/upstream-official/src/cli/runtimeCrashGuards.ts b/pilotdeck-mobile/upstream-official/src/cli/runtimeCrashGuards.ts
 new file mode 100644
-index 0000000..0d8c1cc
+index 0000000..eb703fb
 --- /dev/null
 +++ b/pilotdeck-mobile/upstream-official/src/cli/runtimeCrashGuards.ts
 @@ -0,0 +1,44 @@
@@ -59,7 +59,7 @@ index 0000000..0d8c1cc
 + * CLI's original fail-fast policy was wrong for it: an unhandledRejection from
 + * one turn's secondary promise (a compaction summary, a telemetry write) used
 + * to call shutdownAndExit(1) and drop every live WebSocket, which the UI
-+ * reported as "PilotDeck gateway is unavailable." A rejection is now logged
++ * reported as "PilotV gateway is unavailable." A rejection is now logged
 + * with its full cause and the process keeps serving.
 + *
 + * The stack must reach the logs. During the 2026-11-05 investigation the

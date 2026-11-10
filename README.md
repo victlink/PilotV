@@ -175,6 +175,12 @@ python3 scripts/artifacts_cli.py import out/ --agent opencode --dry-run
 | `scripts/make_tls_cert.sh` / `renew_gateway_tls.sh` | 自签证书 —— 安卓 Chrome 只在安全上下文里给 PWA 安装入口 |
 | `service/pilotv-gateway.service` | systemd unit 模板（`__REPO_ROOT__` 等占位由部署脚本替换） |
 
+## 手机 / 平板扫码连接
+
+桌面浏览器打开 `https://<宿主>:5186/pair` 生成一次性二维码（5 分钟、只能兑一次），
+安卓客户端扫码后换到 7 天 JWT，不再需要在手机上输密码。接口与安全边界见
+[`docs/MOBILE-PAIRING.md`](docs/MOBILE-PAIRING.md)。
+
 ## 安全边界
 
 - **默认只监听回环**，暴露面与线上 5186 一致。

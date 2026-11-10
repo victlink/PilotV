@@ -1,0 +1,177 @@
+# 0006-session-mcp-pool-reclaim.patch —— 池满时回收，不再静默丢工具
+#
+# 相对上游 vendor 的本地修复，可重放。
+# 重放：git apply -p1 patches/0006-session-mcp-pool-reclaim.patch
+# 校验：node scripts/ci/check-upstream-patches.mjs
+#
+# 症状：同一个项目开着几个会话之后，新会话没有 browser_* 工具，界面上完全看不
+# 出来 —— 日志里只有一行 "Per-session MCP limit reached (5) ... will not start"。
+# 成因：per-session MCP 池（每个条目是一个子进程，browser-use 会拉起浏览器）按
+# gateway.maxPerSessionMcpInstances 封顶，旧代码就是 `size < max` 一个判断，满了
+# 直接跳过，既不回收也不告诉用户该关哪个。
+#
+# 做法：池满时按 LRU 回收一个「没有正在跑的回合」的槽位。
+#   · LRU 依据 SessionRouter.lastUsedAt()，插入顺序会把用户一直在用的那个选走；
+#   · 回收后调 SessionRouter.markSessionDirty()，该会话下一轮走 recreateSession
+#     重新申请槽位 —— 否则它手里的 browser 工具会指向一个已经停掉的运行时；
+#   · 全都在跑时不硬抢，日志改成可操作的（列出占着槽位的会话 + 调大配额的办法）。
+#
+# 实测（池上限临时降到 2，同项目连开 3 个会话）：第 3 个会话回收了最久没动的那个，
+# 三个会话都正常完成；被回收的会话下一轮重建运行时、重新拿到 9 个 browser_* 工具。
+#
+diff --git a/pilotdeck-mobile/upstream-official/src/cli/createLocalGateway.ts b/pilotdeck-mobile/upstream-official/src/cli/createLocalGateway.ts
+index 49ac562..2785eeb 100644
+--- a/pilotdeck-mobile/upstream-official/src/cli/createLocalGateway.ts
++++ b/pilotdeck-mobile/upstream-official/src/cli/createLocalGateway.ts
+@@ -765,6 +765,9 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
+   // build a `GatewayElicitationChannel` against this gateway's bus +
+   // emit-sink (B1).
+   registry.setGateway(gateway);
++  // The per-session MCP pool needs the router to pick LRU victims and to make a
++  // reclaimed session rebuild its runtime instead of holding dead tools.
++  if (router) registry.setSessionRouter(router);
+   // Contract §7: the approval center, the router and the bridge are wired
+   // here, so every gateway — not only the server command — runs the
+   // approval runtime. The factory stays synchronous; `approvalReady` is the
+@@ -917,6 +920,8 @@ class ProjectRuntimeRegistry {
+    * evicts the session (idle sweep, explicit close, or dirty-recreate).
+    */
+   private readonly sessionMcpRuntimes = new Map<string, McpRuntime>();
++  /** Wired by `setSessionRouter()`; the pool needs it for LRU selection. */
++  private sessionRouter?: SessionRouter;
+ 
+   private _extraTools: PilotDeckToolDefinition[];
+   private _sessionOverrides: SessionConfigOverrides | undefined;
+@@ -944,10 +949,68 @@ class ProjectRuntimeRegistry {
+     }
+   }
+ 
++  /**
++   * Make sure `sessionKey` can own a per-session MCP runtime right now.
++   *
++   * Each entry is one child process (browser-use = a browser), so the pool is
++   * capped by `gateway.maxPerSessionMcpInstances`. The old code just compared
++   * `size < max` and **silently skipped** the newcomer when the pool was full:
++   * the sixth open session in a project lost `browser_*` entirely, with nothing
++   * in the UI to show for it, and no hint about what to close. Now the pool
++   * reclaims the least-recently-used idle slot instead, and marks that session
++   * dirty so it rebuilds its runtime on its next turn (its tools would otherwise
++   * point at a runtime we just stopped).
++   *
++   * Busy sessions are never touched: an in-flight turn is using those tools.
++   * If every slot is busy we still have to refuse — but the caller now knows
++   * exactly why, and the message names the sessions holding them.
++   */
++  private reserveSessionMcpSlot(sessionKey: string, maxInstances: number): boolean {
++    if (this.sessionMcpRuntimes.has(sessionKey)) return true;
++    if (this.sessionMcpRuntimes.size < maxInstances) return true;
++    const victim = this.pickReclaimableSessionMcp(sessionKey);
++    if (!victim) return false;
++    this.evictSessionMcp(victim);
++    this.sessionRouter?.markSessionDirty(victim, "session_mcp_reclaimed");
++    // eslint-disable-next-line no-console
++    console.warn(
++      `[pilotdeck] Per-session MCP pool full (${maxInstances}); reclaimed idle slot from ${victim} ` +
++      `for ${sessionKey}. That session will rebuild its runtime on the next turn.`,
++    );
++    return true;
++  }
++
++  /** Least-recently-used session whose turn is not running. */
++  private pickReclaimableSessionMcp(sessionKey: string): string | undefined {
++    let best: { key: string; lastUsed: number } | undefined;
++    for (const key of this.sessionMcpRuntimes.keys()) {
++      if (key === sessionKey) continue;
++      if (this.sessionRouter?.hasActiveTurn(key)) continue;
++      // A session the router already dropped is the safest thing to take.
++      const lastUsed = this.sessionRouter?.lastUsedAt(key) ?? 0;
++      if (!best || lastUsed < best.lastUsed) best = { key, lastUsed };
++    }
++    return best?.key;
++  }
++
+   setGateway(gateway: InProcessGateway): void {
+     this.gateway = gateway;
+   }
+ 
++  /**
++   * Give the registry a handle on the session router.
++   *
++   * The per-session MCP pool below is capped (each entry is a child process —
++   * browser-use spawns a browser), so when it fills up something has to give.
++   * Reclaiming a slot needs two facts only the router has: which sessions are
++   * actually idle (`lastUsedAt` / `hasActiveTurn`) and how to make one rebuild
++   * its runtime (`markSessionDirty`). Optional so tests can build a registry
++   * without a router.
++   */
++  setSessionRouter(router: SessionRouter): void {
++    this.sessionRouter = router;
++  }
++
+   activeBackgroundTaskCount(): number {
+     const current = new Set([...this.runtimes.values()].map(runtime => runtime.backgroundTasks));
+     let count = 0;
+@@ -1438,7 +1501,9 @@ class ProjectRuntimeRegistry {
+     let sessionMcp: McpRuntime | undefined;
+     const perSpecs = runtime.perSessionServerSpecs;
+     const maxInstances = runtime.snapshot.config.gateway?.maxPerSessionMcpInstances ?? 5;
+-    if (perSpecs && perSpecs.length > 0 && (this.sessionMcpRuntimes.has(context.sessionKey) || this.sessionMcpRuntimes.size < maxInstances)) {
++    const wantsPerSessionMcp = Boolean(perSpecs && perSpecs.length > 0);
++    const hasSlot = wantsPerSessionMcp ? this.reserveSessionMcpSlot(context.sessionKey, maxInstances) : false;
++    if (perSpecs && perSpecs.length > 0 && hasSlot) {
+       this.evictSessionMcp(context.sessionKey);
+       const patchedPerSpecs = perSpecs.map((spec) => {
+         if (spec.transport === "stdio" && spec.id === "browser-use") {
+@@ -1493,10 +1558,15 @@ class ProjectRuntimeRegistry {
+         );
+       }
+     } else if (perSpecs && perSpecs.length > 0) {
++      // Only reachable when every slot is held by a session with a running
++      // turn. Say which ones — otherwise this looks exactly like the old
++      // "tools silently went missing" symptom.
++      const holders = [...this.sessionMcpRuntimes.keys()].join(", ") || "none";
+       // eslint-disable-next-line no-console
+       console.warn(
+-        `[pilotdeck] Per-session MCP limit reached (${maxInstances}). ` +
+-        `Session ${context.sessionKey} will not start: ${perSpecs.map((spec) => spec.id).join(", ")}.`,
++        `[pilotdeck] Per-session MCP pool busy (${maxInstances}, all with running turns: ${holders}). ` +
++        `Session ${context.sessionKey} starts without: ${perSpecs.map((spec) => spec.id).join(", ")}. ` +
++        `Raise gateway.maxPerSessionMcpInstances to allow more concurrent sessions.`,
+       );
+     }
+ 
+diff --git a/pilotdeck-mobile/upstream-official/src/gateway/SessionRouter.ts b/pilotdeck-mobile/upstream-official/src/gateway/SessionRouter.ts
+index 016e895..0110e5e 100644
+--- a/pilotdeck-mobile/upstream-official/src/gateway/SessionRouter.ts
++++ b/pilotdeck-mobile/upstream-official/src/gateway/SessionRouter.ts
+@@ -183,6 +183,30 @@ export class SessionRouter {
+     return this.inFlightTurns.has(sessionKey);
+   }
+ 
++  /**
++   * 最近一次使用时间（毫秒）。会话不在缓存里返回 `undefined`。
++   *
++   * 给 per-session MCP 池做 LRU 用：池满时要挑一个「最久没动过」的会话回收，
++   * 光看插入顺序会把用户一直在用的那个挑走。
++   */
++  lastUsedAt(sessionKey: string): number | undefined {
++    return this.sessions.get(sessionKey)?.lastUsedAt;
++  }
++
++  /**
++   * 只把一个会话标脏，下一轮走 `recreateSession` 重建运行时。
++   *
++   * `markAllDirty` / `markProjectDirty` 是「配置变了，整个项目重来」，代价太大；
++   * 这里要的是「这一个会话的资源被别人抢走了，重新申请一下」——transcript 不动，
++   * 用户看不出差别。
++   */
++  markSessionDirty(sessionKey: string, reason = "runtime_changed"): boolean {
++    const record = this.sessions.get(sessionKey);
++    if (!record) return false;
++    record.dirtyReason = reason;
++    return true;
++  }
++
+   activeTurnRunId(sessionKey: string): string | undefined {
+     return this.inFlightTurns.get(sessionKey);
+   }

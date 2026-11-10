@@ -751,9 +751,23 @@ export function buildRuntimeEnv(config) {
 export function applyConfigToProcessEnv(config) {
   Object.assign(process.env, buildRuntimeEnv(config));
   const days = setRuntimeLogRetention(config?.webui?.runtime?.logRetentionDays);
-  if (process.connected && typeof process.send === 'function') {
-    process.send({ type: 'pilotdeck:log-retention', days }, () => {});
+  if (process.connected && typeof process.send === 'function' && !runningUnderTestRunner()) {
+    // `process.connected` 只说明「有 IPC 通道」，不说明那条通道认我们的消息：
+    // 测试 runner 的 worker 也有 IPC，但它期望的是自己那套协议，收到这个对象
+    // 会在**父进程**里反序列化失败（子进程的 try/catch 拦不住），整轮测试直接
+    // 崩，报错还离真正的 import 很远。这里只是「顺手对齐日志保留天数」的旁支
+    // 通知，宿主不对就当没有 —— 配置本身已经在 env 里生效了。
+    try {
+      process.send({ type: 'pilotdeck:log-retention', days }, () => {});
+    } catch {
+      // 同步抛出的情况（宿主把 send 换成同步实现）同样忽略。
+    }
   }
+}
+
+/** vitest worker / node --test 子进程。两者的 IPC 通道都不是我们的 supervisor。 */
+function runningUnderTestRunner() {
+  return Boolean(process.env.VITEST) || process.env.NODE_TEST_CONTEXT !== undefined;
 }
 
 // ─── Memory service options ──────────────────────────────────────────────────
