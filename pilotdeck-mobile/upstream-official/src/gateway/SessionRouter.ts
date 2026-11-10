@@ -183,6 +183,30 @@ export class SessionRouter {
     return this.inFlightTurns.has(sessionKey);
   }
 
+  /**
+   * 最近一次使用时间（毫秒）。会话不在缓存里返回 `undefined`。
+   *
+   * 给 per-session MCP 池做 LRU 用：池满时要挑一个「最久没动过」的会话回收，
+   * 光看插入顺序会把用户一直在用的那个挑走。
+   */
+  lastUsedAt(sessionKey: string): number | undefined {
+    return this.sessions.get(sessionKey)?.lastUsedAt;
+  }
+
+  /**
+   * 只把一个会话标脏，下一轮走 `recreateSession` 重建运行时。
+   *
+   * `markAllDirty` / `markProjectDirty` 是「配置变了，整个项目重来」，代价太大；
+   * 这里要的是「这一个会话的资源被别人抢走了，重新申请一下」——transcript 不动，
+   * 用户看不出差别。
+   */
+  markSessionDirty(sessionKey: string, reason = "runtime_changed"): boolean {
+    const record = this.sessions.get(sessionKey);
+    if (!record) return false;
+    record.dirtyReason = reason;
+    return true;
+  }
+
   activeTurnRunId(sessionKey: string): string | undefined {
     return this.inFlightTurns.get(sessionKey);
   }

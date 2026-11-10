@@ -765,6 +765,9 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
   // build a `GatewayElicitationChannel` against this gateway's bus +
   // emit-sink (B1).
   registry.setGateway(gateway);
+  // The per-session MCP pool needs the router to pick LRU victims and to make a
+  // reclaimed session rebuild its runtime instead of holding dead tools.
+  if (router) registry.setSessionRouter(router);
   // Contract §7: the approval center, the router and the bridge are wired
   // here, so every gateway — not only the server command — runs the
   // approval runtime. The factory stays synchronous; `approvalReady` is the
@@ -917,6 +920,8 @@ class ProjectRuntimeRegistry {
    * evicts the session (idle sweep, explicit close, or dirty-recreate).
    */
   private readonly sessionMcpRuntimes = new Map<string, McpRuntime>();
+  /** Wired by `setSessionRouter()`; the pool needs it for LRU selection. */
+  private sessionRouter?: SessionRouter;
 
   private _extraTools: PilotDeckToolDefinition[];
   private _sessionOverrides: SessionConfigOverrides | undefined;
@@ -944,8 +949,66 @@ class ProjectRuntimeRegistry {
     }
   }
 
+  /**
+   * Make sure `sessionKey` can own a per-session MCP runtime right now.
+   *
+   * Each entry is one child process (browser-use = a browser), so the pool is
+   * capped by `gateway.maxPerSessionMcpInstances`. The old code just compared
+   * `size < max` and **silently skipped** the newcomer when the pool was full:
+   * the sixth open session in a project lost `browser_*` entirely, with nothing
+   * in the UI to show for it, and no hint about what to close. Now the pool
+   * reclaims the least-recently-used idle slot instead, and marks that session
+   * dirty so it rebuilds its runtime on its next turn (its tools would otherwise
+   * point at a runtime we just stopped).
+   *
+   * Busy sessions are never touched: an in-flight turn is using those tools.
+   * If every slot is busy we still have to refuse — but the caller now knows
+   * exactly why, and the message names the sessions holding them.
+   */
+  private reserveSessionMcpSlot(sessionKey: string, maxInstances: number): boolean {
+    if (this.sessionMcpRuntimes.has(sessionKey)) return true;
+    if (this.sessionMcpRuntimes.size < maxInstances) return true;
+    const victim = this.pickReclaimableSessionMcp(sessionKey);
+    if (!victim) return false;
+    this.evictSessionMcp(victim);
+    this.sessionRouter?.markSessionDirty(victim, "session_mcp_reclaimed");
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[pilotdeck] Per-session MCP pool full (${maxInstances}); reclaimed idle slot from ${victim} ` +
+      `for ${sessionKey}. That session will rebuild its runtime on the next turn.`,
+    );
+    return true;
+  }
+
+  /** Least-recently-used session whose turn is not running. */
+  private pickReclaimableSessionMcp(sessionKey: string): string | undefined {
+    let best: { key: string; lastUsed: number } | undefined;
+    for (const key of this.sessionMcpRuntimes.keys()) {
+      if (key === sessionKey) continue;
+      if (this.sessionRouter?.hasActiveTurn(key)) continue;
+      // A session the router already dropped is the safest thing to take.
+      const lastUsed = this.sessionRouter?.lastUsedAt(key) ?? 0;
+      if (!best || lastUsed < best.lastUsed) best = { key, lastUsed };
+    }
+    return best?.key;
+  }
+
   setGateway(gateway: InProcessGateway): void {
     this.gateway = gateway;
+  }
+
+  /**
+   * Give the registry a handle on the session router.
+   *
+   * The per-session MCP pool below is capped (each entry is a child process —
+   * browser-use spawns a browser), so when it fills up something has to give.
+   * Reclaiming a slot needs two facts only the router has: which sessions are
+   * actually idle (`lastUsedAt` / `hasActiveTurn`) and how to make one rebuild
+   * its runtime (`markSessionDirty`). Optional so tests can build a registry
+   * without a router.
+   */
+  setSessionRouter(router: SessionRouter): void {
+    this.sessionRouter = router;
   }
 
   activeBackgroundTaskCount(): number {
@@ -1438,7 +1501,9 @@ class ProjectRuntimeRegistry {
     let sessionMcp: McpRuntime | undefined;
     const perSpecs = runtime.perSessionServerSpecs;
     const maxInstances = runtime.snapshot.config.gateway?.maxPerSessionMcpInstances ?? 5;
-    if (perSpecs && perSpecs.length > 0 && (this.sessionMcpRuntimes.has(context.sessionKey) || this.sessionMcpRuntimes.size < maxInstances)) {
+    const wantsPerSessionMcp = Boolean(perSpecs && perSpecs.length > 0);
+    const hasSlot = wantsPerSessionMcp ? this.reserveSessionMcpSlot(context.sessionKey, maxInstances) : false;
+    if (perSpecs && perSpecs.length > 0 && hasSlot) {
       this.evictSessionMcp(context.sessionKey);
       const patchedPerSpecs = perSpecs.map((spec) => {
         if (spec.transport === "stdio" && spec.id === "browser-use") {
@@ -1493,10 +1558,15 @@ class ProjectRuntimeRegistry {
         );
       }
     } else if (perSpecs && perSpecs.length > 0) {
+      // Only reachable when every slot is held by a session with a running
+      // turn. Say which ones — otherwise this looks exactly like the old
+      // "tools silently went missing" symptom.
+      const holders = [...this.sessionMcpRuntimes.keys()].join(", ") || "none";
       // eslint-disable-next-line no-console
       console.warn(
-        `[pilotdeck] Per-session MCP limit reached (${maxInstances}). ` +
-        `Session ${context.sessionKey} will not start: ${perSpecs.map((spec) => spec.id).join(", ")}.`,
+        `[pilotdeck] Per-session MCP pool busy (${maxInstances}, all with running turns: ${holders}). ` +
+        `Session ${context.sessionKey} starts without: ${perSpecs.map((spec) => spec.id).join(", ")}. ` +
+        `Raise gateway.maxPerSessionMcpInstances to allow more concurrent sessions.`,
       );
     }
 
