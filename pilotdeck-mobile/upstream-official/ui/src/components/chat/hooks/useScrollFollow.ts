@@ -277,6 +277,9 @@ export function useScrollFollow({
     const beginUpwardInput = (target: EventTarget | null) => {
       const source = sourceViewport(target);
       if (source.scrollHeight - source.clientHeight <= BOTTOM_EPSILON) return;
+      // The compositor may have moved before its scroll event is delivered.
+      // Consume the previous gesture before replacing its origin/direction.
+      if (source === node) acceptUserDisplacement();
       setPaused(true);
       if (source === node) {
         programmaticTopRef.current = null;
@@ -285,6 +288,7 @@ export function useScrollFollow({
     };
     const beginDownwardInput = (target: EventTarget | null) => {
       if (sourceViewport(target) !== node) return;
+      acceptUserDisplacement();
       if (atBottom()) scrollToBottom();
       else userScrollRef.current = { top: node.scrollTop, direction: 1, expiresAt: Date.now() + GESTURE_IDLE_MS };
     };

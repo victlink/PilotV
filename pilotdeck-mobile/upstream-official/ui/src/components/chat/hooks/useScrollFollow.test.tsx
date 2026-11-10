@@ -126,6 +126,26 @@ describe('reader-owned scroll following', () => {
     expect(node.scrollTop).toBe(500 + inserted + direction * 30);
   });
 
+  it.each([[-1, -1], [-1, 1], [1, -1], [1, 1]])('keeps native displacement when the next wheel arrives before scroll (%s → %s)', (direction, nextDirection) => {
+    const { node, metrics, view } = setup();
+    const row = node.querySelector<HTMLElement>('[data-message-key="reading"]')!;
+    row.getBoundingClientRect = () => ({ top: 400 - metrics.top, bottom: 1000 - metrics.top }) as DOMRect;
+    node.scrollTop = 500;
+    act(() => api.pauseAt('reading'));
+    fireEvent.wheel(node, { deltaY: direction * 30 });
+    // Native/compositor scrolling has moved, but its coalesced scroll event
+    // has not been delivered when the next wheel renews the gesture.
+    node.scrollTop += direction * 30;
+    fireEvent.wheel(node, { deltaY: nextDirection * 30 });
+    view.rerender(<Harness version={1} />);
+    expect(node.scrollTop).toBe(500 + direction * 30);
+    fireEvent.scroll(node);
+    node.scrollTop += nextDirection * 30;
+    fireEvent.scroll(node); resize(); flush();
+    expect(node.scrollTop).toBe(500 + (direction + nextDirection) * 30);
+    expect(api.isPaused).toBe(true);
+  });
+
   it.each([-1, 1])('retains every native scroll frame from one wheel gesture (%s)', direction => {
     const { node, metrics, view } = setup();
     const row = node.querySelector<HTMLElement>('[data-message-key="reading"]')!;
