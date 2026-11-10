@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createPairStore, normalizeCode, constantTimeEqual, REDEEM_REASONS } from '../pairStore.mjs';
-import { buildPairUri, qrSvg } from './pilotv-pair.js';
+import { buildPairUri, qrSvg, collectAlternates } from './pilotv-pair.js';
 
 function fixedStore(start = 1_700_000_000_000) {
   let ts = start;
@@ -134,5 +134,106 @@ describe('配对串与二维码', () => {
     expect(small).not.toMatch(/<script/i);
     const size = (svg) => Number(svg.match(/width="(\d+)"/)[1]);
     expect(size(large)).toBeGreaterThan(size(small));
+  });
+});
+
+describe('备用入口（局域网 + 公网兜底）', () => {
+  const fakeIfaces = {
+    lo: [{ address: '127.0.0.1', family: 'IPv4', internal: true }],
+    eth0: [
+      { address: '192.168.1.24', family: 'IPv4', internal: false },
+      { address: 'fe80::1', family: 'IPv6', internal: false },
+    ],
+    wlan0: [{ address: '10.0.0.9', family: 4, internal: false }],
+  };
+
+  it('公网入口补齐 scheme 并排在局域网之前', () => {
+    const out = collectAlternates(
+      'https://nas.tail2b98e5.ts.net:5186',
+      { PILOTV_PUBLIC_ORIGINS: 'pilotv.victlink.com', PILOTV_LAN_PORT: '5187' },
+      fakeIfaces,
+    );
+    expect(out[0]).toBe('https://pilotv.victlink.com');
+    // 只有两个名额：公网占一个，剩下的给第一个局域网地址。
+    expect(out).toHaveLength(2);
+    expect(out[1]).toBe('http://192.168.1.24:5187');
+  });
+
+  it('不把自己当备用，也不重复带同一个地址', () => {
+    const out = collectAlternates(
+      'http://192.168.1.24:5187',
+      { PILOTV_PUBLIC_ORIGINS: 'https://pilotv.victlink.com,https://pilotv.victlink.com/' },
+      fakeIfaces,
+    );
+    expect(out).toEqual(['https://pilotv.victlink.com']);
+  });
+
+  it('跳过回环和 IPv6，最多留两个（二维码容量）', () => {
+    const out = collectAlternates(
+      'https://pilotv.victlink.com',
+      { PILOTV_LAN_PORT: '5187' },
+      { eth0: [{ address: '192.168.1.24', family: 'IPv4', internal: false }],
+        eth1: [{ address: '192.168.1.25', family: 'IPv4', internal: false }],
+        eth2: [{ address: '192.168.1.26', family: 'IPv4', internal: false }],
+        lo: [{ address: '127.0.0.1', family: 'IPv4', internal: true }] },
+    );
+    expect(out).toHaveLength(2);
+    expect(out.every(item => item.startsWith('http://192.168.1.'))).toBe(true);
+  });
+
+  it('没配环境变量时一个都不加（不改变现有部署的行为）', () => {
+    expect(collectAlternates('https://pilotv.victlink.com', {}, fakeIfaces)).toEqual([]);
+  });
+
+  it('非法端口与非法 origin 被丢弃', () => {
+    const out = collectAlternates(
+      'https://pilotv.victlink.com',
+      { PILOTV_PUBLIC_ORIGINS: 'javascript:alert(1),ftp://x', PILOTV_LAN_PORT: '99999' },
+      fakeIfaces,
+    );
+    expect(out).toEqual([]);
+  });
+
+  it('网关绑回环地址时不给局域网候选（那是必然失败的死地址）', () => {
+    const out = collectAlternates(
+      'https://pilotv.victlink.com',
+      { PILOTV_BIND: '127.0.0.1', PILOTV_LAN_PORT: '5187', PILOTV_PUBLIC_ORIGINS: 'https://pilotv.victlink.com' },
+      fakeIfaces,
+    );
+    expect(out).toEqual([]);
+  });
+
+  it('排除 docker 网桥与 CGNAT/Tailscale 段，并按 192.168 → 10 排序', () => {
+    const out = collectAlternates(
+      'https://pilotv.victlink.com',
+      { PILOTV_BIND: '0.0.0.0', PILOTV_LAN_PORT: '5187' },
+      {
+        eth0: [
+          { address: '172.17.0.1', family: 'IPv4', internal: false },   // docker 默认网桥
+          { address: '100.90.196.104', family: 'IPv4', internal: false }, // Tailscale
+          { address: '10.0.0.9', family: 'IPv4', internal: false },
+          { address: '192.168.1.24', family: 'IPv4', internal: false },
+        ],
+      },
+    );
+    expect(out).toEqual(['http://192.168.1.24:5187', 'http://10.0.0.9:5187']);
+    expect(out.some(item => item.includes('172.17') || item.includes('100.90'))).toBe(false);
+  });
+
+  it('uri 带上 a 参数，多个地址用 | 连接', () => {
+    const uri = buildPairUri({
+      origin: 'https://pilotv.victlink.com',
+      alternates: ['http://192.168.1.24:5187', 'https://nas.tail2b98e5.ts.net:5186'],
+      code: 'K7M2QP',
+      secret: 's3cret',
+      ttlSeconds: 300,
+    });
+    const params = new URLSearchParams(uri.split('?')[1]);
+    expect(params.get('a')).toBe('http://192.168.1.24:5187|https://nas.tail2b98e5.ts.net:5186');
+  });
+
+  it('没有备用地址时不写 a 参数（二维码保持小尺寸）', () => {
+    const uri = buildPairUri({ origin: 'https://pilotv.victlink.com', code: 'K7M2QP', secret: 's3cret' });
+    expect(new URLSearchParams(uri.split('?')[1]).has('a')).toBe(false);
   });
 });

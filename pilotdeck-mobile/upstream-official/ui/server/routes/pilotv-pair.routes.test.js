@@ -123,4 +123,24 @@ describe('POST /api/pilotv/pair', () => {
     expect((await removed.json()).ok).toBe(true);
     expect(devices).toHaveLength(0);
   });
+  it('配置公网入口后，二维码里带备用地址并随兑换下发', async () => {
+    process.env.PILOTV_PUBLIC_ORIGINS = 'https://pilotv.victlink.com';
+    try {
+      const response = await call('/new', { method: 'POST', body: JSON.stringify({ origin: base }) });
+      const issued = await response.json();
+      expect(issued.alternates).toEqual(['https://pilotv.victlink.com']);
+      expect(new URLSearchParams(issued.uri.split('?')[1]).get('a')).toBe('https://pilotv.victlink.com');
+
+      // 客户端只有拿到这条才能在主地址不可达时切换，所以兑换响应必须也带。
+      const redeemed = await fetch(`${base}/api/pilotv/pair/redeem`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code: issued.code, secret: issued.secret, deviceName: 'Pixel 9' }),
+      });
+      expect((await redeemed.json()).alternates).toEqual(['https://pilotv.victlink.com']);
+    } finally {
+      delete process.env.PILOTV_PUBLIC_ORIGINS;
+    }
+  });
+
 });
