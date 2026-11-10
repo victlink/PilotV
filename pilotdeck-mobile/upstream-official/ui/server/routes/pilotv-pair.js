@@ -12,6 +12,7 @@
 //     /api/* 与 wss://…/ws?token= 即可。revoke 只是从登记表里移除记录，
 //     真正让 token 失效仍需换代 JWT_SECRET（README 里写清楚了，不假装能单条吊销）。
 import express from 'express';
+import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { promises as fsp } from 'node:fs';
@@ -76,10 +77,71 @@ function resolveRequestedOrigin(req, requested) {
   return parseOrigin(process.env.PILOTV_PAIR_ORIGIN || `http://${forwardedHost}`);
 }
 
-export function buildPairUri({ origin, code, secret, serverName, ttlSeconds }) {
+/** 局域网地址的可用性排序；返回 9 表示「不要给手机」，探测一轮要白等好几秒。 */
+function lanRank(address) {
+  if (address.startsWith('192.168.')) return 0;
+  if (address.startsWith('10.')) return 1;
+  // docker / 容器网桥：宿主机能访问，手机访问不到。
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(address)) return 9;
+  // CGNAT 段，Tailscale 的 100.64/10 也在这里 —— 本方案的目标就是不用它。
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(address)) return 9;
+  return 2;
+}
+
+/**
+ * 手机能试连的其它入口。两个来源，各自解决一个问题：
+ *   * 公网隧道（PILOTV_PUBLIC_ORIGINS）—— 手机不在同一网络时唯一的办法；
+ *   * 局域网 IP（PILOTV_LAN_PORT）—— 同网时不必绕 Cloudflare，延迟差一个数量级。
+ *
+ * 只由服务端生成，不接受页面传来的值：候选地址会连同一次性秘密一起写进二维码，
+ * 若允许页面指定，等于允许把秘密指向任意主机。
+ */
+export function collectAlternates(primary, env = process.env, interfaces = os.networkInterfaces()) {
+  const out = [];
+  const push = (value) => {
+    const normalized = parseOrigin(value);
+    if (!normalized || normalized === primary || out.includes(normalized)) return;
+    out.push(normalized);
+  };
+
+  for (const item of String(env.PILOTV_PUBLIC_ORIGINS || '').split(',')) {
+    const host = item.trim();
+    if (!host) continue;
+    push(host.includes('://') ? host : `https://${host}`);
+  }
+
+  // 网关只监听回环地址时，局域网候选是必然连不上的死地址：
+  // 手机要为此白等一整轮探测超时，比不带还糟。
+  // 默认值和 service/pilotv_gateway.mjs 保持一致（未设置就是 0.0.0.0）。
+  const bind = String(env.PILOTV_BIND || '0.0.0.0').trim();
+  const boundToLoopback = bind === '::1' || bind.startsWith('127.');
+  const lanPort = Number(env.PILOTV_LAN_PORT || 0);
+  if (!boundToLoopback && Number.isInteger(lanPort) && lanPort > 0 && lanPort < 65536) {
+    const candidates = [];
+    for (const list of Object.values(interfaces || {})) {
+      for (const entry of list || []) {
+        // Node 14 之后 family 是 'IPv4'，之前是数字 4，两种都得认。
+        if (entry.family !== 'IPv4' && entry.family !== 4) continue;
+        if (entry.internal) continue;
+        const rank = lanRank(entry.address);
+        if (rank >= 9) continue;
+        candidates.push({ address: entry.address, rank });
+      }
+    }
+    candidates.sort((a, b) => a.rank - b.rank);
+    for (const item of candidates) push(`http://${item.address}:${lanPort}`);
+  }
+
+  // 二维码容量有限：每多一个地址约多 30 字符，带三个以上会把版本推到 v12+，
+  // 屏幕上更难扫。局域网 + 公网两个足够了。
+  return out.slice(0, 2);
+}
+
+export function buildPairUri({ origin, alternates = [], code, secret, serverName, ttlSeconds }) {
   const params = new URLSearchParams({
     v: '1',
     h: origin,
+    ...(alternates.length ? { a: alternates.join('|') } : {}),
     c: code,
     s: secret,
     ...(serverName ? { n: serverName } : {}),
@@ -125,8 +187,11 @@ export function createPilotVPairRouter({
     // deviceOrigin：网关当前把请求转发到哪台设备。手机没有 Cookie，后续每个请求
     // 都要带 X-PilotV-Device 才不会被路由到默认设备上。只接受 http(s) 源。
     const deviceOrigin = parseOrigin(body.deviceOrigin) || '';
+    // 备用入口：手机扫到码之后可以逐个试连，哪个通就用哪个。
+    const alternates = collectAlternates(origin);
     const issued = store.issue({
       origin,
+      alternates,
       deviceOrigin,
       serverName: String(body.serverName || serverName || '').slice(0, 60),
       userId: req.user?.id ?? null,
@@ -142,7 +207,8 @@ export function createPilotVPairRouter({
       origin: issued.origin,
       serverName: issued.serverName,
       deviceOrigin,
-      uri: buildPairUri({ ...issued, ttlSeconds }),
+      alternates: issued.alternates || [],
+      uri: buildPairUri({ ...issued, alternates: issued.alternates || [], ttlSeconds }),
       qrPath: `/api/pilotv/pair/${issued.code}/qr.svg`,
     });
   });
@@ -207,6 +273,7 @@ export function createPilotVPairRouter({
       tokenType: 'Bearer',
       device: result.device,
       origin: result.record.origin,
+      alternates: result.record.alternates || [],
       deviceOrigin: result.record.deviceOrigin || '',
       serverName: result.record.serverName,
       expiresAt: new Date(now() + 7 * 24 * 3600 * 1000).toISOString(),

@@ -71,7 +71,7 @@ export function createPairStore({
     }
   };
 
-  function issue({ origin, deviceOrigin = '', serverName = '', userId = null, username = null, ttl } = {}) {
+  function issue({ origin, alternates = [], deviceOrigin = '', serverName = '', userId = null, username = null, ttl } = {}) {
     prune();
     if (!origin) throw new Error('origin is required');
     // 同一时刻只保留少量未兑换码：页面上点了几次「刷新」不该留下几十个可用入口。
@@ -88,6 +88,9 @@ export function createPairStore({
       code,
       secretHash: sha256(secret),
       origin,
+      // 备用入口：手机连不上主地址时逐个试。存下来是为了让 /redeem 的响应
+      // 也能带上 —— 客户端要拿到完整列表才能做后续切换。
+      alternates: Array.isArray(alternates) ? alternates.slice(0, 2) : [],
       deviceOrigin,
       serverName,
       userId,
@@ -98,7 +101,7 @@ export function createPairStore({
       usedAt: null,
     };
     pending.set(code, record);
-    return { code, secret, expiresAt: record.expiresAt, origin, serverName };
+    return { code, secret, expiresAt: record.expiresAt, origin, alternates: record.alternates, serverName };
   }
 
   function inspect(code) {
@@ -135,6 +138,7 @@ export function createPairStore({
       name: String(deviceName || '未命名设备').slice(0, 40),
       platform: String(platform || 'android').slice(0, 40),
       origin: record.origin,
+      alternates: record.alternates || [],
       deviceOrigin: record.deviceOrigin || '',
       serverName: record.serverName,
       username: record.username || null,

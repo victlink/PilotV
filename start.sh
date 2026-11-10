@@ -25,6 +25,11 @@ set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 UI_DIR="$HERE/pilotdeck-mobile/upstream-official/ui"
+
+# 本机覆盖项：域名、对外开放端口这类只对某台机器成立的东西。
+# 不读这个文件时行为完全不变；文件里用 ${VAR:-默认值} 写法就能让命令行参数继续优先。
+if [ -f "$HERE/.env.local" ]; then set -a; . "$HERE/.env.local"; set +a; fi
+
 UI_PORT=${UI_PORT:-5186}
 PILOTDECK_BACKEND=${PILOTDECK_BACKEND:-127.0.0.1:3001}
 ARTIFACTS_PORT=${ARTIFACTS_PORT:-8799}

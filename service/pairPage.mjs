@@ -79,8 +79,9 @@ ${runtime}
           <ol>
             <li>打开 PilotV 安卓客户端，点「扫码连接」。</li>
             <li>对准左边二维码；首次连接会显示证书指纹，核对后点「信任并连接」。</li>
-            <li>连上后同一个 Wi-Fi / Tailscale 内即可收发会话、处理授权、看成果。</li>
+            <li>连上后随时收发会话、处理授权、看成果 —— 不需要开着 Tailscale。</li>
           </ol>
+          <div class="hint" id="altline" style="display:none"></div>
           <div class="hint">
             手输也算数：在客户端里输入设备地址 <code id="addr">—</code> 与上方 6 位码 + 连接串里的密钥，
             或直接粘贴「复制连接串」得到的内容。
@@ -152,6 +153,16 @@ ${runtime}
       current = { ...data, expiresAt: Date.parse(data.expiresAt) };
       $('code').textContent = data.code;
       $('addr').textContent = data.origin;
+      // 二维码里同时带了备用入口（局域网 / 公网隧道），客户端会逐个试连。
+      // 这里显式列出来，否则用户看到「手机连上了」也不知道走的是哪条路。
+      const alts = Array.isArray(data.alternates) ? data.alternates : [];
+      const altline = $('altline');
+      if (alts.length) {
+        altline.textContent = '备用入口：' + alts.join('   ·   ') + '（局域网优先，连不上自动走另一个）';
+        altline.style.display = '';
+      } else {
+        altline.style.display = 'none';
+      }
       const img = document.createElement('img');
       img.alt = '配对二维码';
       img.src = '/api/pilotv/pair/render.svg?d=' + b64url(data.uri);

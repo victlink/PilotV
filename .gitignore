@@ -113,3 +113,6 @@ site/.qa/app/
 # 手工改名的旧前端产物，dist.previous-*/ 与 dist.prev-*/ 都没匹配到这两类
 pilotdeck-mobile/upstream-official/**/dist.bak.*/
 pilotdeck-mobile/upstream-official/**/dist.old.*/
+
+# 每台机器自己的覆盖项（公网入口域名等），不进仓库
+.env.local
