@@ -130,8 +130,13 @@ async function assertSafeLocation(candidate, env) {
     ]);
     assertSeparatedFromPilotHome(plannedCandidate, plannedPilotHome);
     const runtimeRoots = [env.PILOTDECK_DESKTOP_RUNTIME_ROOT, env.PILOTDECK_RUNTIME_ROOT].filter(Boolean);
+    // Vite/Vitest 会把内联的 import.meta.url 改写成非 file: 的模块地址；
+    // 先取到变量里再用，拿不到 file: 时跳过这项安装目录保护即可（循环会过滤空值）。
+    const moduleUrl = import.meta.url;
+    const installationRoot = String(moduleUrl).startsWith('file:')
+        ? fileURLToPath(new URL('../../../', moduleUrl)) : null;
     const installationPaths = [env.PILOTDECK_DESKTOP_INSTALL_ROOT,
-        fileURLToPath(new URL('../../../', import.meta.url)), ...runtimeRoots];
+        installationRoot, ...runtimeRoots];
     // Older desktop launchers supplied only resources/runtime. Protect its
     // complete install too: upgrades replace the enclosing resources tree.
     for (const runtime of runtimeRoots) {

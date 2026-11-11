@@ -770,6 +770,10 @@ export function createGateway(config) {
     }
     const devices = registry ? registry.devices() : config.devices;
     const backend = resolveBackend(request, config, devices);
+    if (backend.unknownProblem) {
+      socket.end('HTTP/1.1 409 Conflict\r\nConnection: close\r\n\r\n');
+      return;
+    }
     const upstream = route === 'artifacts' ? resolveArtifactsOrigin(backend.origin, config, devices) : backend.origin;
     if (upstream === null) { socket.end('HTTP/1.1 503 Service Unavailable\r\n\r\n'); return; }
     // /shell 通道的客户端没有心跳，不能套用 /ws 的空闲阈值（见 WS_TUNNEL_IDLE_MS 的说明）。

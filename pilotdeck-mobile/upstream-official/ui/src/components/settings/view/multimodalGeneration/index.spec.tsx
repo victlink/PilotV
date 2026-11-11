@@ -11,7 +11,10 @@ import SettingsSidebar from '../SettingsSidebar';
 import en from '../../../../i18n/locales/en/settings.json';
 import zh from '../../../../i18n/locales/zh-CN/settings.json';
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), subscribe: vi.fn(() => () => {}) }));
-vi.mock('../../../../utils/api', () => ({ authenticatedFetch: mocks.fetch }));
+vi.mock('../../../../utils/api', async (importOriginal) => ({
+  ...(await importOriginal() as Record<string, unknown>),
+  authenticatedFetch: mocks.fetch,
+}));
 vi.mock('../../../../contexts/WebSocketContext', () => ({ useWebSocket: () => ({ subscribe: mocks.subscribe }) }));
 vi.unmock('react-i18next');
 vi.unmock('lucide-react');
@@ -106,4 +109,31 @@ it.each(['zh-CN', 'en'])('opens the requested video tab and sends connection tes
   fireEvent.click(panel().getByRole('button', { name: test }));
   await waitFor(() => expect(mocks.fetch.mock.calls.some(([url]) => url === '/api/image-generation/test')).toBe(true));
   expect((panel().getByRole('switch')).getAttribute('aria-checked')).toBe('true');
+});
+
+it('keeps the image and video probe results isolated and readable', async () => {
+  mocks.fetch.mockImplementation(async (url) => {
+    if (String(url).includes('/api/image-generation/test')) {
+      return { ok: false, json: async () => ({ ok: false, error: {
+        code: 'API_ROUTE_NOT_FOUND', message: 'image route missing',
+      } }) };
+    }
+    if (String(url).includes('/api/video-generation/test')) {
+      return { ok: false, json: async () => ({ ok: false, error: {
+        code: 'API_ROUTE_NOT_FOUND', message: 'video route missing',
+      } }) };
+    }
+    return { ok: true, json: async () => snapshot() };
+  });
+  await mount();
+  fireEvent.click(panel().getByRole('button', { name: '测试连接' }));
+  await waitFor(() => expect(panel().getByRole('status').textContent).toContain('image route missing'));
+  expect(panel().getByRole('status').textContent).not.toContain('[object Object]');
+  switchTab(/视频/);
+  expect(panel().getByRole('status').textContent).toBe('');
+  fireEvent.click(panel().getByRole('button', { name: '测试连接' }));
+  await waitFor(() => expect(panel().getByRole('status').textContent).toContain('video route missing'));
+  expect(panel().getByRole('status').textContent).not.toContain('[object Object]');
+  switchTab(/图像/);
+  expect(panel().getByRole('status').textContent).toContain('image route missing');
 });

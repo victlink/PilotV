@@ -416,6 +416,98 @@ test('WebSocket upgrade 按当前设备转发', async () => {
   await new Promise(resolve => wss.close(resolve));
   await fsp.rm(distDir, { recursive: true, force: true });
 });
+// 双上游夹具只使用合成清单；所有 TCP 连接（包括升级后的连接）都在 finally 回收。
+async function withUpgradeGateway(run) {
+  const servers = [];
+  const sockets = new Set();
+  const upgrades = { A: [], B: [] };
+  const track = socket => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  };
+  const start = async server => {
+    servers.push(server);
+    server.on('connection', track);
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    return `http://127.0.0.1:${server.address().port}`;
+  };
+  try {
+    const devices = [];
+    for (const name of ['A', 'B']) {
+      const server = http.createServer();
+      server.on('upgrade', (req, socket) => {
+        upgrades[name].push(req.url);
+        socket.end('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n' +
+          `Connection: Upgrade\r\nX-Test-Device: ${name}\r\n\r\n`);
+      });
+      devices.push({ name, origin: await start(server) });
+    }
+    const gateway = createGateway({ distDir: path.resolve('.'), devices, defaultBackend: devices[0].origin });
+    const gatewayOrigin = await start(gateway);
+    const attempt = (pathname, cookie) => new Promise((resolve, reject) => {
+      const socket = net.connect(gateway.address().port, '127.0.0.1', () => {
+        socket.write(`GET ${pathname} HTTP/1.1\r\nHost: ${new URL(gatewayOrigin).host}\r\n` +
+          `Origin: ${gatewayOrigin}\r\n` +
+          (cookie ? `Cookie: ${DEVICE_COOKIE}=${encodeURIComponent(cookie)}\r\n` : '') +
+          'Connection: Upgrade\r\nUpgrade: websocket\r\n' +
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n');
+      });
+      track(socket);
+      let raw = '';
+      socket.setTimeout(3000, () => {
+        socket.destroy();
+        reject(new Error('升级响应未及时关闭连接'));
+      });
+      socket.on('data', chunk => { raw += chunk.toString('utf-8'); });
+      socket.on('error', reject);
+      socket.on('close', () => resolve(raw));
+    });
+    await run({ attempt, devices, upgrades });
+  } finally {
+    const closed = [...sockets].map(socket => new Promise(resolve => socket.once('close', resolve)));
+    for (const socket of sockets) socket.destroy();
+    await Promise.all(closed);
+    await Promise.all(servers.map(server => new Promise((resolve, reject) => {
+      if (!server.listening) return resolve();
+      server.close(error => error ? reject(error) : resolve());
+    })));
+  }
+}
+
+for (const pathname of ['/ws', '/shell']) {
+  test(`未知设备 ${pathname} 升级返回 409 且不连接任一上游`, async () => {
+    await withUpgradeGateway(async ({ attempt, upgrades }) => {
+      const raw = await attempt(`${pathname}?d=missing-device`);
+      assert.match(raw, /^HTTP\/1\.1 409 Conflict\r\n/);
+      assert.doesNotMatch(raw, /HTTP\/1\.1 101/);
+      assert.deepEqual(upgrades, { A: [], B: [] });
+    });
+  });
+}
+
+test('有效设备并行升级按 query 选择 A/B，优先于相反 Cookie', async () => {
+  await withUpgradeGateway(async ({ attempt, devices, upgrades }) => {
+    for (const pathname of ['/ws', '/shell']) {
+      const paths = devices.map(device => `${pathname}?d=${encodeURIComponent(device.origin)}`);
+      const responses = await Promise.all([
+        attempt(paths[0], devices[1].origin),
+        attempt(paths[1], devices[0].origin),
+      ]);
+      for (const [index, name] of ['A', 'B'].entries()) {
+        assert.match(responses[index], /^HTTP\/1\.1 101 Switching Protocols\r\n/);
+        assert.match(responses[index], new RegExp(`X-Test-Device: ${name}\\r\\n`));
+        assert.doesNotMatch(responses[index], new RegExp(`X-Test-Device: ${name === 'A' ? 'B' : 'A'}\\r\\n`));
+        assert.equal(upgrades[name].at(-1), paths[index]);
+      }
+    }
+    assert.equal(upgrades.A.length, 2);
+    assert.equal(upgrades.B.length, 2);
+  });
+});
+
 // ── 服务端设备注册表 ────────────────────────────────────────────────
 
 test('只放行内网地址，云元数据和公网地址都不行', () => {

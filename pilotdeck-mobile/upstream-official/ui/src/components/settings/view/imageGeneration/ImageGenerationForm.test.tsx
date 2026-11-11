@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createInstance } from 'i18next';
 import { I18nextProvider } from 'react-i18next';
@@ -9,7 +9,10 @@ import { ImageGenerationForm } from './index';
 import type { PilotDeckConfig } from '../modelPool/types';
 
 const fetchImage = vi.hoisted(() => vi.fn());
-vi.mock('../../../../utils/api', () => ({ authenticatedFetch: fetchImage }));
+vi.mock('../../../../utils/api', async (importOriginal) => ({
+  ...(await importOriginal() as Record<string, unknown>),
+  authenticatedFetch: fetchImage,
+}));
 vi.unmock('react-i18next');
 vi.unmock('lucide-react');
 afterEach(() => { cleanup(); fetchImage.mockReset(); });
@@ -101,4 +104,115 @@ it('aborts an obsolete test and ignores its response after editing the configura
   expect(screen.getByRole('status').textContent).toBe('');
   fireEvent.click(screen.getByRole('button', { name: '取消' }));
   expect((screen.getByLabelText('模型名称') as HTMLInputElement).value).toBe('image-model');
+});
+
+const zhFallback = '测试失败：请检查地址、密钥和服务可用性。';
+const enFallback = 'Test failed: Check the address, key, and service availability.';
+
+it.each([
+  ['zh-CN', '测试失败：API route not found: POST /api/image-generation/test'],
+  ['en', 'Test failed: API route not found: POST /api/image-generation/test'],
+])('renders the readable message of an object error in %s', async (lng, expected) => {
+  fetchImage.mockResolvedValue({ ok: false, json: async () => ({ ok: false, error: {
+    code: 'API_ROUTE_NOT_FOUND', message: 'API route not found: POST /api/image-generation/test',
+  } }) });
+  await form(configured(), vi.fn(), lng);
+  fireEvent.click(screen.getByRole('button', { name: lng === 'en' ? 'Test connection' : '测试连接' }));
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe(expected));
+  expect(screen.getByRole('status').textContent).not.toContain('[object Object]');
+});
+
+it('renders the readable message of an object error returned with HTTP 200 and ok=false', async () => {
+  fetchImage.mockResolvedValue({ ok: true, json: async () => ({ ok: false, error: {
+    code: 'UPSTREAM_REJECTED', message: 'model image-model is not available',
+  } }) });
+  await form();
+  fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+  await waitFor(() => expect(screen.getByRole('status').textContent).toContain('model image-model is not available'));
+  expect(screen.getByRole('status').textContent).not.toContain('[object Object]');
+});
+
+it.each([
+  ['zh-CN', zhFallback],
+  ['en', enFallback],
+])('falls back to localized guidance in %s when the failure carries no readable reason', async (lng, expected) => {
+  fetchImage.mockResolvedValue({ ok: false, json: async () => ({ ok: false, error: {
+    code: 'UPSTREAM_ERROR', detail: { apiKey: 'sk-SENTINEL-LEAK' },
+  } }) });
+  await form(configured(), vi.fn(), lng);
+  fireEvent.click(screen.getByRole('button', { name: lng === 'en' ? 'Test connection' : '测试连接' }));
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe(expected));
+  expect(screen.getByRole('status').textContent).not.toContain('SENTINEL');
+  expect(screen.getByRole('status').textContent).not.toContain('[object Object]');
+});
+
+it.each([
+  ['missing', { ok: false }],
+  ['null', { ok: false, error: null }],
+  ['empty', { ok: false, error: '   ' }],
+])('falls back to localized guidance when the failure error is %s', async (_label, body) => {
+  fetchImage.mockResolvedValue({ ok: false, json: async () => body });
+  await form();
+  fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe(zhFallback));
+});
+
+it('falls back to localized guidance when the response is not JSON', async () => {
+  fetchImage.mockResolvedValue({ ok: false, json: async () => { throw new SyntaxError('Unexpected token < in JSON at position 0'); } });
+  await form();
+  fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe(zhFallback));
+  expect(screen.getByRole('status').textContent).not.toContain('Unexpected token');
+});
+
+it('shows the network failure reason when the request never reaches the backend', async () => {
+  fetchImage.mockRejectedValue(new TypeError('Failed to fetch'));
+  await form();
+  fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe('测试失败：Failed to fetch'));
+});
+
+it('renders the agent status message of an agent_status envelope', async () => {
+  fetchImage.mockResolvedValue({ ok: false, json: async () => ({ agent_status: {
+    type: 'agent_status', event: 'web_http_request_failed',
+    detail: { message: '后端返回 404', userHint: 'Check the address and retry.' },
+  } }) });
+  await form();
+  fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+  await waitFor(() => expect(screen.getByRole('status').textContent).toContain('后端返回 404'));
+  expect(screen.getByRole('status').textContent).toContain('Check the address and retry.');
+});
+
+it('falls back to localized guidance when an agent_status envelope carries no readable message', async () => {
+  fetchImage.mockResolvedValue({ ok: false, json: async () => ({ agent_status: {
+    type: 'agent_status', event: 'web_http_request_failed', detail: {},
+  } }) });
+  await form();
+  fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe(zhFallback));
+  expect(screen.getByRole('status').textContent).not.toContain('Request failed');
+});
+
+it('prefers the readable error over an agent_status envelope without a readable message', async () => {
+  fetchImage.mockResolvedValue({ ok: false, json: async () => ({
+    agent_status: { type: 'agent_status', event: 'web_http_request_failed', detail: {} },
+    error: { message: 'plain readable reason' },
+  }) });
+  await form();
+  fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe('测试失败：plain readable reason'));
+});
+
+it('keeps the newest status when an obsolete failure response arrives late', async () => {
+  const resolvers: Array<(value: unknown) => void> = [];
+  fetchImage.mockImplementation(() => new Promise(done => { resolvers.push(done); }));
+  await form();
+  fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+  fireEvent.change(screen.getByLabelText('模型名称'), { target: { value: 'fresh-model' } });
+  fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+  await act(async () => { resolvers[0]({ ok: false, json: async () => ({ ok: false, error: { message: 'obsolete failure' } }) }); });
+  expect(screen.getByRole('status').textContent).toBe('');
+  await act(async () => { resolvers[1]({ ok: true, json: async () => ({ ok: true, latencyMs: 1000 }) }); });
+  await waitFor(() => expect(screen.getByRole('status').textContent).toContain('1.0'));
+  expect(screen.getByRole('status').textContent).not.toContain('obsolete failure');
 });

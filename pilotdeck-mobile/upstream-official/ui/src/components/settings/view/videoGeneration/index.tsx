@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { usePilotDeckConfig, type ConfigSaveResult } from '../../../../hooks/usePilotDeckConfig';
 import { authenticatedFetch } from '../../../../utils/api';
 import { ConfigSaveError, SettingsToggle } from '../../shared/view';
+import { readProbeOutcome } from '../../shared/utils/probeOutcome';
 import { GeneralSettingsIcon } from '../../shared/view/GeneralSettingsPrimitives';
 import { configToYamlString, safeParseYaml } from '../modelPool/utils/configYaml';
 import type { PilotDeckConfig } from '../modelPool/types';
@@ -95,11 +96,11 @@ export function VideoGenerationForm({ config, onChange }: {
       const response = await authenticatedFetch('/api/video-generation/test', {
         method: 'POST', body: JSON.stringify(value), signal: controller.signal, suppressServerErrorToast: true,
       });
-      const body = await response.json();
+      const outcome = await readProbeOutcome(response);
       if (probe.current !== controller) return;
-      setStatus(response.ok && body.ok
-        ? t('videoGeneration.connected', { seconds: (body.latencyMs / 1000).toFixed(1) })
-        : t('videoGeneration.connectionFailed', { error: body.error || t('videoGeneration.unknownError') }));
+      setStatus(response.ok && outcome.ok
+        ? t('videoGeneration.connected', { seconds: (outcome.latencyMs / 1000).toFixed(1) })
+        : t('videoGeneration.connectionFailed', { error: outcome.error || t('videoGeneration.unknownError') }));
     } catch (error) {
       if (probe.current === controller) setStatus(t('videoGeneration.connectionFailed', {
         error: error instanceof Error ? error.message : t('videoGeneration.unknownError'),
