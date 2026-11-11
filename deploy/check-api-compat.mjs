@@ -121,18 +121,47 @@ for (const file of walk(UI_SRC)) {
 // ---- 2. backend routes ------------------------------------------------------
 const indexSrc = fs.readFileSync(INDEX, 'utf8');
 
-// identifier -> module file, from `import ... from './routes/x.js'`
-const identifierToModule = new Map();
-const importRe = /import\s+([\s\S]*?)\s+from\s+['"]([^'"]+\.js)['"]/g;
-let im;
-while ((im = importRe.exec(indexSrc)) !== null) {
-  if (!im[2].startsWith('.')) continue;
-  const moduleFile = path.resolve(SERVER, im[2]);
-  const clause = im[1].replace(/[\s{}]/g, ' ');
-  for (const word of clause.split(/[,\s]+/)) {
-    if (!/^[A-Za-z_$][\w$]*$/.test(word) || word === 'as' || word === 'type') continue;
-    identifierToModule.set(word, moduleFile);
+// identifier -> local module file, from `import ... from './routes/x.js'`
+function parseImports(source, sourceFile) {
+  const map = new Map();
+  const re = /import\s+([\s\S]*?)\s+from\s+['"]([^'"]+\.js)['"]/g;
+  let m;
+  while ((m = re.exec(source)) !== null) {
+    if (!m[2].startsWith('.')) continue;
+    const moduleFile = path.resolve(path.dirname(sourceFile), m[2]);
+    const clause = m[1].replace(/[\s{}]/g, ' ');
+    for (const word of clause.split(/[,\s]+/)) {
+      if (!/^[A-Za-z_$][\w$]*$/.test(word) || word === 'as' || word === 'type') continue;
+      map.set(word, moduleFile);
+    }
   }
+  return map;
+}
+
+const identifierToModule = parseImports(indexSrc, INDEX);
+const ROUTE_VERB = /router\.(?:get|post|put|patch|delete|all|route|use)\(\s*['"`]([^'"`]*)['"`]/g;
+
+// Routers can be composed: `routes/update.js` does
+// `router.use(createWebUpdateRouter())`, and /api/update/info lives in
+// webUpdate.js. Without following that composition the gate reports a real
+// route as missing -- exactly the false positive we hit on 2026-11-11.
+function collectRoutePaths(file, seen = new Set(), depth = 0) {
+  if (depth > 3 || seen.has(file) || !fs.existsSync(file)) return [];
+  seen.add(file);
+  const src = fs.readFileSync(file, 'utf8');
+  const paths = [];
+  let m;
+  ROUTE_VERB.lastIndex = 0;
+  while ((m = ROUTE_VERB.exec(src)) !== null) {
+    if (m[1].startsWith('/') || m[1] === '' || m[1].startsWith(':')) paths.push(m[1]);
+  }
+  const imports = parseImports(src, file);
+  const composed = /router\.use\(\s*([A-Za-z_$][\w$]*)\s*\(/g;
+  while ((m = composed.exec(src)) !== null) {
+    const nested = imports.get(m[1]);
+    if (nested) paths.push(...collectRoutePaths(nested, seen, depth + 1));
+  }
+  return paths;
 }
 
 const routeFiles = new Set();
@@ -167,27 +196,19 @@ const backendPatterns = new Set();
 for (const mount of mounts) {
   backendPatterns.add(normalize(mount.prefix));
   for (const mod of mount.modules) {
-    if (!fs.existsSync(mod)) continue;
-    const src = fs.readFileSync(mod, 'utf8');
-    const routeRe = /router\.(?:get|post|put|patch|delete|all|use|route)\(\s*['"`]([^'"`]*)['"`]/g;
-    let rm;
-    while ((rm = routeRe.exec(src)) !== null) {
-      const sub = rm[1];
-      if (!sub.startsWith('/') && sub !== '' && !sub.startsWith(':')) continue;
+    for (const sub of collectRoutePaths(mod)) {
       backendPatterns.add(normalize(`${mount.prefix}/${sub}`.replace(/\/+/g, '/')));
     }
   }
 }
 
-// Loose fallback: every routes/*.js file is part of the vendored backend. Even
-// if index.js mounting changes shape, a missing implementation is still caught.
+// Final safety net: if index.js mounting ever changes shape beyond what the
+// parser understands, still enumerate route declarations from the whole server
+// tree so a missing implementation cannot be silently waved through. These are
+// prefix-less patterns and only match a frontend path in degenerate cases.
 for (const file of walk(path.join(SERVER, 'routes'))) {
-  const src = fs.readFileSync(file, 'utf8');
-  const routeRe = /router\.(?:get|post|put|patch|delete|all|use|route)\(\s*['"`]([^'"`]*)['"`]/g;
-  let rm;
-  while ((rm = routeRe.exec(src)) !== null) {
-    if (!rm[1].startsWith('/')) continue;
-    backendPatterns.add(normalize(rm[1]));
+  for (const sub of collectRoutePaths(file)) {
+    if (sub.startsWith('/')) backendPatterns.add(normalize(sub));
   }
 }
 
