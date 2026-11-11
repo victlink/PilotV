@@ -359,6 +359,7 @@
         "paired": "这台设备已配对成功，正在生成新的二维码…",
         "error": "二维码生成失败：",
         "open": "打开独立扫码页",
+        "downloadApk": "下载安卓客户端（APK）",
         "releaseLink": "PilotV 版本介绍与客户端下载",
         "projectLink": "PilotV 项目主页",
         "footnote": "客户端版本说明、发行包与安装文档均发布于 PilotV 项目 Releases；关于页上的二维码与独立 /pair 扫码页使用同一套一次性配对凭据。"

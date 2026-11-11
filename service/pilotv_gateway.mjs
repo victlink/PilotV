@@ -304,6 +304,9 @@ const MIME = {
   '.ttf': 'font/ttf', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mp3': 'audio/mpeg',
   '.wav': 'audio/wav', '.pdf': 'application/pdf', '.map': 'application/json; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8', '.wasm': 'application/wasm',
+  // 客户端安装包走 /download/ 直发。必须给出 apk 的 MIME，
+  // 否则部分安卓浏览器会把包存成 .bin，点开装不上。
+  '.apk': 'application/vnd.android.package-archive',
 };
 
 export function readDevices(jsonText, fallbackOrigin) {
@@ -336,6 +339,25 @@ function resolveStaticFile(distDir, pathname) {
   const target = path.resolve(distDir, relative);
   // 目录穿越保护：解析后必须仍在 dist 里面。
   if (target !== distDir && !target.startsWith(distDir + path.sep)) return null;
+  return target;
+}
+
+/**
+ * `/download/<文件名>` → downloads 目录里的那个文件。
+ *
+ * 只接受一层文件名：安装包是平铺放的，多级路径一律拒绝 —— 这样连
+ * 「目录穿越」都不用讨论，`..`、`/`、`\` 都在白名单之外。
+ */
+function resolveDownloadFile(downloadDir, pathname) {
+  let name;
+  try {
+    name = decodeURIComponent(pathname.slice('/download/'.length).split('?')[0]);
+  } catch {
+    return null; // 非法的 % 转义
+  }
+  if (!name || name.includes('/') || name.includes('\\') || name.startsWith('.')) return null;
+  const target = path.resolve(downloadDir, name);
+  if (!target.startsWith(downloadDir + path.sep)) return null;
   return target;
 }
 
@@ -655,6 +677,9 @@ export function createGatewayServer(config, listener) {
 
 export function createGateway(config) {
   const distDir = config.distDir;
+  // 客户端安装包目录。默认放仓库根的 downloads/（不进版本库，见 .gitignore），
+  // 可用 PILOTV_DOWNLOAD_DIR 指到别的卷。
+  const downloadDir = path.resolve(config.downloadDir || path.join(REPO_ROOT, 'downloads'));
   const indexPath = path.join(distDir, 'index.html');
   const registry = config.registry;
 
@@ -759,6 +784,24 @@ export function createGateway(config) {
       return;
     }
 
+    // 客户端安装包直发。为什么不塞进 dist：每次 deploy 都会重建 dist，
+    // 2.4 MB 的包会被顺手删掉；而手机上要装 App 时，恰恰是「这台机器刚部署过」的时候。
+    if (url.pathname.startsWith('/download/')) {
+      const file = resolveDownloadFile(downloadDir, url.pathname);
+      if (!file) { response.writeHead(400); response.end('bad path'); return; }
+      fs.stat(file, (error, stat) => {
+        if (error || !stat.isFile()) {
+          response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+          response.end('安装包还没放进 downloads/ 目录');
+          return;
+        }
+        sendFile(response, file, {
+          'content-disposition': `attachment; filename="${path.basename(file)}"`,
+        });
+      });
+      return;
+    }
+
     const file = resolveStaticFile(distDir, url.pathname);
     if (!file) { response.writeHead(400); response.end('bad path'); return; }
     if (file.endsWith(path.sep + 'index.html')) { sendFile(response, file); return; }
@@ -835,6 +878,7 @@ export function loadConfigFromEnv(env = process.env) {
   const adminSecret = env.PILOTV_ADMIN_TOKEN || readOrCreateAdminSecret(registryFile);
   return {
     distDir,
+    downloadDir: env.PILOTV_DOWNLOAD_DIR || path.join(REPO_ROOT, 'downloads'),
     devices,
     // 暴露给 doctor/测试：启动同步到底做了什么，不能只留在 console 里。
     manifestSync,

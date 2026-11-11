@@ -1196,3 +1196,66 @@ test('/pair?d= 会把设备选择带到后续配对请求', async () => {
     assert.ok(cookies[0].includes(encodeURIComponent(originB)), 'Cookie 应指向 ?d= 指定的设备');
   });
 });
+
+// /download/ 是手机拿安装包的唯一入口：它必须由网关自己发，不能塞进 dist
+// （每次部署都会重建 dist，包会被顺手删掉），也不能只认一层以上的路径。
+test('/download 直接发安装包，拒绝子路径与穿目录', async () => {
+  const distDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'pilotv-dist-'));
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'pilotv-dl-'));
+  const downloadDir = path.join(root, 'downloads');
+  await fsp.mkdir(downloadDir, { recursive: true });
+  await fsp.writeFile(path.join(distDir, 'index.html'), '<html><head><title>PilotV</title></head></html>');
+  const apk = Buffer.from('PK\u0003\u0004-pilotv-fake-apk', 'binary');
+  await fsp.writeFile(path.join(downloadDir, 'pilotv-android-latest.apk'), apk);
+  // 放在 downloads 的**上一级**：任何穿目录成功的请求都能读到它。
+  await fsp.writeFile(path.join(root, 'secret.txt'), 'TOP-SECRET');
+
+  const gateway = createGateway({
+    distDir,
+    downloadDir,
+    devices: [],
+    registry: null,
+    registryFile: path.join(root, 'devices.json'),
+    adminSecret: TEST_ADMIN_SECRET,
+    allowRegistryWrites: false,
+    defaultBackend: 'http://127.0.0.1:3001',
+    artifactsTarget: 'http://127.0.0.1:8799',
+    artifactsPerDevice: true,
+  });
+  await new Promise(resolve => gateway.listen(0, '127.0.0.1', resolve));
+  const port = gateway.address().port;
+
+  const get = pathname => new Promise(resolve => {
+    http.get({ host: '127.0.0.1', port, path: pathname }, res => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+    }).on('error', error => resolve({ status: 0, body: Buffer.from(error.message) }));
+  });
+
+  try {
+    const ok = await get('/download/pilotv-android-latest.apk');
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.toString('binary'), apk.toString('binary'));
+    // MIME 不对的话安卓浏览器会存成 .bin，点了装不上。
+    assert.match(ok.headers['content-type'], /android\.package-archive/);
+    assert.match(ok.headers['content-disposition'], /attachment; filename="pilotv-android-latest\.apk"/);
+
+    const missing = await get('/download/pilotv-9.9.9.apk');
+    assert.equal(missing.status, 404);
+
+    for (const evil of ['/download/%2e%2e%2fsecret.txt', '/download/sub/dir.apk', '/download/%E0%A4%A']) {
+      const res = await get(evil);
+      assert.equal(res.status, 400, `${evil} 应被拒绝`);
+      assert.ok(!res.body.toString().includes('TOP-SECRET'), `${evil} 不能读到 downloads 之外的文件`);
+    }
+
+    // 普通静态文件仍然照常工作，别把 /download 的拦截泄漏到其它路径。
+    const index = await get('/');
+    assert.equal(index.status, 200);
+  } finally {
+    await new Promise(resolve => { gateway.closeAllConnections(); gateway.close(resolve); });
+    await fsp.rm(root, { recursive: true, force: true });
+    await fsp.rm(distDir, { recursive: true, force: true });
+  }
+});

@@ -83,6 +83,10 @@ ${runtime}
           </ol>
           <div class="hint" id="altline" style="display:none"></div>
           <div class="hint">
+            还没装客户端：<a href="/download/pilotv-android-latest.apk" download>下载 PilotV 安卓版</a>
+            （APK，约 2.4 MB）。手机上打开这个页面的链接再点一次即可。
+          </div>
+          <div class="hint">
             手输也算数：在客户端里输入设备地址 <code id="addr">—</code> 与上方 6 位码 + 连接串里的密钥，
             或直接粘贴「复制连接串」得到的内容。
           </div>

@@ -137,6 +137,23 @@ pilotv://pair?v=1&h=https://pilotv.example.com&a=http://192.168.1.24:5187&c=K7M2
 得把它改成 `0.0.0.0`（或具体网卡地址），并接受「同一局域网内能看到登录页」这个暴露面。
 没有这个需求就保持默认，只用公网入口 —— 功能完整，只是同网时也要绕一圈 Cloudflare。
 
+## 客户端安装包从哪来
+
+宿主不再只把「客户端下载」指向 GitHub Releases —— 那条路在国内经常打不开，而且
+PilotV 目前没有统一发行包。现在网关直接伺服本机上的安装包：
+
+```
+GET /download/<文件名>            # 只允许一层文件名，其余一律 404/400
+```
+
+文件放在仓库根的 `downloads/`（`PILOTV_DOWNLOAD_DIR` 可改），**不放 dist** ——
+每次部署都会重建 dist，2.4 MB 的包会被顺手删掉，而「刚部署完要装 App」恰恰是最常见的时机。
+
+- `downloads/pilotv-android-latest.apk` 是稳定别名，关于页与 `/pair` 页都指向它；
+- `downloads/PilotV-<版本>.apk` 保留版本化副本，便于回滚和核对 sha256。
+
+换版本时两个文件一起覆盖即可，不需要重新构建前端。
+
 ## 安全边界
 
 - **5 分钟、一次性、试错 5 次**；秘密只以 sha256 落内存，日志与磁盘都没有明文。
@@ -155,7 +172,8 @@ pilotv://pair?v=1&h=https://pilotv.example.com&a=http://192.168.1.24:5187&c=K7M2
 | 一直「正在生成二维码」+「设备名不能为空」 | 旧网关把 `/api/pilotv/pair/new` 当成设备管理接口；升级网关并重启 |
 | 二维码图片 409 `unknown-device` | 旧网关把 `render.svg?d=` 的载荷当成设备短名；升级网关并重启 |
 | `bad_origin` | 用 IP 打开页面但反向代理改了 Host；显式配 `PILOTV_PAIR_ORIGINS` |
-| 手机扫了没反应 | 手机要能访问二维码里的 origin；只配了局域网地址时出门就不可达，配 `PILOTV_PUBLIC_ORIGINS` 才有公网兜底 |
+| 扫了完全没反应（无提示音、无跳转） | 0.1.2 及更早的客户端有 bug：帧旋转调了 `LuminanceSource.rotateCounterClockwise()`，而 `PlanarYUVLuminanceSource` 没实现它，竖持手机时每帧都抛异常并被吞掉。升级到 0.1.3+（`/download/pilotv-android-latest.apk`） |
+| 扫到了但连不上 | 手机要能访问二维码里的 origin；只配了局域网地址时出门就不可达，配 `PILOTV_PUBLIC_ORIGINS` 才有公网兜底 |
 | 公网入口 WS 403 | cloudflared 没设 `httpHostHeader`，网关看到的 Host 是 `127.0.0.1:5187` |
 | 以前能用、某天全 401 | 常见于钉了公共 CA 的叶子指纹而证书轮换了；客户端应只在自签场景固定指纹 |
 | 兑换 409 `already_used` | 码被用过或页面自动刷新过；重新生成 |

@@ -359,6 +359,7 @@
         "paired": "Device paired successfully. Generating a new QR code…",
         "error": "Could not create the QR code:",
         "open": "Open full pairing page",
+        "downloadApk": "Download Android app (APK)",
         "releaseLink": "PilotV release notes & app downloads",
         "projectLink": "PilotV project home",
         "footnote": "App release notes, packages and installation docs are published in the PilotV project Releases. This QR code and the standalone /pair page share the same one-time pairing credentials."

@@ -9,6 +9,9 @@ import {
 } from "../../../../lib/pilotvLinks";
 import { SettingsCard } from "../../shared/view";
 
+/** 客户端安装包：由网关从 <repo>/downloads 直发，不随每次前端构建重建。 */
+const PILOTV_ANDROID_APK = "/download/pilotv-android-latest.apk";
+
 const PAIR_NEW = "/api/pilotv/pair/new";
 const PAIR_RENDER = "/api/pilotv/pair/render.svg";
 const PAIR_STATUS = "/api/pilotv/pair/status";
@@ -222,6 +225,9 @@ export default function AppClientPairCard() {
           <div className="app-client-actions">
             <a className="app-client-link primary" href={pairHref} target="_blank" rel="noopener noreferrer">
               <ExternalLink size={15} aria-hidden="true" />{t(key("open"))}
+            </a>
+            <a className="app-client-link primary" href={PILOTV_ANDROID_APK} download>
+              <Smartphone size={15} aria-hidden="true" />{t(key("downloadApk"))}
             </a>
             <a className="app-client-link" href={PILOTV_RELEASES_URL} target="_blank" rel="noopener noreferrer">
               <QrCode size={15} aria-hidden="true" />{t(key("releaseLink"))}
