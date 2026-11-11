@@ -43,6 +43,33 @@ export function startupText(message: string, language: DesktopAppearance['langua
   return language === 'zh-CN' ? STARTUP_ZH[branded] ?? branded : branded;
 }
 
+// 首屏静态壳（原生启动页与 Web 首帧）必须和 React 接管后的 StartupFrame 画同一个橙 V 字标。
+// 这里原本是「深色方块徽标 + 纯文本 PilotV」，React 一接管就换成字标，中间会明显闪一下旧品牌。
+// 字形是品牌定稿数据，从 ui/src/components/app-shell/PilotVLogo.tsx 机械搬运，改字标要两边一起改；
+// ui/src/components/auth/view/StartupPresentation.spec.tsx 会逐条比对两边的 path d，漏改会直接报错。
+const STARTUP_LOGO_HEIGHT = 44;
+const STARTUP_LOGO_WIDTH = (STARTUP_LOGO_HEIGHT * 275) / 98;
+const STARTUP_LOGO_GLYPHS: ReadonlyArray<readonly [number, string]> = [
+  [8, 'M655 742Q787 742 845.0 805.0Q903 868 903 981Q903 1031 888.0 1072.0Q873 1113 842.5 1142.5Q812 1172 765.5 1188.0Q719 1204 655 1204H479V742ZM655 1457Q809 1457 919.5 1420.5Q1030 1384 1101.5 1320.0Q1173 1256 1207.0 1169.0Q1241 1082 1241 981Q1241 872 1206.0 781.0Q1171 690 1099.0 625.0Q1027 560 916.5 523.5Q806 487 655 487H479V0H141V1457Z'],
+  [67.6, 'M422 1037V0H112V1037ZM454 1321Q454 1284 439.0 1251.5Q424 1219 398.0 1194.5Q372 1170 337.5 1155.5Q303 1141 264 1141Q226 1141 193.0 1155.5Q160 1170 134.5 1194.5Q109 1219 94.5 1251.5Q80 1284 80 1321Q80 1359 94.5 1392.0Q109 1425 134.5 1450.0Q160 1475 193.0 1489.0Q226 1503 264 1503Q303 1503 337.5 1489.0Q372 1475 398.0 1450.0Q424 1425 439.0 1392.0Q454 1359 454 1321Z'],
+  [90.3, 'M415 1497V0H105V1497Z'],
+  [112.3, 'M583 1053Q701 1053 798.0 1016.0Q895 979 964.5 910.0Q1034 841 1072.5 742.5Q1111 644 1111 521Q1111 397 1072.5 297.5Q1034 198 964.5 128.5Q895 59 798.0 21.5Q701 -16 583 -16Q464 -16 366.5 21.5Q269 59 198.5 128.5Q128 198 89.5 297.5Q51 397 51 521Q51 644 89.5 742.5Q128 841 198.5 910.0Q269 979 366.5 1016.0Q464 1053 583 1053ZM583 214Q690 214 740.5 289.5Q791 365 791 519Q791 673 740.5 748.0Q690 823 583 823Q473 823 422.0 748.0Q371 673 371 519Q371 365 422.0 289.5Q473 214 583 214Z'],
+  [166.4, 'M476 -16Q402 -16 345.5 5.5Q289 27 250.5 66.5Q212 106 192.0 162.0Q172 218 172 287V823H84Q60 823 43.0 838.5Q26 854 26 884V1005L191 1037L252 1290Q264 1338 320 1338H482V1035H739V823H482V308Q482 272 499.5 248.5Q517 225 550 225Q567 225 578.5 228.5Q590 232 598.5 236.5Q607 241 614.5 244.5Q622 248 632 248Q646 248 654.5 241.5Q663 235 672 221L766 74Q706 29 631.0 6.5Q556 -16 476 -16Z'],
+];
+const STARTUP_LOGO_V = { x: 200.8, d: 'M1448 1457 864 0H558L-26 1457H246Q290 1457 317.0 1436.5Q344 1416 358 1384L640 604Q660 553 679.0 492.5Q698 432 715 366Q729 432 746.5 492.5Q764 553 784 604L1064 1384Q1075 1412 1103.5 1434.5Q1132 1457 1174 1457Z' };
+const STARTUP_LOGO_LINE = { x: 200.7, y: 91.85, w: 71.3, h: 5.5, rx: 2.75 };
+
+function startupLogoSvg(): string {
+  const glyph = ([x, d]: readonly [number, string]) =>
+    `<g transform="translate(${x.toFixed(2)} 80.85) scale(0.050 -0.050)"><path d="${d}"/></g>`;
+  const line = STARTUP_LOGO_LINE;
+  return `<svg class="pv-logo" viewBox="4 3 275 98" width="${STARTUP_LOGO_WIDTH}" height="${STARTUP_LOGO_HEIGHT}" preserveAspectRatio="xMinYMid meet" role="img" aria-label="PilotV" fill="currentColor">`
+    + `${STARTUP_LOGO_GLYPHS.map(glyph).join('')}`
+    + `<g transform="translate(${STARTUP_LOGO_V.x.toFixed(2)} 80.85) scale(0.050 -0.050)"><path d="${STARTUP_LOGO_V.d}" fill="#e55a09" stroke="#e55a09" stroke-width="32" paint-order="stroke"/></g>`
+    + `<rect x="${line.x}" y="${line.y}" width="${line.w}" height="${line.h}" rx="${line.rx}" fill="#297cc0"/>`
+    + '</svg>';
+}
+
 export function renderLoadingHtml(appearance: DesktopAppearance, web = false): string {
   // startupLabels 已经是 PilotV 定稿文案，不需要再做品牌替换。
   const brandLabels = (language: DesktopAppearance['language']) => startupLabels(language);
@@ -57,9 +84,8 @@ export function renderLoadingHtml(appearance: DesktopAppearance, web = false): s
 @media(prefers-color-scheme:dark){:root[data-theme="system"]{color-scheme:dark;--startup-bg:#0a0a0a;--startup-fg:#f5f5f5;--startup-muted:#a3a3a3;--startup-line:#303039}}
 ${startupStyle}
 .pd-startup-brand{display:flex;align-items:center;justify-content:center;gap:12px}
-.pilotv-startup-mark{width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;background:var(--startup-fg);color:var(--startup-bg);flex:0 0 auto}
 #failure{display:none}#startup[data-error=true] #loading{display:none}#startup[data-error=true] #failure{display:block}#saveStatus:empty{display:none}
-</style></head><body style="margin:0"><div class="pd-startup-screen" id="startup"><main><h1 class="pd-startup-brand"><span class="pilotv-startup-mark" aria-hidden="true"><svg viewBox="0 0 512 512" width="23" height="23"><path d="M154 144 H218 L256 213.3 L294 144 H358 L256 330 Z" fill="#e55a09"/><rect x="154" y="362" width="204" height="24" rx="12" fill="#297cc0"/></svg></span><span>Pilot<span style="color:#e55a09">V</span></span></h1>
+</style></head><body style="margin:0"><div class="pd-startup-screen" id="startup"><main><h1 class="pd-startup-brand" aria-label="PilotV">${startupLogoSvg()}</h1>
 <div id="loading" role="status"><div class="pd-startup-track" role="progressbar" aria-label="PilotV" aria-valuemin="0" aria-valuemax="100" aria-valuenow="8"><div class="pd-startup-bar" id="bar" style="width:8%"></div></div><p class="pd-startup-message" id="message">${labels.starting}</p></div>
 <section class="pd-startup-failure" id="failure" role="alert"><h2>${labels.failed}</h2><p class="reason" id="reason"></p><div class="pd-startup-meta" id="code"></div><p class="pd-startup-meta" id="log"></p><div class="pd-startup-actions"><button id="retry">${labels.restart}</button><button id="saveLog" class="secondary">${labels.save}</button></div><p class="pd-startup-meta" id="saveStatus" role="status"></p></section>
 </main></div><script>(()=>{

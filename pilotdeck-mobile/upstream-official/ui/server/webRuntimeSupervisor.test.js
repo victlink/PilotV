@@ -185,16 +185,45 @@ describe('web runtime supervisor', () => {
     await vi.waitFor(() => expect(server.send).toHaveBeenLastCalledWith({ type: 'pilotdeck:gateway-state', state: 'ready' }));
   });
 
-  it('times out if an occupied port is open but the managed Gateway never reports ready', async () => {
+  it('restarts the Gateway once when readiness times out, then reports the failure', async () => {
+    vi.useFakeTimers();
+    try {
+      const { supervisor, spawnImpl } = createHarness();
+      const server = supervisor.children.get('server');
+      server.emit('message', { type: 'pilotdeck:configuration-state', configuration: { state: 'ready' } });
+      const firstGateway = supervisor.children.get('gateway');
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(firstGateway.kill).toHaveBeenCalled();
+      // The retry must stay on the startup screen: no error is published until
+      // the second attempt has run out of its own (shorter) window.
+      expect(server.send.mock.calls.some(([message]) => message.state === 'error')).toBe(false);
+      await vi.advanceTimersByTimeAsync(46_000);
+      expect(spawnImpl).toHaveBeenCalledTimes(3);
+      expect(server.send).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'error', error: expect.stringContaining('Timed out') }));
+
+      // A manual restart starts with a fresh budget instead of the exhausted one.
+      server.emit('message', { type: 'pilotdeck:retry-gateway' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(spawnImpl).toHaveBeenCalledTimes(4);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('recovers when the restarted Gateway reports ready', async () => {
     vi.useFakeTimers();
     try {
       const { supervisor } = createHarness();
       const server = supervisor.children.get('server');
       server.emit('message', { type: 'pilotdeck:configuration-state', configuration: { state: 'ready' } });
-      const gateway = supervisor.children.get('gateway');
+      const firstGateway = supervisor.children.get('gateway');
       await vi.advanceTimersByTimeAsync(90_000);
-      expect(gateway.kill).toHaveBeenCalled();
-      expect(server.send).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'error', error: expect.stringContaining('Timed out') }));
+      await vi.advanceTimersByTimeAsync(1_000);
+      const retriedGateway = supervisor.children.get('gateway');
+      expect(retriedGateway).toBeDefined();
+      expect(retriedGateway).not.toBe(firstGateway);
+      retriedGateway.emit('message', { type: 'pilotdeck:gateway-ready', port: 18789 });
+      await vi.waitFor(() => {
+        expect(server.send).toHaveBeenLastCalledWith({ type: 'pilotdeck:gateway-state', state: 'ready' });
+      });
     } finally { vi.useRealTimers(); }
   });
 
@@ -217,24 +246,26 @@ describe('web runtime supervisor', () => {
   });
 
   it('reports a Gateway readiness failure without exiting the UI', async () => {
-    const { supervisor, exit } = createHarness({
-      waitForPortImpl: vi.fn(async () => {
-        throw new Error('gateway timeout');
-      }),
+    const waitForPortImpl = vi.fn(async () => {
+      throw new Error('gateway timeout');
     });
+    const { supervisor, exit } = createHarness({ waitForPortImpl });
     const server = supervisor.children.get('server');
     server.emit('message', {
       type: 'pilotdeck:configuration-state',
       configuration: { state: 'ready', revision: 'one' },
     });
 
+    // The first failure is retried silently, so the error only surfaces once the
+    // retry has failed too.
     await vi.waitFor(() => {
       expect(server.send).toHaveBeenLastCalledWith(expect.objectContaining({
         type: 'pilotdeck:gateway-state',
         state: 'error',
         error: 'gateway timeout',
       }));
-    });
+    }, { timeout: 5_000 });
+    expect(waitForPortImpl).toHaveBeenCalledTimes(2);
     expect(supervisor.children.has('server')).toBe(true);
     expect(exit).not.toHaveBeenCalled();
   });

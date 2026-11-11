@@ -16,6 +16,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const UI_ROOT = path.resolve(__dirname, '..');
 
+// 就绪判定失败不会直接判死：端口被上一个进程占着时，第一次必然超时，自动再起一次
+// 通常就能拿到空闲端口，用户不必对着「正在启动 Gateway」等满 90 秒再手动点重启。
+const GATEWAY_READINESS_TIMEOUT_MS = 90_000;
+// 重试那次进程已经预热（tsx 已缓存转译结果），不需要再给整份超时时间。
+const GATEWAY_RETRY_TIMEOUT_MS = 45_000;
+const GATEWAY_READINESS_MAX_ATTEMPTS = 2;
+const GATEWAY_RETRY_DELAY_MS = 1_000;
+
 export function normalizeSupervisorMode(value) {
   return value === 'dev' ? 'dev' : 'start-built';
 }
@@ -120,7 +128,15 @@ export function createRuntimeSupervisor({
   let stopping = false;
   let handlingCriticalExit = false;
   let gatewayStopPromise = null;
+  let gatewayRetryTimer = null;
+  let gatewayReadinessAttempts = 0;
   let shutdownSignal = null;
+
+  const clearGatewayRetry = () => {
+    if (gatewayRetryTimer === null) return;
+    clearTimeout(gatewayRetryTimer);
+    gatewayRetryTimer = null;
+  };
 
   const sendGatewayState = (state, gatewayError) => {
     const server = children.get('server');
@@ -175,6 +191,7 @@ export function createRuntimeSupervisor({
   };
 
   const stopAll = (signal = 'SIGTERM') => {
+    clearGatewayRetry();
     const pendingStops = [...children.keys()]
       .reverse()
       .map((name) => stopChild(name, signal));
@@ -196,6 +213,11 @@ export function createRuntimeSupervisor({
       void gatewayStopPromise.then(() => startGateway());
       return;
     }
+    clearGatewayRetry();
+    gatewayReadinessAttempts += 1;
+    const attempt = gatewayReadinessAttempts;
+    // 第一次给足冷启动时间；重试那次进程已预热，用更短的窗口，别让用户干等。
+    const readinessTimeout = attempt === 1 ? GATEWAY_READINESS_TIMEOUT_MS : GATEWAY_RETRY_TIMEOUT_MS;
     sendGatewayState('starting');
     const { child } = spawnProcess('gateway');
     let reportedFailure = false;
@@ -205,6 +227,7 @@ export function createRuntimeSupervisor({
     const publishReady = () => {
       if (!portReady || !processReady || readinessPublished || reportedFailure || children.get('gateway') !== child) return;
       readinessPublished = true;
+      gatewayReadinessAttempts = 0;
       clearTimeout(readinessTimer);
       log(`[runtime-supervisor] Gateway ready on 127.0.0.1:${gatewayPort}`);
       sendGatewayState('ready');
@@ -213,12 +236,24 @@ export function createRuntimeSupervisor({
       if (children.get('gateway') !== child || reportedFailure || readinessPublished) return;
       reportedFailure = true;
       clearTimeout(readinessTimer);
-      void stopGateway();
       const detail = waitError instanceof Error ? waitError.message : String(waitError);
+      if (attempt < GATEWAY_READINESS_MAX_ATTEMPTS && !stopping) {
+        error(`[runtime-supervisor] Gateway failed readiness check (attempt ${attempt}/${GATEWAY_READINESS_MAX_ATTEMPTS}): ${detail}; restarting it once`);
+        void stopGateway().then(() => {
+          if (stopping) return;
+          gatewayRetryTimer = setTimeout(() => {
+            gatewayRetryTimer = null;
+            startGateway();
+          }, GATEWAY_RETRY_DELAY_MS);
+          gatewayRetryTimer.unref?.();
+        });
+        return;
+      }
+      void stopGateway();
       error(`[runtime-supervisor] Gateway failed readiness check: ${detail}`);
       sendGatewayState('error', detail);
     };
-    const readinessTimer = setTimeout(() => failReadiness(new Error('Timed out waiting for the managed Gateway to become ready.')), 90_000);
+    const readinessTimer = setTimeout(() => failReadiness(new Error('Timed out waiting for the managed Gateway to become ready.')), readinessTimeout);
     readinessTimer.unref?.();
     child.on('message', message => {
       // A pre-existing listener may occupy this port. Only our child can
@@ -247,7 +282,7 @@ export function createRuntimeSupervisor({
       sendGatewayState('error', detail);
     });
 
-    waitForPortImpl(gatewayPort, '127.0.0.1', 90_000)
+    waitForPortImpl(gatewayPort, '127.0.0.1', readinessTimeout)
       .then(() => {
         portReady = true;
         publishReady();
@@ -270,12 +305,17 @@ export function createRuntimeSupervisor({
       if (configuration.state === 'ready') {
         startGateway();
       } else {
+        gatewayReadinessAttempts = 0;
+        clearGatewayRetry();
         void stopGateway();
         sendGatewayState('stopped');
       }
       return;
     }
     if (message?.type === 'pilotdeck:retry-gateway' && configuration?.state === 'ready') {
+      // 用户手动点「重新启动」时给一份完整的重试预算，不继承上一次的失败计数。
+      gatewayReadinessAttempts = 0;
+      clearGatewayRetry();
       startGateway();
     }
   };

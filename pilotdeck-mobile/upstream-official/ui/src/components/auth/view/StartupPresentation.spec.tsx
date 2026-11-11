@@ -6,6 +6,7 @@ import { createTestI18n } from '../../../i18n/testInstance';
 import AuthLoadingScreen from './AuthLoadingScreen';
 import StartupErrorPanel from './StartupErrorPanel';
 import StartupReady from './StartupReady';
+import PilotVLogo from '../../app-shell/PilotVLogo';
 import { startupVisualProgress } from '../../../../../apps/desktop/src/startupPresentation';
 import { renderLoadingHtml } from '../../../../../apps/desktop/src/appearance';
 import { releaseStartupShell } from '../startupShell';
@@ -190,4 +191,27 @@ it('paints a single centred logo on the startup screen', async () => {
   expect(document.querySelectorAll('svg.pv-logo')).toHaveLength(1);
   expect(document.querySelectorAll('.pd-startup-brand')).toHaveLength(1);
   expect(document.querySelector('.pd-startup-brand svg.pv-logo')).not.toBeNull();
+});
+
+it('paints the same wordmark in the pre-bundle shell as React does after handoff', () => {
+  // The static shell used to draw an old badge plus plain text, so the brand
+  // visibly swapped the moment React took over. Both layers must now consume the
+  // same glyph data, which is why this compares path data instead of a snapshot.
+  const html = renderLoadingHtml({ language: 'en', themeMode: 'light' }, true);
+  const shell = document.createElement('div');
+  shell.innerHTML = html.match(/<body[^>]*>([\s\S]*?)<\/body>/)![1];
+  document.body.append(shell);
+  const shellLogo = shell.querySelector('.pd-startup-brand svg.pv-logo');
+  expect(shellLogo).not.toBeNull();
+  expect(shell.querySelectorAll('svg.pv-logo')).toHaveLength(1);
+  expect(shell.querySelector('.pilotv-startup-mark')).toBeNull();
+
+  const { container } = render(<PilotVLogo height={44} animated={false} />);
+  const reactLogo = container.querySelector('svg.pv-logo')!;
+  const glyphs = (svg: Element) => [...svg.querySelectorAll('path')].map(path => path.getAttribute('d'));
+  expect(glyphs(shellLogo!)).toEqual(glyphs(reactLogo));
+  expect(shellLogo!.getAttribute('viewBox')).toBe(reactLogo.getAttribute('viewBox'));
+  expect(shellLogo!.getAttribute('height')).toBe(reactLogo.getAttribute('height'));
+  expect(shellLogo!.getAttribute('width')).toBe(reactLogo.getAttribute('width'));
+  expect(shellLogo!.querySelector('rect')!.getAttribute('fill')).toBe('#297cc0');
 });
