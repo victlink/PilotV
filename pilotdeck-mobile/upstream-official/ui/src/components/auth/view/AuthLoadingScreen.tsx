@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { startupLabels, startupVisualProgress, type StartupTiming } from '../../../../../apps/desktop/src/startupPresentation';
 import StartupFrame from './StartupFrame';
 import { hasStartupShell, updateStartupShell } from '../startupShell';
-import PilotVLogo from '../../app-shell/PilotVLogo';
 
 export default function AuthLoadingScreen({ gateway = false, finishing = false, complete = false, leaving = false }: { gateway?: boolean; finishing?: boolean; complete?: boolean; leaving?: boolean }) {
   const { i18n } = useTranslation();
@@ -28,9 +27,6 @@ export default function AuthLoadingScreen({ gateway = false, finishing = false, 
   if (persistent) return null;
   return <StartupFrame complete={complete} leaving={leaving}>
     <div role="status">
-      <div className="mb-6 flex justify-center text-foreground">
-        <PilotVLogo height={44} animated={false} />
-      </div>
       <div role="progressbar" aria-label="PilotV" aria-valuemin={0} aria-valuemax={100} aria-valuenow={complete ? 100 : progress} className="pd-startup-track">
         <div className="pd-startup-bar" style={{ width: startupVisualProgress(timing, now) + '%' }} />
       </div>

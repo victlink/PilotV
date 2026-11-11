@@ -10,7 +10,7 @@ export default function StartupFrame({ children, error = false, complete = false
     <style>{startupStyle}</style>
     <main>
       {/* 与登录页、侧栏、桌面启动页共用同一个橙 V 字标，不再出现旧字样的纯文本标题。 */}
-      <h1 className="pd-startup-brand" aria-label="PilotV"><PilotVLogo height={34} animated={false} /></h1>
+      <h1 className="pd-startup-brand" aria-label="PilotV"><PilotVLogo height={44} animated={false} /></h1>
       {children}
     </main>
   </div>;

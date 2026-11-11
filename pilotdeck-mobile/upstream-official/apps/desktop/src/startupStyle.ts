@@ -7,7 +7,7 @@ export const startupStyle = `
 .pd-startup-screen[data-leaving=true]{animation:none;opacity:0;pointer-events:none}
 .pd-startup-screen main{width:min(360px,100%);margin:0;text-align:center}
 .pd-startup-screen[data-error=true] main{width:min(440px,100%)}
-.pd-startup-brand{margin:0 0 28px;font-size:32px;font-weight:500;line-height:1.2;letter-spacing:-.045em}
+.pd-startup-brand{margin:0 0 28px;font-size:32px;font-weight:500;line-height:1.2;letter-spacing:-.045em;display:flex;align-items:center;justify-content:center}
 .pd-startup-track{height:4px;overflow:hidden;border-radius:8px;background:var(--startup-line,#e5e5e5)}
 .pd-startup-bar{position:relative;height:100%;border-radius:8px;background:var(--startup-fg,#171717);overflow:hidden;transition:width 1.1s cubic-bezier(.22,.61,.36,1)}
 .pd-startup-bar:after{content:"";position:absolute;inset:0;width:45%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.42),transparent);animation:pd-startup-glide 2.8s ease-in-out infinite;animation-delay:var(--startup-animation-offset,0s)}

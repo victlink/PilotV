@@ -178,3 +178,16 @@ it('reports a native save failure without closing the error screen', async () =>
   expect(await screen.findByText('Could not download the logs. Try another location.')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Restart' })).toBeTruthy();
 });
+
+it('paints a single centred logo on the startup screen', async () => {
+  // Regression: StartupFrame already owns the wordmark. AuthLoadingScreen used to
+  // paint a second copy, and because Tailwind resets `svg` to display:block the
+  // outer one hugged the left edge instead of centring.
+  releaseStartupShell();
+  const i18n = await createTestI18n();
+  window.__pilotdeckStartupState = { phase: 'gateway', progress: 78, startedAt: Date.now(), phaseStartedAt: Date.now() };
+  render(<I18nextProvider i18n={i18n}><AuthLoadingScreen gateway /></I18nextProvider>);
+  expect(document.querySelectorAll('svg.pv-logo')).toHaveLength(1);
+  expect(document.querySelectorAll('.pd-startup-brand')).toHaveLength(1);
+  expect(document.querySelector('.pd-startup-brand svg.pv-logo')).not.toBeNull();
+});
