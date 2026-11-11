@@ -20,6 +20,8 @@ function buildRoute(overrides: Partial<ApprovalPromptRoute> = {}): ApprovalPromp
     sessionKey: "session-1",
     requestId: "req-1",
     toolName: "bash",
+    projectKey: "project-1",
+    projectName: "Project One",
     risk: "medium",
     expiresAt: EXPIRES_AT,
     prompt: [

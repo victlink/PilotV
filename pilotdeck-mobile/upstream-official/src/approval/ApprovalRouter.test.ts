@@ -71,7 +71,7 @@ test("route carries project fields with compatibility fallback", async () => {
       recordDelivery: async () => undefined,
     } as never,
     gateway: {} as never,
-    resolveChannel: () => ({ routeApprovalPrompt: async (route) => { delivered.push(route); return true; } }),
+    resolveChannel: () => ({ channelKey: "im", routeApprovalPrompt: async (route) => { delivered.push(route); return true; } }),
     bindingConfigs: () => [],
   });
   const rec = record({ bindings: [{ channelKey: "im", chatId: "chat" }], projectKey: "p1", projectName: "Project One" });
