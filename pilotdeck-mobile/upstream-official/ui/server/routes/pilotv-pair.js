@@ -110,30 +110,40 @@ export function collectAlternates(primary, env = process.env, interfaces = os.ne
     push(host.includes('://') ? host : `https://${host}`);
   }
 
-  // 网关只监听回环地址时，局域网候选是必然连不上的死地址：
-  // 手机要为此白等一整轮探测超时，比不带还糟。
-  // 默认值和 service/pilotv_gateway.mjs 保持一致（未设置就是 0.0.0.0）。
+  // 局域网网卡（按 lanRank 排序，排除 docker / CGNAT 段）。
+  const lanIfaces = [];
+  for (const list of Object.values(interfaces || {})) {
+    for (const entry of list || []) {
+      // Node 14 之后 family 是 'IPv4'，之前是数字 4，两种都得认。
+      if (entry.family !== 'IPv4' && entry.family !== 4) continue;
+      if (entry.internal) continue;
+      const rank = lanRank(entry.address);
+      if (rank >= 9) continue;
+      lanIfaces.push({ address: entry.address, rank });
+    }
+  }
+  lanIfaces.sort((a, b) => a.rank - b.rank);
+
+  // 局域网 HTTPS 前置：Caddy 已在 *:5186 对所有网卡监听并终结 TLS，
+  // 手机同 Wi-Fi 下直连它最快最稳，且不依赖 Tailscale / 公网隧道。
+  // 与网关是否回环绑定无关（网关回环只影响明文 5187；Caddy 的 5186 始终对外）。
+  // 端口可被 PILOTV_LAN_HTTPS_PORT 覆盖，默认 5186（与 Caddyfile 一致）。
+  const httpsFrontPort = Number(env.PILOTV_LAN_HTTPS_PORT || 5186);
+  if (Number.isInteger(httpsFrontPort) && httpsFrontPort > 0 && httpsFrontPort < 65536) {
+    for (const item of lanIfaces) push(`https://${item.address}:${httpsFrontPort}`);
+  }
+
+  // 明文局域网（需把 PILOTV_BIND 改成 0.0.0.0 才会真通；网关回环时这是死地址，
+  // 探一轮只会白等超时，所以 boundToLoopback 时才跳过）。
   const bind = String(env.PILOTV_BIND || '0.0.0.0').trim();
   const boundToLoopback = bind === '::1' || bind.startsWith('127.');
   const lanPort = Number(env.PILOTV_LAN_PORT || 0);
   if (!boundToLoopback && Number.isInteger(lanPort) && lanPort > 0 && lanPort < 65536) {
-    const candidates = [];
-    for (const list of Object.values(interfaces || {})) {
-      for (const entry of list || []) {
-        // Node 14 之后 family 是 'IPv4'，之前是数字 4，两种都得认。
-        if (entry.family !== 'IPv4' && entry.family !== 4) continue;
-        if (entry.internal) continue;
-        const rank = lanRank(entry.address);
-        if (rank >= 9) continue;
-        candidates.push({ address: entry.address, rank });
-      }
-    }
-    candidates.sort((a, b) => a.rank - b.rank);
-    for (const item of candidates) push(`http://${item.address}:${lanPort}`);
+    for (const item of lanIfaces) push(`http://${item.address}:${lanPort}`);
   }
 
   // 二维码容量有限：每多一个地址约多 30 字符，带三个以上会把版本推到 v12+，
-  // 屏幕上更难扫。局域网 + 公网两个足够了。
+  // 屏幕上更难扫。公网 + 局域网两个足够。
   return out.slice(0, 2);
 }
 
