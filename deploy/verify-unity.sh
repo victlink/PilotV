@@ -193,16 +193,22 @@ fi
 
 # ---- 7. optional live API probe --------------------------------------------
 if [ "$PROBE" -eq 1 ]; then
+  # PILOTV_PROBE_TOKEN lets an operator pass a valid JWT so the probe exercises
+  # the full route contract instead of stopping at the auth middleware.
+  PROBE_HEADER=()
+  if [ -n "${PILOTV_PROBE_TOKEN:-}" ]; then
+    PROBE_HEADER=(-H "Authorization: Bearer $PILOTV_PROBE_TOKEN")
+  fi
   for ep in \
     "/api/settings/general-workspace" \
-    "/api/project-team/session-execution-mode?projectRoot=$(printf '%s' "$REPO/pilotdeck-mobile/upstream-official" | sed 's|/|%2F|g')&sessionKey=verify"; do
-    code="$(curl -s -m 12 -o /dev/null -w '%{http_code}' "http://127.0.0.1:3001$ep" 2>/dev/null || echo 000)"
-    if [ "$code" = "200" ] || [ "$code" = "404" ]; then
-      # A structured 404 (e.g. unregistered project root) still proves the route exists.
-      info "probe $code ${ep%%\?*}"
-    else
-      warn "probe returned $code for ${ep%%\?*}"
-    fi
+    "/api/project-team/session-execution-mode?projectRoot=$(printf '%s' "$REPO" | sed 's|/|%2F|g')&sessionKey=verify"; do
+    code="$(curl -s -m 12 -o /dev/null -w '%{http_code}' ${PROBE_HEADER[@]+"${PROBE_HEADER[@]}"} "http://127.0.0.1:3001$ep" 2>/dev/null || echo 000)"
+    case "$code" in
+      200|304) info "probe $code ${ep%%\?*} (route reachable)" ;;
+      401|403) info "probe $code ${ep%%\?*} (backend alive; auth required - set PILOTV_PROBE_TOKEN for a full check)" ;;
+      404) info "probe 404 ${ep%%\?*} (structured 404 proves the route when auth passed)" ;;
+      *) warn "probe returned $code for ${ep%%\?*}" ;;
+    esac
   done
 fi
 
