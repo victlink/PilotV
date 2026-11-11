@@ -92,6 +92,7 @@ restart_one() {
   local unit="$1"
   systemctl --user restart "$unit" 2>/dev/null \
     || systemctl restart "$unit" 2>/dev/null \
+    || sudo -n systemctl restart "$unit" 2>/dev/null \
     || { echo "  ! $unit 重启失败（继续往下走，第 4 步会告诉你还活着没有）"; return 1; }
   echo "  $unit 已重启"
 }
@@ -106,7 +107,10 @@ fi
 
 say "4/4 自检"
 BASE=http://127.0.0.1:8799
-GATEWAY="https://127.0.0.1:${PILOTV_PORT:-5186}"
+# Caddy 的 HTTPS 入口按 SNI 发证书，用 127.0.0.1 握手会拿不到证书而误报失败。
+# 默认直连网关自身的 HTTP 端口自检；要验对外入口时显式设 PILOTV_HEALTH_URL。
+GATEWAY="${PILOTV_HEALTH_URL:-http://127.0.0.1:${UI_PORT:-5187}}"
+
 console_code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/artifacts/workspace" || echo 000)"
 gateway_code="$(curl -sk -o /dev/null -w '%{http_code}' "$GATEWAY/" || echo 000)"
 echo "  成果台：$BASE/api/artifacts/workspace → $console_code"
