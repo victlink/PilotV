@@ -46,7 +46,6 @@ const EXTERNAL_ITEMS: NavItem[] = [
 
 const FOOTER_ITEMS: NavItem[] = [
   { key: "privacy", labelKey: "settingsPage.menu.privacy" },
-  { key: "approvalChannel", labelKey: "settingsPage.menu.approvalChannel" },
   { key: "advanced", labelKey: "settingsPage.menu.system" },
   { key: "about", labelKey: "settingsPage.menu.about", showDot: true },
 ];

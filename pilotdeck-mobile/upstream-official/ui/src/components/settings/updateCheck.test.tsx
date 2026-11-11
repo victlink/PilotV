@@ -6,6 +6,8 @@ vi.mock('../../hooks/usePilotDeckConfig', () => ({ PilotDeckConfigProvider: ({ c
 vi.mock('./view/SettingsSidebar', () => ({ default: () => null }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn(), useLocation: () => ({ search: '' }) }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+// 本组用例只断言版本检查；关于页的实时二维码由 AppClientPairCard.test.tsx 覆盖。
+vi.mock('./view/about/AppClientPairCard', () => ({ default: () => null }));
 const copy = (key: string) => `settingsPage.about.desktopUpdate.${key}`;
 const release = (hasUpdate = true) => ({ current: { version: '2026.1001.0' }, latest: { version: hasUpdate ? '2026.1002.0' : '2026.1001.0' }, hasUpdate, canDownload: hasUpdate, checkUnavailable: false });
 const bridge = { getAboutInfo: vi.fn(), platform: 'darwin', checkUpdates: vi.fn(), getUpdateStatus: vi.fn(), startUpdate: vi.fn(), cancelUpdate: vi.fn() };

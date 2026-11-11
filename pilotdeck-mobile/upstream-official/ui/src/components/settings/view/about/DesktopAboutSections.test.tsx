@@ -5,6 +5,8 @@ import AboutSections from ".";
 const bridge = vi.hoisted(() => ({ getUpdateStatus: vi.fn(), startUpdate: vi.fn(), cancelUpdate: vi.fn(), pauseUpdate: vi.fn(), resumeUpdate: vi.fn() }));
 vi.mock("../../../../utils/desktopUpdates", () => ({ desktopUpdates: () => bridge }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+// 这组用例只关心桌面更新 UI；关于页里的实时二维码由 AppClientPairCard.test.tsx 覆盖。
+vi.mock("./AppClientPairCard", () => ({ default: () => null }));
 const copy = (key: string) => `settingsPage.about.desktopUpdate.${key}`;
 const checkAgain = vi.fn();
 function show(props: Partial<DesktopVersionCheckResult> = {}) {

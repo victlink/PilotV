@@ -19,7 +19,6 @@ const PAGE_SLUG_BY_KEY: Partial<Record<SettingsMenuKey, string>> = {
   officePreview: "office",
   computerUse: "computer-use",
   privacy: "privacy",
-  approvalChannel: "approval-channel",
   advanced: "advanced",
   about: "about",
 };
@@ -31,6 +30,8 @@ const KEY_BY_PAGE_SLUG: Record<string, SettingsMenuKey> = Object.fromEntries(
 );
 KEY_BY_PAGE_SLUG["image-generation"] = "multimodalGeneration";
 KEY_BY_PAGE_SLUG["video-generation"] = "multimodalGeneration";
+// 独立审批通道已并入消息渠道；旧书签仍要落到正确页面，不要弹回通用设置。
+KEY_BY_PAGE_SLUG["approval-channel"] = "integrations";
 
 export function mapInitialTabToMenuKey(
   tab: string | undefined,

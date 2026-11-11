@@ -3,6 +3,26 @@
 > 状态：已实现（宿主端接口 + 网关 `/pair` 页面 + 单测）。客户端见
 > `../PilotV-Android/`（交付工件，不在本仓库）。
 
+## 界面入口
+
+**设置 → 关于** 是主入口：React 卡片直接调 `POST /api/pilotv/pair/new` 与
+`GET /api/pilotv/pair/render.svg` 显示实时二维码，并给出配对码、倒计时、刷新、
+复制连接串、独立扫码页与 PilotV 客户端下载链接。网关直出的 `/pair` 页面作为
+独立备用入口保留。消息渠道页只放通讯工具与审批通道，不再放客户端扫码。
+
+两个容易踩的网关坑（已在 `service/pilotv_gateway.mjs` 修掉并加回归测试）：
+
+- `/api/pilotv/*` 里只有设备清单接口属于网关自己；`/api/pilotv/pair/` 必须转发给
+  当前设备的后端。以前整个前缀都被设备管理接口吞掉，`POST /pair/new` 被当成
+  「新增设备」，页面一直卡在「正在生成二维码」并显示「设备名不能为空」。
+- `render.svg?d=<base64url>` 里的 `d` 是二维码载荷，不是设备选择参数；解析设备
+  时要跳过配对路径，否则会回 409 `unknown-device`，二维码图片加载不出来。
+
+`/pair` 页面是网关直出的静态 HTML，读不到 React 的 `authenticatedFetch`，所以它
+自己从同源 localStorage（`pilotdeck-tokens` / 旧 `auth-token`）取 JWT 并附在
+`Authorization` 头里，同时带 `X-PilotV-Device` 绑定当前设备；二维码 SVG 用带鉴权的
+请求取回后转 blob URL，避免一次性秘密出现在图片 URL 中。
+
 ## 为什么需要它
 
 Web 端拿登录态的方式是「输账号密码换 JWT」（`POST /api/auth/login`，7 天）。
@@ -131,7 +151,9 @@ pilotv://pair?v=1&h=https://pilotv.example.com&a=http://192.168.1.24:5187&c=K7M2
 
 | 现象 | 原因 |
 |---|---|
-| 页面 401 | 浏览器没登录；先开 `/` 登录再回 `/pair` |
+| 页面 401 | 浏览器没登录；先开 `/` 登录再回 `/pair`（登录态按入口域名存，要从当前入口登录） |
+| 一直「正在生成二维码」+「设备名不能为空」 | 旧网关把 `/api/pilotv/pair/new` 当成设备管理接口；升级网关并重启 |
+| 二维码图片 409 `unknown-device` | 旧网关把 `render.svg?d=` 的载荷当成设备短名；升级网关并重启 |
 | `bad_origin` | 用 IP 打开页面但反向代理改了 Host；显式配 `PILOTV_PAIR_ORIGINS` |
 | 手机扫了没反应 | 手机要能访问二维码里的 origin；只配了局域网地址时出门就不可达，配 `PILOTV_PUBLIC_ORIGINS` 才有公网兜底 |
 | 公网入口 WS 403 | cloudflared 没设 `httpHostHeader`，网关看到的 Host 是 `127.0.0.1:5187` |

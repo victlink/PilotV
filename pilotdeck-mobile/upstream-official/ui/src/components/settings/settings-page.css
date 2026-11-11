@@ -7491,3 +7491,142 @@
   font-size: 11px;
   line-height: 1.6;
 }
+
+/* 「关于」：PilotV App 客户端实时二维码与下载入口 */
+:where(.pilotdeck-settings-app) .app-client-pair-card {
+  overflow: hidden;
+}
+:where(.pilotdeck-settings-app) .app-client-pair-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+:where(.pilotdeck-settings-app) .app-client-pair-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border-radius: 10px;
+  background: rgb(255, 240, 229);
+  color: rgb(214, 84, 16);
+}
+:where(.pilotdeck-settings-app) .app-client-pair-header h2 {
+  margin: 0;
+  color: var(--settings-panel-ink, rgb(40, 44, 58));
+  font-size: 14px;
+  font-weight: 700;
+}
+:where(.pilotdeck-settings-app) .app-client-pair-header p {
+  margin: 3px 0 0;
+  color: var(--settings-panel-muted, rgb(139, 143, 158));
+  font-size: 12px;
+  line-height: 1.55;
+}
+:where(.pilotdeck-settings-app) .app-client-pair-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  gap: 24px;
+  padding: 20px;
+}
+@media (max-width: 900px) {
+  :where(.pilotdeck-settings-app) .app-client-pair-grid { grid-template-columns: 1fr; }
+}
+:where(.pilotdeck-settings-app) .app-client-qrbox {
+  display: grid;
+  min-height: 268px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+}
+:where(.pilotdeck-settings-app) .app-client-qrbox img {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+:where(.pilotdeck-settings-app) .app-client-qr-hint {
+  color: #888;
+  font-size: 13px;
+}
+:where(.pilotdeck-settings-app) .app-client-code {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--settings-panel-ink, rgb(40, 44, 58));
+}
+:where(.pilotdeck-settings-app) .app-client-code small {
+  color: var(--settings-panel-muted, rgb(139, 143, 158));
+  font-size: 11px;
+}
+:where(.pilotdeck-settings-app) .app-client-code strong {
+  font: 700 26px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 5px;
+}
+:where(.pilotdeck-settings-app) .app-client-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--settings-panel-muted, rgb(139, 143, 158));
+  font-size: 11px;
+}
+:where(.pilotdeck-settings-app) .app-client-pair-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+:where(.pilotdeck-settings-app) .app-client-pair-actions button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--settings-panel-ink, rgb(52, 56, 70));
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+:where(.pilotdeck-settings-app) .app-client-pair-actions button:hover:not(:disabled) {
+  border-color: var(--brand-strong, #4948cf);
+}
+:where(.pilotdeck-settings-app) .app-client-pair-actions button:disabled { opacity: .5; }
+:where(.pilotdeck-settings-app) .app-client-error,
+:where(.pilotdeck-settings-app) .app-client-paired {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+:where(.pilotdeck-settings-app) .app-client-error { color: var(--danger, #cf4d5d); }
+:where(.pilotdeck-settings-app) .app-client-paired { color: var(--success, #168966); }
+:where(.pilotdeck-settings-app) .app-client-pair-copy p {
+  margin: 0;
+  color: var(--settings-panel-ink, rgb(52, 56, 70));
+  font-size: 13px;
+  line-height: 1.7;
+}
+:where(.pilotdeck-settings-app) .app-client-pair-copy .app-client-steps {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--settings-panel-muted, rgb(110, 115, 132));
+  font-size: 12.5px;
+  line-height: 1.8;
+  list-style: decimal;
+}
+:where(.pilotdeck-settings-app) .app-client-pair-copy .app-client-alts {
+  margin-top: 10px !important;
+  color: var(--settings-panel-muted, rgb(139, 143, 158));
+  font-size: 11.5px !important;
+  word-break: break-all;
+}

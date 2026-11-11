@@ -1156,3 +1156,43 @@ test('但 .ts.net 不等于「整个后缀都放行」：形状不对一律拒�
   assert.equal(isPrivateHost('marc-pc.tailxyz.ts.net'), false);      // 网络后缀不是十六进制
   assert.equal(validateDeviceTarget('http://evil.ts.net:3001').ok, false);
 });
+
+test('扫码配对接口转发给后端，不再被设备管理接口吞掉', async () => {
+  await withGateway(async ({ get, send, originB, port }) => {
+    // 旧行为：POST /pair/new 被 handleRegistryApi 当成新增设备，回 400「设备名不能为空」。
+    const issued = await send('POST', '/api/pilotv/pair/new',
+      { origin: `http://127.0.0.1:${port}`, deviceOrigin: originB });
+    assert.equal(issued.status, 200);
+    const payload = JSON.parse(issued.body);
+    assert.equal(payload.backend, 'A');
+    assert.equal(payload.url, '/api/pilotv/pair/new');
+
+    // 二维码 SVG 与已配对设备列表同样要真转发，不能被回成设备清单 JSON。
+    const svg = await get('/api/pilotv/pair/render.svg?d=Zm9v');
+    assert.equal(JSON.parse(svg.body).url, '/api/pilotv/pair/render.svg?d=Zm9v');
+    const pairedDevices = await get('/api/pilotv/pair/devices');
+    assert.equal(JSON.parse(pairedDevices.body).backend, 'A');
+
+    // 按设备头转发到 B，不能悄悄落在默认后端上。
+    const bound = await send('POST', '/api/pilotv/pair/new',
+      { origin: `http://127.0.0.1:${port}`, deviceOrigin: originB },
+      { [DEVICE_HEADER]: originB });
+    assert.equal(JSON.parse(bound.body).backend, 'B');
+
+    // 网关自己的设备清单接口照旧生效。
+    const registry = await get('/api/pilotv/devices');
+    assert.equal(registry.status, 200);
+    assert.ok(Array.isArray(JSON.parse(registry.body).devices));
+  });
+});
+
+test('/pair?d= 会把设备选择带到后续配对请求', async () => {
+  await withGateway(async ({ get, originB }) => {
+    const page = await get('/pair?d=' + encodeURIComponent(originB));
+    assert.equal(page.status, 200);
+    assert.match(page.body, /__PILOTV_DEVICE__/);
+    const cookies = page.headers['set-cookie'] || [];
+    assert.ok(cookies.some(item => item.startsWith(DEVICE_COOKIE + '=')), '应写入设备 Cookie');
+    assert.ok(cookies[0].includes(encodeURIComponent(originB)), 'Cookie 应指向 ?d= 指定的设备');
+  });
+});

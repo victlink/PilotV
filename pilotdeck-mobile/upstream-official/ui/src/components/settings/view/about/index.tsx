@@ -3,6 +3,7 @@ import type { DesktopVersionCheckResult } from "../../version";
 import DesktopAboutSections from "./DesktopAboutSections";
 import { SettingsCard } from "../../shared/view";
 import { PILOTV_RELEASES_URL } from "../../../../lib/pilotvLinks";
+import AppClientPairCard from "./AppClientPairCard";
 
 export type AboutSectionsProps = {
   title: string;
@@ -13,9 +14,15 @@ export type AboutSectionsProps = {
 };
 
 export default function AboutSections(props: AboutSectionsProps) {
-  return props.versionInfo.mode === "desktop"
-    ? <DesktopAboutSections {...props} />
-    : <WebAboutSections versionInfo={props.versionInfo} />;
+  // 客户端扫码与下载属于「关于 / 版本」信息，桌面版和网页版都要能看到。
+  return (
+    <div className="space-y-6">
+      {props.versionInfo.mode === "desktop"
+        ? <DesktopAboutSections {...props} />
+        : <WebAboutSections versionInfo={props.versionInfo} />}
+      <AppClientPairCard />
+    </div>
+  );
 }
 
 function WebAboutSections({ versionInfo }: { versionInfo: DesktopVersionCheckResult }) {

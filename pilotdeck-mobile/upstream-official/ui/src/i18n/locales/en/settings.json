@@ -202,7 +202,7 @@
       "videoGeneration": "Let agents generate videos in conversations and projects.",
       "agentSearch": "Let agents retrieve real-time web information and add current external facts to their answers.",
       "agentSchedule": "Wake agents automatically at scheduled times to run tasks without requiring you to stay online.",
-      "integrations": "Connect Feishu, WeChat and WeCom channels, or pair the PilotV mobile app by QR code.",
+      "integrations": "Connect Feishu, WeChat, WeCom and other messaging tools, and configure the dedicated approval channel.",
       "mcpServers": "Connect local tools and remote services so agents can safely use external capabilities and context.",
       "officePreview": "Choose how Office documents are previewed. PDFs always open in the built-in viewer.",
       "computerUse": "Let PilotV view your screen and operate local applications.",
@@ -339,7 +339,30 @@
       "reportIssue": "Report an issue",
       "copyInfo": "Copy version information",
       "copied": "Copied",
-      "copyFailed": "Copy failed. Try again."
+      "copyFailed": "Copy failed. Try again.",
+      "appClient": {
+        "title": "PilotV mobile app · scan to connect",
+        "summary": "Scan this QR code with the PilotV phone/tablet app to connect to this device without typing a password.",
+        "qrAlt": "PilotV pairing QR code",
+        "generating": "Generating QR code…",
+        "codeLabel": "6-digit pairing code",
+        "deviceHint": "Bound to this device · valid 5 minutes · single use",
+        "expired": "QR code expired",
+        "refresh": "Refresh QR code",
+        "copy": "Copy pairing URI",
+        "copied": "Copied",
+        "guide": "The PilotV gateway renders the QR code locally; the one-time secret never leaves this machine.",
+        "step1": "Open the PilotV app on your phone and tap \"Scan to connect\".",
+        "step2": "Scan the QR code, verify the certificate fingerprint and confirm.",
+        "step3": "You can then chat, approve requests and browse artifacts.",
+        "alternatesLabel": "Alternate endpoints",
+        "paired": "Device paired successfully. Generating a new QR code…",
+        "error": "Could not create the QR code:",
+        "open": "Open full pairing page",
+        "releaseLink": "PilotV release notes & app downloads",
+        "projectLink": "PilotV project home",
+        "footnote": "App release notes, packages and installation docs are published in the PilotV project Releases. This QR code and the standalone /pair page share the same one-time pairing credentials."
+      }
     },
     "invalidYaml": {
       "advanced": "The config file is not valid YAML, so the Advanced settings form is unavailable.",
@@ -1904,23 +1927,8 @@
     "dismiss": "Dismiss"
   },
   "gateway": {
-    "appClient": {
-      "title": "PilotV mobile app",
-      "summary": "Scan a QR code with the PilotV phone/tablet app to connect to this device without typing a password",
-      "badge": "Scan to connect",
-      "detailTitle": "Scan to connect the mobile app",
-      "deviceHint": "The QR code is bound to this device, valid for 5 minutes and redeemable once",
-      "guide": "The PilotV gateway renders the QR code locally; connection secrets are never sent to third-party services.",
-      "step1": "Open the PilotV app on your phone and tap \"Scan to connect\".",
-      "step2": "Scan the QR code on the pairing page, verify the certificate fingerprint and confirm.",
-      "step3": "You can then chat, approve requests and browse artifacts without entering a password.",
-      "open": "Open pairing page",
-      "releaseLink": "PilotV release notes & app downloads",
-      "projectLink": "PilotV project home",
-      "footnote": "Pairing lives at /pair on this entry point. App release notes, packages and installation docs are published in the PilotV project Releases."
-    },
     "title": "Message channels",
-    "description": "Configure Feishu / Lark, WeChat, WeCom, Slack and Telegram channels, or scan a QR code to connect the PilotV mobile app.",
+    "description": "Configure Feishu / Lark, WeChat, WeCom, Slack and Telegram channels, plus the dedicated approval channel.",
     "connected": "Connected",
     "notConfigured": "Not configured",
     "enabled": "Enabled",
@@ -2014,7 +2022,8 @@
       "groupPolicy": "Group Policy",
       "policyHint": "Basic policies are written to pilotdeck.yaml; edit YAML later for finer user or group allowlists.",
       "saveSuccess": "WeCom config saved"
-    }
+    },
+    "approvalHint": "Send approval requests to a configured Feishu / WeCom channel; the server fills in the chat and approver."
   },
   "lightAppearance": {
     "title": "Appearance",

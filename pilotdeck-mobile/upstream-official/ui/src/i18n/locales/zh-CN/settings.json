@@ -202,7 +202,7 @@
       "videoGeneration": "让智能体在对话和项目工作中生成视频。",
       "agentSearch": "让智能体能够检索实时网页信息，为回答补充最新内容与外部事实。",
       "agentSchedule": "按设定的时间自动唤起智能体执行任务，无需你持续在线。",
-      "integrations": "连接常用通讯工具与 PilotV App 客户端：让智能体从飞书、微信、企业微信接收消息，或用手机扫码连接当前设备。",
+      "integrations": "连接飞书、微信、企业微信等通讯工具，并设置独立审批通道。",
       "mcpServers": "连接本地工具与远程服务，让智能体可以安全使用外部能力和上下文。",
       "officePreview": "选择 Office 文档的只读预览方式。PDF 始终使用 PilotV 内置浏览器，不受此设置影响。",
       "computerUse": "开启后，PilotV 可以查看屏幕并操作本机应用。",
@@ -339,7 +339,30 @@
       "reportIssue": "反馈问题",
       "copyInfo": "复制版本信息",
       "copied": "已复制",
-      "copyFailed": "复制失败，请重试"
+      "copyFailed": "复制失败，请重试",
+      "appClient": {
+        "title": "PilotV App 客户端 · 扫码连接",
+        "summary": "用手机 / 平板上的 PilotV 客户端扫描二维码，即可连接当前设备，不用在手机上输密码。",
+        "qrAlt": "PilotV 配对二维码",
+        "generating": "正在生成二维码…",
+        "codeLabel": "6 位配对码",
+        "deviceHint": "绑定当前设备 · 5 分钟内有效 · 仅可兑换一次",
+        "expired": "二维码已过期",
+        "refresh": "刷新二维码",
+        "copy": "复制连接串",
+        "copied": "已复制",
+        "guide": "二维码由 PilotV 网关在本地生成，一次性密钥不会发给任何第三方服务。",
+        "step1": "在手机上打开 PilotV App 客户端，点「扫码连接」。",
+        "step2": "扫描左侧二维码；首次连接核对证书指纹后点「信任并连接」。",
+        "step3": "连上后即可收发会话、处理授权、查看成果。",
+        "alternatesLabel": "备用入口",
+        "paired": "这台设备已配对成功，正在生成新的二维码…",
+        "error": "二维码生成失败：",
+        "open": "打开独立扫码页",
+        "releaseLink": "PilotV 版本介绍与客户端下载",
+        "projectLink": "PilotV 项目主页",
+        "footnote": "客户端版本说明、发行包与安装文档均发布于 PilotV 项目 Releases；关于页上的二维码与独立 /pair 扫码页使用同一套一次性配对凭据。"
+      }
     },
     "invalidYaml": {
       "advanced": "配置文件当前不是有效 YAML，暂时无法加载高级配置表单。",
@@ -1898,23 +1921,8 @@
     "dismiss": "关闭"
   },
   "gateway": {
-    "appClient": {
-      "title": "PilotV App 客户端",
-      "summary": "用 PilotV 手机 / 平板客户端扫码连接当前设备，不用在手机上输密码",
-      "badge": "扫码连接",
-      "detailTitle": "App 客户端扫码连接",
-      "deviceHint": "二维码绑定当前设备，5 分钟内有效且只能兑换一次",
-      "guide": "扫码页由 PilotV 网关在本地生成二维码，不会把连接凭据发给第三方服务。",
-      "step1": "在手机上打开 PilotV App 客户端，点「扫码连接」。",
-      "step2": "扫描扫码页上的二维码，首次连接核对证书指纹后点「信任并连接」。",
-      "step3": "连上后即可收发会话、处理授权、查看成果，无需在手机上输密码。",
-      "open": "打开扫码页",
-      "releaseLink": "PilotV 版本介绍与客户端下载",
-      "projectLink": "PilotV 项目主页",
-      "footnote": "扫码页位于当前入口的 /pair；客户端版本说明、发行包与安装文档均发布于 PilotV 项目 Releases。"
-    },
     "title": "消息渠道",
-    "description": "配置飞书 / Lark、微信、企业微信、Slack、Telegram 等消息通道，或扫码连接 PilotV App 客户端。",
+    "description": "配置飞书 / Lark、微信、企业微信、Slack、Telegram 等通讯工具，以及独立审批通道。",
     "connected": "已连接",
     "notConfigured": "未配置",
     "enabled": "已启用",
@@ -2008,7 +2016,8 @@
       "groupPolicy": "群聊策略",
       "policyHint": "基础策略会写入 pilotdeck.yaml；更细粒度的用户或群白名单可稍后手动编辑 YAML。",
       "saveSuccess": "企业微信配置已保存"
-    }
+    },
+    "approvalHint": "把审批请求推送到已配置的飞书 / 企业微信渠道，会话与审批人由服务端自动填写。"
   },
   "lightAppearance": {
     "title": "外观",

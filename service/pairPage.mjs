@@ -103,6 +103,20 @@ ${runtime}
   const $ = (id) => document.getElementById(id);
   let current = null;
   let timer = null;
+  const device = window.__PILOTV_DEVICE__ || '';
+  // 后端的 /api/pilotv/pair/* 全都要登录态，而这张页面是网关直出的静态 HTML，
+  // 没有 React 那套 authenticatedFetch。令牌在同源 localStorage 里，按设备 origin
+  // 存的（和前端 deviceTokens.ts 一致），旧版单令牌则落在 auth-token。
+  // 少了这一步，页面会一直卡在「正在生成」并显示 401。
+  const authToken = (() => {
+    try {
+      const raw = localStorage.getItem('pilotdeck-tokens');
+      const map = raw ? JSON.parse(raw) : null;
+      const key = device || location.origin;
+      if (map && typeof map[key] === 'string' && map[key]) return map[key];
+      return localStorage.getItem('auth-token') || '';
+    } catch { return ''; }
+  })();
 
   const b64url = (text) => {
     const bytes = new TextEncoder().encode(text);
@@ -112,10 +126,17 @@ ${runtime}
   };
 
   async function api(pathname, options = {}) {
+    const { headers: extra, ...rest } = options;
     const response = await fetch(pathname, {
       credentials: 'same-origin',
-      headers: { 'content-type': 'application/json', ...(options.headers || {}) },
-      ...options,
+      ...rest,
+      headers: {
+        'content-type': 'application/json',
+        ...(extra || {}),
+        ...(authToken ? { authorization: 'Bearer ' + authToken } : {}),
+        // 多设备部署时，不带这个头会被网关路由回默认设备。
+        ...(device ? { 'x-pilotv-device': device } : {}),
+      },
     });
     const isJson = (response.headers.get('content-type') || '').includes('json');
     const payload = isJson ? await response.json() : await response.text();
@@ -142,6 +163,8 @@ ${runtime}
   }
 
   async function issue() {
+    if (current && current.qrUrl) URL.revokeObjectURL(current.qrUrl);
+    current = null;
     $('err').textContent = '';
     $('code').textContent = '······';
     $('qrbox').innerHTML = '<span style="color:#888;font-size:13px">正在生成二维码…</span>';
@@ -163,9 +186,14 @@ ${runtime}
       } else {
         altline.style.display = 'none';
       }
+      // render.svg 同样要登录态，<img> 带不了 Authorization 头；用带鉴权的请求
+      // 取回 SVG 再转成 blob URL，一次性秘密就不会出现在 URL 或访问日志里。
+      const svg = await api('/api/pilotv/pair/render.svg?d=' + b64url(data.uri));
+      const qrUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+      current.qrUrl = qrUrl;
       const img = document.createElement('img');
       img.alt = '配对二维码';
-      img.src = '/api/pilotv/pair/render.svg?d=' + b64url(data.uri);
+      img.src = qrUrl;
       $('qrbox').innerHTML = '';
       $('qrbox').appendChild(img);
       clearInterval(timer);
@@ -173,8 +201,8 @@ ${runtime}
       timer = setInterval(tick, 1000);
       poll();
     } catch (error) {
-      if (error.status === 401) {
-        $('err').innerHTML = '需要先在这个浏览器里<a href="/">登录 PilotV</a>，再回来生成二维码。';
+      if (!authToken || error.status === 401 || error.status === 403) {
+        $('err').innerHTML = '需要先在这个浏览器里<a href="/">登录 PilotV</a>，再回来生成二维码（登录态按入口域名保存，请从当前这个入口登录）。';
       } else {
         $('err').textContent = error.message;
       }

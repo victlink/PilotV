@@ -17,7 +17,6 @@ export type SettingsMenuKey =
   | 'officePreview'
   | 'computerUse'
   | 'privacy'
-  | 'approvalChannel'
   | 'advanced'
   | 'about';
 

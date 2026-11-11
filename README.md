@@ -177,9 +177,11 @@ python3 scripts/artifacts_cli.py import out/ --agent opencode --dry-run
 
 ## 手机 / 平板扫码连接
 
-桌面浏览器打开 `https://<宿主>:5186/pair` 生成一次性二维码（5 分钟、只能兑一次），
-安卓客户端扫码后换到 7 天 JWT，不再需要在手机上输密码。接口与安全边界见
-[`docs/MOBILE-PAIRING.md`](docs/MOBILE-PAIRING.md)。
+主入口是 **设置 → 关于**：那里直接显示实时二维码、6 位配对码、有效期、客户端下载
+与版本发布链接。也可以单独打开 `https://<宿主>:5186/pair`（二维码 5 分钟有效、只能
+兑一次）。安卓客户端扫码后换到 7 天 JWT，不再需要在手机上输密码。
+「消息渠道」只放飞书 / 微信 / 企业微信 / Slack / Telegram 等通讯工具与独立审批通道。
+接口与安全边界见 [`docs/MOBILE-PAIRING.md`](docs/MOBILE-PAIRING.md)。
 
 ## 安全边界
 

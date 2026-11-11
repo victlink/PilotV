@@ -187,8 +187,12 @@ export function buildAllowlist(devices, config) {
  * 未知值不报错也不回退到用户输入，而是安静地用默认后端。
  */
 export function resolveBackend(request, config, devices) {
-  const query = new URL(request.url, 'http://pilotv.local').searchParams;
-  const rawQuery = query.get('d');
+  const parsedUrl = new URL(request.url, 'http://pilotv.local');
+  const query = parsedUrl.searchParams;
+  // /api/pilotv/pair/render.svg?d= 里的 d 是二维码载荷（base64url 的一次性连接串），
+  // 不是「切换到哪台设备」。不排除的话它会被当成设备短名，回 409 unknown-device，
+  // 二维码图片照样加载不出来。
+  const rawQuery = parsedUrl.pathname.startsWith(PILOTV_PAIR_PREFIX) ? null : query.get('d');
   const fromQuery = resolveDeviceParam(rawQuery, devices || config.devices);
   if (fromQuery.origin) return { origin: fromQuery.origin, device: fromQuery.device, source: 'query' };
   // 用户明确点名了一台设备而清单里没有 —— 这是「配置漂移」的现场，必须当场说清楚。
@@ -503,6 +507,11 @@ function pipeSocket(request, socket, head, targetOrigin, idleMs = WS_TUNNEL_IDLE
 }
 
 const PILOTV_API_PREFIX = '/api/pilotv/';
+// 扫码配对接口挂在同一前缀下，但它是 PilotV 后端自己的能力，不是网关的设备清单接口。
+// 以前整个前缀都被 handleRegistryApi 吞掉：POST /pair/new 被当成「新增设备」，
+// 直接回 400「设备名不能为空」，二维码永远停在「正在生成」；GET /render.svg
+// 则被回成设备清单 JSON，图片也永远加载不出来。
+const PILOTV_PAIR_PREFIX = '/api/pilotv/pair/';
 
 function readJsonBody(request, limit = 64 * 1024) {
   return new Promise((resolve, reject) => {
@@ -688,7 +697,9 @@ export function createGateway(config) {
   const handleRequest = (request, response) => {
     const url = new URL(request.url, 'http://pilotv.local');
 
-    if (registry && url.pathname.startsWith(PILOTV_API_PREFIX)) {
+    // 只有网关自己的设备管理接口才就地处理；扫码配对一律转发给当前设备的后端。
+    if (registry && url.pathname.startsWith(PILOTV_API_PREFIX)
+      && !url.pathname.startsWith(PILOTV_PAIR_PREFIX)) {
       return handleRegistryApi(request, response, url, config, registry);
     }
 
@@ -727,12 +738,20 @@ export function createGateway(config) {
     // 手机扫码页：由网关自己出，因为手机要连的就是这个入口（HTTPS + 设备路由）。
     // 它只调用 /api/pilotv/pair/*，与上游前端构建无关，换版本也不会丢。
     if (url.pathname === '/pair' || url.pathname === '/pair/') {
+      const backend = resolveBackend(request, config, devices);
+      // 扫码页里的 fetch 不会带 ?d=，多设备部署下会悄悄落到默认后端：在那台机器上
+      // 签发的一次性码，手机拿去连刚才 ?d= 指定的设备必然 404。和首页一样把选择
+      // 记进会话 Cookie，后续 /api/pilotv/pair/* 才会走同一台机器。
+      const cookies = [];
+      if (backend.source === 'query') {
+        cookies.push(`${DEVICE_COOKIE}=${encodeURIComponent(backend.origin)}; Path=/; SameSite=Lax`);
+      }
       response.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
         'cache-control': 'no-store',
         'x-content-type-options': 'nosniff',
+        ...(cookies.length ? { 'set-cookie': cookies } : {}),
       });
-      const backend = resolveBackend(request, config, devices);
       response.end(renderPairPage({
         device: backend.origin,
         deviceName: backend.device?.name || '',
