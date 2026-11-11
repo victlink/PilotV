@@ -117,3 +117,33 @@ jobs:
 
       - name: UI tests (vitest)
         run: pnpm --dir ui run test
+
+  compat:
+    name: Version unity (API contract, shell syntax, device paths)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 2026-11-11: the shipped frontend called an /api route the device's
+      # backend fork did not have; the composer disabled the send button for
+      # good. Build + unit tests were green because nothing compared the two.
+      - name: Every frontend /api call has an in-repo owner
+        run: node deploy/check-api-compat.mjs
+
+      - name: No new device-specific absolute paths
+        run: node deploy/check-no-device-paths.mjs
+
+      - name: Release descriptor is well formed
+        run: |
+          node -e "const d=require('./deploy/release.json'); if(!d.releaseTag||!d.policy||!d.policy.singleSourceOfTruth||!d.components.webServer) process.exit(1)"
+
+      - name: Upgrade / verify scripts parse
+        run: |
+          bash -n deploy/upgrade.sh
+          bash -n deploy/verify-unity.sh
+          node --check deploy/check-api-compat.mjs
+          node --check deploy/check-no-device-paths.mjs

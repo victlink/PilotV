@@ -6,6 +6,17 @@ reviewed implementation.  This script copies that reviewed set into a live
 checkout (``/home/Marc/PilotDeck-src`` by default) without destroying work
 that only exists in the live checkout.
 
+DEPRECATED (2026-11-11)
+------------------------
+This whitelist copies 30 files from the vendored tree into a separate device
+fork. It is the mechanism that let the runtime drift from the repository: on
+2026-11-11 a real sync produced an import failure because the whitelist missed
+``services/sessionExecutionMode.js`` (30 runtime files were absent from the
+target in total). Now that the backend runs directly from
+``pilotdeck-mobile/upstream-official/ui/server`` on the NAS, there is no second
+tree to sync. Use ``deploy/upgrade.sh <tag>`` instead. Kept only for historical
+reference and for reproducing the audit; do not use on a live deployment.
+
 Safety model
 ------------
 * The preflight is read only.  It classifies every file and collects every
@@ -559,6 +570,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    print(
+        "WARNING: sync_project_team_runtime.py is DEPRECATED. "
+        "Use deploy/upgrade.sh <tag> so front and back come from one commit.",
+        file=sys.stderr,
+    )
     args = parse_args(argv)
     source = Path(args.source).expanduser().resolve()
     target = Path(args.target).expanduser().resolve()

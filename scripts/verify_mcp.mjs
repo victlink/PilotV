@@ -6,14 +6,21 @@
  *
  * 跑法：
  *   node artifacts-mcp.mjs &                 # 先起侧车
- *   PILOTDECK_SRC=/home/Marc/PilotDeck-src node scripts/verify_mcp.mjs
+ *   PILOTDECK_SRC=<PilotV 仓库的 upstream-official 目录> node scripts/verify_mcp.mjs
  */
 import { pathToFileURL } from "node:url";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertTestServer, NotATestServer } from "./_test_guard.mjs";
+import { homedir } from "node:os";
 
-const SRC = process.env.PILOTDECK_SRC || "/home/Marc/PilotDeck-src";
+// Never default to one machine's checkout: a device that installs PilotV in a
+// different directory would fail with a bare ENOENT. Prefer the env var, then
+// fall back to the repository vendored tree (resolved relative to this file).
+const REPO_UPSTREAM = new URL("../pilotdeck-mobile/upstream-official/", import.meta.url);
+const SRC = process.env.PILOTDECK_SRC
+  || (existsSync(REPO_UPSTREAM) ? fileURLToPath(REPO_UPSTREAM) : path.join(homedir(), "PilotDeck-src"));
 const DIST = `${SRC}/dist/src/mcp/client/McpClient.js`;
 const API = process.env.ARTIFACTS_API || "http://127.0.0.1:8799";
 const MCP_URL = process.env.ARTIFACTS_MCP_URL || "http://127.0.0.1:8801/api/artifacts-mcp";

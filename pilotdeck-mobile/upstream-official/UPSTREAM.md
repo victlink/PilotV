@@ -50,3 +50,26 @@ diff -ru /tmp/pilotdeck-upstream/ui/src ui/src
   设备条目校验、损坏数据剔除、一次性导入解析与按 origin 去重合并。
 - `ui/src/mobile-responsive.css`
   仅 `≤1024px`：安全区、`100dvh`、iOS 输入聚焦缩放、对话框不溢出。
+
+## 后端同样 vendored、且是唯一运行时（2026-11-11 起）
+
+本目录**不只**包含 UI 源码。当前跟踪了 `ui/server/`（Web/API 后端，263+ 文件）
+与 `src/`（gateway / CLI，733+ 文件）；`ui/dist` 由该提交构建，不入库。
+上文「仅签出 `ui` 目录」是早期记录，已过时。
+
+统一版本治理规则（详见仓库根 `deploy/release.json` 与 `deploy/upgrade.sh`）：
+
+- **唯一真源**：只有 GitHub `victlink/PilotV` 的 `main` + release tag 定义版本。
+  设备目录是只读镜像，禁止 `git commit`、禁止手改代码、禁止在设备上打热补丁。
+- **后端同源**：Web/API 一律跑本目录 `ui/server/index.js`（由
+  `ui/server/webRuntimeSupervisor.js` 托管），彻底下线 `~/.pilotdeck/app`、
+  `/home/Marc/PilotDeck-src` 这类独立 fork 副本。
+- **上游升级进仓库**：OpenBMB/PilotDeck 等依赖升级，只能以本目录的 vendored
+  子树升级 PR 提交；PR 里必须同时更新本节（新基线 SHA + 逐文件改动清单），
+  CI 的 `compat` job 会检查前端新调的 `/api/*` 在 `ui/server` 里确有路由。
+- **一切升级走同一命令**：`deploy/upgrade.sh <tag>` → `deploy/verify-unity.sh`。
+  紧急修复也是加急 tag + 同一命令，不允许绕过仓库。
+- **禁止白名单同步**：`scripts/sync_project_team_runtime.py` 已废弃，仅作历史留存。
+
+原始 `.git` 已移除，因此上游比对只能在临时克隆里做；比对结果以 PR 形式回到本仓库，
+**不要**在任何设备的运行时目录里 `git pull` 上游。

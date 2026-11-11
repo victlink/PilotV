@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "note": "Every entry must name a real owner. Prefer adding a route to the vendored backend over allowlisting. Entries ending in /* cover a whole subtree. knownGap:true means a genuine missing backend route that is documented and tracked as follow-up work, not a false positive.",
+  "entries": [
+    {
+      "path": "/api/update/info",
+      "owner": "PilotV settings / release channel",
+      "knownGap": true,
+      "reason": "FOUND BY THIS GATE on 2026-11-11: ui/src/components/settings/Settings.tsx calls GET /api/update/info in the non-desktop branch, but the vendored backend only registers /api/update/restart. The settings 'check for updates' call therefore 404s. This is the same class of drift as the session-execution-mode incident. Tracked as a separate functional PR; allowlisted only so the governance branch itself can pass CI.",
+      "discoveredAt": "2026-11-11"
+    }
+  ]
+}

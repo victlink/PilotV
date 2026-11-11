@@ -4,7 +4,8 @@
 # 用法：
 #   ./pilotv-install.sh                     安装并启动
 #   ./pilotv-install.sh --check            只体检，不写任何文件
-#   ./pilotv-install.sh --update           更新到最新 main 并重启
+#   ./pilotv-install.sh --update --tag v20261111.1  按 release tag 升级（推荐）
+#   ./pilotv-install.sh --update           更新到最新 main 并重启（旧行为，已不推荐）
 #   ./pilotv-install.sh --start-only       只起服务（systemd 单元用）
 #   ./pilotv-install.sh --uninstall        停服并把安装目录改名保留
 #
@@ -16,6 +17,8 @@ VERSION=0.1.2
 PRODUCT=PilotV
 REPO_URL=${PILOTV_REPO_URL:-https://github.com/VICTLINK/PilotV.git}
 BRANCH=${PILOTV_BRANCH:-main}
+# A floating branch is not a version. Prefer deploy/upgrade.sh <tag> or --tag.
+RELEASE_TAG=${PILOTV_RELEASE_TAG:-}
 INSTALL_DIR=${PILOTV_INSTALL_DIR:-"$HOME/.pilotv/app"}
 PUBLIC_ORIGIN=${PILOTV_PUBLIC_ORIGIN:-}
 LAN_PORT=${PILOTV_LAN_PORT:-5186}
@@ -37,7 +40,8 @@ usage() {
   cat <<'USAGE'
 PilotV Linux 一键安装 v0.1.2
   --check          只读体检：系统/运行时/端口/网络
-  --update         更新仓库并重启服务（保留数据与配置）
+  --update         更新仓库并重启服务（保留数据与配置；请配合 --tag）
+  --tag <vX.Y.Z>   锁定 release tag，禁止跟随浮动 main
   --start-only     只启动服务（供 systemd 单元调用）
   --uninstall      停服并把安装目录改名为 .uninstalled-<时间戳>
   --service        安装并启用 systemd 用户单元（开机自启）
@@ -60,6 +64,7 @@ while [ $# -gt 0 ]; do
     --no-start) NO_START=1 ;;
     --dir) INSTALL_DIR=$2; REPO_DIR="$INSTALL_DIR/repo"; TOOLS_DIR="$INSTALL_DIR/tools"; VENV_DIR="$INSTALL_DIR/venv"; RUN_DIR="$INSTALL_DIR/run"; NODE_DIR="$TOOLS_DIR/node"; MARKER="$INSTALL_DIR/.pilotv-installed"; shift ;;
     --branch) BRANCH=$2; shift ;;
+    --tag) RELEASE_TAG=$2; shift ;;
     --public-origin) PUBLIC_ORIGIN=$2; shift ;;
     --lan-port) LAN_PORT=$2; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -172,15 +177,31 @@ ensure_pnpm() {
 fetch_repo() {
   local upstream="$REPO_DIR/pilotdeck-mobile/upstream-official"
   if [ -d "$REPO_DIR/.git" ]; then
-    log "更新仓库到 origin/$BRANCH"
-    (cd "$REPO_DIR" && git fetch --depth 1 origin "$BRANCH" && git reset --hard "origin/$BRANCH") || die "git 更新失败"
+    if [ -n "$RELEASE_TAG" ]; then
+      log "锁定 release tag $RELEASE_TAG"
+      (cd "$REPO_DIR" && git fetch --depth 1 origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG" \
+        && git checkout --detach "$RELEASE_TAG") || die "按 tag 更新失败"
+      local declared declared_status
+      declared=$(cd "$REPO_DIR" && node -e 'const d=require("./deploy/release.json");process.stdout.write(String(d.releaseTag||""))' 2>/dev/null || true)
+      declared_status=$(cd "$REPO_DIR" && node -e 'const d=require("./deploy/release.json");process.stdout.write(String(d.status||""))' 2>/dev/null || true)
+      [ "$declared" = "$RELEASE_TAG" ] || die "release.json 声明的是 $declared，却要求 $RELEASE_TAG"
+      [ "$declared_status" = "released" ] || die "release.json 状态为 $declared_status，未发布的 tag 禁止装到设备"
+    else
+      warn "跟随浮动 main 不是版本化升级；建议改用 deploy/upgrade.sh <tag>"
+      log "更新仓库到 origin/$BRANCH"
+      (cd "$REPO_DIR" && git fetch --depth 1 origin "$BRANCH" && git reset --hard "origin/$BRANCH") || die "git 更新失败"
+    fi
   elif [ -f "$upstream/package.json" ]; then
     ok "复用已有 repo 目录（非 git，跳过更新）"
   else
     log "克隆 $PRODUCT 仓库"
     rm -rf "$REPO_DIR"
     if command -v git >/dev/null 2>&1; then
-      git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR" || die "git clone 失败"
+      if [ -n "$RELEASE_TAG" ]; then
+        git clone --depth 1 --branch "$RELEASE_TAG" "$REPO_URL" "$REPO_DIR" || die "git clone 失败"
+      else
+        git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR" || die "git clone 失败"
+      fi
     else
       need python3   # 无 git 时用 tarball
       local tar="$TOOLS_DIR/pilotv.tar.gz"

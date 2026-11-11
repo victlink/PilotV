@@ -9,13 +9,16 @@
  *
  * 跑法：
  *   node artifacts-mcp.mjs &
- *   PILOTDECK_SRC=/home/Marc/PilotDeck-src node scripts/verify_plugin.mjs [plugin.json 路径]
+ *   PILOTDECK_SRC=<PilotV 仓库的 upstream-official 目录> node scripts/verify_plugin.mjs [plugin.json 路径]
  */
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync, existsSync } from "node:fs";
+import path from "node:path";
 import { homedir } from "node:os";
 
-const SRC = process.env.PILOTDECK_SRC || "/home/Marc/PilotDeck-src";
+const REPO_UPSTREAM = new URL("../pilotdeck-mobile/upstream-official/", import.meta.url);
+const SRC = process.env.PILOTDECK_SRC
+  || (existsSync(REPO_UPSTREAM) ? fileURLToPath(REPO_UPSTREAM) : path.join(homedir(), "PilotDeck-src"));
 const d = (rel) => pathToFileURL(`${SRC}/dist/${rel}`).href;
 const DEFAULT_PLUGIN = `${homedir()}/.pilotdeck/plugins/artifacts/plugin.json`;
 const PLUGIN = process.argv[2] || DEFAULT_PLUGIN;

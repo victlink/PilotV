@@ -20,7 +20,7 @@
  *   ARTIFACTS_API   console REST 根（默认 http://127.0.0.1:8799）
  *   ARTIFACTS_PORT  侧车监听端口（默认 8801）
  *   ARTIFACTS_HOST  侧车监听地址（默认 127.0.0.1，只给本机 PilotV 用）
- *   PILOTDECK_SRC   MCP SDK 所在仓库（默认 /home/Marc/PilotDeck-src）
+ *   PILOTDECK_SRC   MCP SDK 所在仓库（默认按本机常见安装位置依次探测）
  */
 import http from "node:http";
 import { pathToFileURL } from "node:url";
@@ -31,8 +31,8 @@ import { existsSync } from "node:fs";
 // SDK 按绝对路径动态加载：侧车不依赖本目录 node_modules，
 // 免得为了一个 .mjs 在成果台工作区里再铺一份依赖树。
 //
-// PILOTDECK_SRC 不再写死某台机器的路径。原来默认 /home/Marc/PilotDeck-src，
-// 换设备时这个默认值必然不存在，报错只是一句 ENOENT，看不出是「路径不对」。
+// PILOTDECK_SRC 不再写死某台机器的路径。早期版本默认指向某台 NAS 的
+// 独立 checkout，换设备时必然不存在，报错只是一句 ENOENT，看不出是「路径不对」。
 // 现在按「环境变量 → 本机常见安装位置」依次找，全落空就明确告诉用户设哪个变量。
 const SDK_CANDIDATES = [
   process.env.PILOTDECK_SRC,

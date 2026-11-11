@@ -13,7 +13,7 @@
 # 环境变量：
 #   ARTIFACTS_API   console REST 根（默认 http://127.0.0.1:8799）
 #   ARTIFACTS_PORT  侧车端口（默认 8801）
-#   PILOTDECK_SRC   MCP SDK 所在仓库（默认 /home/Marc/PilotDeck-src）
+#   PILOTDECK_SRC   MCP SDK 所在仓库（默认按本机常见安装位置依次探测）
 set -eu
 cd "$(dirname "$0")"
 

@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "project": "PilotV",
+  "repository": "git@github.com:victlink/PilotV.git",
+  "releaseTag": "v20261111.1-rc1",
+  "status": "pending-review",
+  "note": [
+    "This descriptor is committed BEFORE the tag exists, so it deliberately does not",
+    "contain its own commit SHA. upgrade.sh resolves the authoritative commit with",
+    "git rev-parse <tag>^{commit} and requires HEAD to equal it.",
+    "On review approval: merge to main, set status to \"released\", then create and",
+    "push the annotated tag whose name equals releaseTag. Devices never track a",
+    "floating branch; they always pin to a tag via deploy/upgrade.sh."
+  ],
+  "policy": {
+    "singleSourceOfTruth": "GitHub victlink/PilotV main + release tag",
+    "deviceReposAreReadOnlyMirrors": true,
+    "backendMustRunFromRepo": true,
+    "upstreamDependencyUpgradesMustBeVendoredPRs": true,
+    "hotfixesOnDevicesForbidden": true
+  },
+  "components": {
+    "gateway": "service/pilotv_gateway.mjs",
+    "webDist": "pilotdeck-mobile/upstream-official/ui/dist",
+    "webServer": "pilotdeck-mobile/upstream-official/ui/server/index.js",
+    "webServerSupervisor": "pilotdeck-mobile/upstream-official/ui/server/webRuntimeSupervisor.js",
+    "artifacts": "scripts/artifacts_service.py",
+    "artifactsMcp": "artifacts-mcp.mjs"
+  },
+  "runtime": {
+    "node": ">=22",
+    "backendPort": 3001,
+    "forbiddenRuntimeRoots": [
+      "~/.pilotdeck/app",
+      "PilotDeck-src",
+      "OpenBMB/PilotDeck"
+    ]
+  },
+  "dist": {
+    "manifest": "deploy/dist-manifest.sha256",
+    "strictByDefault": false,
+    "reason": "dist is gitignored and rebuilt locally from the tagged sources; a byte-identical rebuild is not guaranteed across Node/平台 versions, so drift is reported and only gated with --strict."
+  },
+  "upgrade": {
+    "entrypoint": "deploy/upgrade.sh",
+    "verify": "deploy/verify-unity.sh",
+    "services": [
+      "pilotdeck.service",
+      "pilotv-gateway.service",
+      "pilotv-artifacts.service"
+    ]
+  }
+}
