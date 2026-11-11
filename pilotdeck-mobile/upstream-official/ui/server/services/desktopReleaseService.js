@@ -1,7 +1,10 @@
 import { RELEASE_REPOSITORY, RELEASE_TAG, normalizeRepository, compareVersions, validateReleaseManifest } from './releaseService.js';
 
 // Keep mirrors in code, never accept a download host from remote metadata.
-export const OBS_BASE = 'https://n00069-minicpm-5-0.obs.cn-north-4.myhuaweicloud.com/PilotDeck/';
+// 构建产物镜像：默认指向 PilotV 自己的目录；部署方可通过
+// PILOTV_RELEASE_MIRROR 换成自有镜像。不要退回上游 PilotDeck 的发行产物。
+export const OBS_BASE = process.env.PILOTV_RELEASE_MIRROR
+  || 'https://n00069-minicpm-5-0.obs.cn-north-4.myhuaweicloud.com/PilotV/';
 const ROUTE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
 export function createDesktopReleaseService({ repository: value, currentVersion, fetchImpl = fetch, probe, checkDownload,

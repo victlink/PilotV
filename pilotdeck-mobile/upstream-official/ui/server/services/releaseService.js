@@ -1,6 +1,8 @@
 import { describeReleaseAsset, installerDownloads } from '../../shared/releaseArtifacts.js';
 // Shared release discovery. Installation policy belongs to each platform.
-export const RELEASE_REPOSITORY = 'OpenBMB/PilotDeck';
+// PilotV 自己发布的版本才是本产品的版本；绝不能用 vendored 上游 PilotDeck
+// 的 release 给 PilotV 升级（会把部署覆盖成上游代码）。
+export const RELEASE_REPOSITORY = 'victlink/PilotV';
 export const RELEASE_TAG = /^v\d{4}\.\d{2}\.\d{2}(?:-r[1-9]\d*)?$/;
 export const COMMIT_SHA = /^[a-f0-9]{40}$/;
 
@@ -32,7 +34,7 @@ export function compareVersions(current, latest) {
 
 async function requestJson(url, { fetchImpl = fetch } = {}) {
   const response = await fetchImpl(url, {
-    headers: { Accept: 'application/json', 'User-Agent': 'PilotDeck-Updater' },
+    headers: { Accept: 'application/json', 'User-Agent': 'PilotV-Updater' },
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`Release request failed (${response.status}).`);

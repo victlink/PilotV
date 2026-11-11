@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import AppClientChannelSection from "./components/AppClientChannelSection";
 import FeishuChannelSection from "./components/FeishuChannelSection";
 import TokenChannelSection from "./components/TokenChannelSection";
 import WeComChannelSection from "./components/WeComChannelSection";
@@ -23,9 +24,16 @@ export default function ImChannelsSection() {
               <p>{t("gateway.description")}</p>
             </div>
           </header>
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+          <AppClientChannelSection />
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="integration-channel-detail py-4 text-xs text-muted-foreground">
+              {t("gateway.loadFailed")}
+            </div>
+          )}
         </div>
       </section>
     );
@@ -43,6 +51,7 @@ export default function ImChannelsSection() {
             <p>{t("gateway.description")}</p>
           </div>
         </header>
+        <AppClientChannelSection />
         <FeishuChannelSection status={status.feishu} onSaved={refresh} />
         <WeixinChannelSection status={status.weixin} onSaved={refresh} />
         <WeComChannelSection status={status.wecom} onSaved={refresh} />

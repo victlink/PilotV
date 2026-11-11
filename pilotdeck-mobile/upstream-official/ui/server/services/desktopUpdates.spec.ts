@@ -87,7 +87,7 @@ describe('desktop update assets', () => {
     const prepareToInstall = vi.fn();
     const verifyFile = vi.fn();
     const controller = createUpdateController({
-      updater: updater as unknown as AppUpdater, repository: 'OpenBMB/PilotDeck',
+      updater: updater as unknown as AppUpdater, repository: 'victlink/PilotV',
       platform: 'linux', arch: 'arm64', version: '2026.927.0', packaged: true,
       latestRelease: async () => latest,
       downloadAvailable: async () => true,
@@ -98,7 +98,7 @@ describe('desktop update assets', () => {
     controller.start();
     await controller.wait();
     expect(updater.setFeedURL).toHaveBeenCalledWith(expect.objectContaining({
-      provider: 'custom', url: 'https://github.com/OpenBMB/PilotDeck/releases/download/v2026.09.28/',
+      provider: 'custom', url: 'https://github.com/victlink/PilotV/releases/download/v2026.09.28/',
     }));
     expect(verifyFile).toHaveBeenCalledWith('/tmp/PilotDeck-test.deb', latest.assets[0]);
     expect(prepareToInstall).toHaveBeenCalledOnce();

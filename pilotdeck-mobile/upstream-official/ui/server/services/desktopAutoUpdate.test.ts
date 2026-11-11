@@ -23,7 +23,7 @@ function setup(overrides: Record<string, unknown> = {}) {
   const recoverRuntime = vi.fn();
   const verifyFile = vi.fn();
   const latestRelease = vi.fn(async () => release);
-  const controller = createUpdateController({ updater: updater as unknown as Parameters<typeof createUpdateController>[0]["updater"], repository: 'OpenBMB/PilotDeck', platform: 'darwin', arch: 'arm64',
+  const controller = createUpdateController({ updater: updater as unknown as Parameters<typeof createUpdateController>[0]["updater"], repository: 'victlink/PilotV', platform: 'darwin', arch: 'arm64',
     version: '2026.907.0', packaged: true, compareVersions, latestRelease, downloadAvailable: async () => true, prepareToInstall, recoverRuntime, verifyFile, ...overrides });
   return { controller, updater, cancel, release, latestRelease, prepareToInstall, recoverRuntime, verifyFile };
 }
@@ -360,7 +360,7 @@ describe('automatic update lifecycle', () => {
     const { controller, updater, prepareToInstall, verifyFile } = setup();
     expect(controller.start().state).toBe('checking'); await controller.wait();
     expect(controller.status().state).toBe('installing');
-    expect(updater.setFeedURL).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://github.com/OpenBMB/PilotDeck/releases/download/v2026.09.07-r2/', provider: 'custom' }));
+    expect(updater.setFeedURL).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://github.com/victlink/PilotV/releases/download/v2026.09.07-r2/', provider: 'custom' }));
     expect(verifyFile.mock.invocationCallOrder[0]).toBeLessThan(prepareToInstall.mock.invocationCallOrder[0]);
     expect(prepareToInstall.mock.invocationCallOrder[0]).toBeLessThan(updater.quitAndInstall.mock.invocationCallOrder[0]);
     expect(updater.quitAndInstall).toHaveBeenCalledWith(true, true);

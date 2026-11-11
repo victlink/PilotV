@@ -19,12 +19,12 @@ describe('project creation path utilities', () => {
 
 describe('shouldShowGithubAuthentication', () => {
   it.each([
-    ['new', 'https://github.com/OpenBMB/PilotDeck.git', true],
-    ['new', 'http://github.com/OpenBMB/PilotDeck.git', false],
-    ['new', 'git@github.com:OpenBMB/PilotDeck.git', false],
-    ['new', 'https://gitlab.com/OpenBMB/PilotDeck.git', false],
+    ['new', 'https://github.com/victlink/PilotV.git', true],
+    ['new', 'http://github.com/victlink/PilotV.git', false],
+    ['new', 'git@github.com:victlink/PilotV.git', false],
+    ['new', 'https://gitlab.com/victlink/PilotV.git', false],
     ['new', '/tmp/local-repository', false],
-    ['existing', 'https://github.com/OpenBMB/PilotDeck.git', false],
+    ['existing', 'https://github.com/victlink/PilotV.git', false],
   ] as const)(
     'returns %s/%s => %s',
     (workspaceType, githubUrl, expected) => {

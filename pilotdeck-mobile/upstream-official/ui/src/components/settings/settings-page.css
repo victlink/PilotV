@@ -7438,3 +7438,56 @@
   opacity: 0.45;
   box-shadow: none;
 }
+
+/* 设置 → 消息渠道：PilotV App 客户端扫码入口 */
+:where(.pilotdeck-settings-app) .integration-platform-icon.app-client {
+  background: rgb(255, 240, 229);
+  color: rgb(214, 84, 16);
+}
+.dark :where(.pilotdeck-settings-app) .integration-platform-icon.app-client {
+  background: rgba(229, 90, 9, 0.18);
+  color: rgb(255, 166, 108);
+}
+:where(.pilotdeck-settings-app) .integration-channel-guide .app-client-steps {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  list-style: decimal;
+}
+:where(.pilotdeck-settings-app) .integration-channel-guide .app-client-steps li {
+  margin: 2px 0;
+}
+:where(.pilotdeck-settings-app) .app-client-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+:where(.pilotdeck-settings-app) .app-client-link {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--settings-panel-ink, rgb(52, 56, 70));
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+}
+:where(.pilotdeck-settings-app) .app-client-link:hover {
+  border-color: var(--brand-strong, #e55a09);
+}
+:where(.pilotdeck-settings-app) .app-client-link.primary {
+  border-color: transparent;
+  background: var(--brand-strong, #e55a09);
+  color: #fff;
+}
+:where(.pilotdeck-settings-app) .app-client-footnote {
+  margin-top: 12px;
+  color: var(--settings-panel-muted, rgb(139, 143, 158));
+  font-size: 11px;
+  line-height: 1.6;
+}

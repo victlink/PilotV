@@ -30,7 +30,11 @@ function updateError(reason, message = reason) {
 function matchesRepository(remote, repositoryUrl) {
   if (remote === repositoryUrl) return true;
   if (repositoryUrl !== OFFICIAL_URL) return false;
-  return /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)OpenBMB\/PilotDeck(?:\.git)?\/?$/i.test(remote);
+  // 官方仓库从 RELEASE_REPOSITORY 派生，别再硬编码上游 PilotDeck 的地址。
+  const slug = RELEASE_REPOSITORY.toLowerCase();
+  const normalized = String(remote).toLowerCase().replace(/\.git$/, '').replace(/\/$/, '');
+  return [`https://github.com/${slug}`, `git@github.com:${slug}`, `ssh://git@github.com/${slug}`]
+    .includes(normalized);
 }
 
 export function createWebUpdateService({
@@ -107,7 +111,7 @@ export function createWebUpdateService({
       if (!RELEASE_TAG.test(latest?.tagName || '') || !COMMIT_SHA.test(latest?.sourceSha || '')) throw updateError('releaseUnavailable');
       result.latest = latest;
       result.remoteHead = latest.sourceSha.slice(0, 8);
-      const ref = `refs/pilotdeck/releases/${latest.tagName}`;
+      const ref = `refs/pilotv/releases/${latest.tagName}`;
       await git(['fetch', '--no-tags', repositoryUrl, `refs/tags/${latest.tagName}:${ref}`]);
       const releaseCommit = await git(['rev-parse', `${ref}^{commit}`]);
       if (releaseCommit !== latest.sourceSha) throw updateError('releaseMismatch');
