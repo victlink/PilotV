@@ -73,6 +73,7 @@ import { readPermissionSettings } from './services/permissionSettings.js';
 import { createGatewayConnectionCache } from './services/gatewayConnectionCache.js';
 import { createRouterDashboard } from './services/routerDashboard.js';
 import { ensureGeneralWorkspaceDirectory } from './utils/generalWorkspace.js';
+import { readSessionExecutionMode, writeSessionExecutionMode } from './services/sessionExecutionMode.js';
 import { resolveProjectTeamRuntime } from './services/projectTeamRuntime.js';
 import { readProjectTeamConfig } from './services/projectTeamConfig.js';
 import { buildProjectReviewRequest, selectProjectReviewer } from './services/projectTeamCollaboration.js';
@@ -1667,6 +1668,7 @@ export async function runChatViaGateway(
     );
     const projectKey = options.projectPath || options.cwd || GENERAL_HOME;
     let projectRuntime = null;
+    let executionMode;
     const isGeneralConversation = path.resolve(projectKey) === path.resolve(GENERAL_HOME);
     const channelKey = 'web';
 
@@ -1713,6 +1715,11 @@ export async function runChatViaGateway(
     let sawGatewayError = false;
     let turnFinishReason = null;
     try {
+        // Persist a draft's choice before yielding to I/O; an existing session
+        // (including queued or regenerated input) always uses saved state.
+        if (isNewSession && !hooks.fromQueue && !options.internalReview && options.executionMode !== undefined) {
+            writeSessionExecutionMode(projectKey, sessionKey, options.executionMode);
+        }
         gw = await (hooks.getGateway ? hooks.getGateway() : ensureGateway());
         if (state.deleted || state.deleting) throw new Error('Project is being deleted.');
 
@@ -1745,6 +1752,12 @@ export async function runChatViaGateway(
             sessionKey,
             persistBinding: !hooks.fromQueue && !options.reviewDepth,
         });
+        executionMode = readSessionExecutionMode(projectKey, sessionKey);
+        if (executionMode === 'solo' && (options.internalReview || options.reviewDepth)) {
+            writer.send(createNormalizedMessage({ provider, sessionId: sessionKey, kind: 'error',
+                code: 'review_solo_mode', content: 'Background review is disabled in solo mode.', terminal: false }));
+            return { sessionKey, runId, inputAccepted, sawTurnCompleted, sawGatewayError: true };
+        }
         state.agentId = projectRuntime?.agentId;
         if (projectRuntime) {
             // 记下这一轮是谁在回，回复才带得上发言人名字（默认 Agent 不记）。
@@ -1757,15 +1770,16 @@ export async function runChatViaGateway(
             channelKey,
             projectKey,
             message: command ?? '',
+            executionMode,
+            ...(options.internalReview || options.reviewDepth ? { backgroundReview: true } : {}),
             runMode,
             mode: resolvedMode,
             runId,
             ...(Array.isArray(options?.uploadedAttachments) ? { uploadedAttachments: options.uploadedAttachments } : {}),
             ...(Object.keys(requestContext).length > 0 ? { requestContext } : {}),
-            ...(!projectRuntime?.modelSelection && options?.modelOverride ? { modelOverride: options.modelOverride } : {}),
-            ...(projectRuntime?.modelSelection
-                ? { modelSelection: projectRuntime.modelSelection }
-                : (options?.modelSelection ? { modelSelection: options.modelSelection } : {})),
+            ...(options.modelSelection ? { modelSelection: options.modelSelection }
+                : options.modelOverride ? { modelOverride: options.modelOverride }
+                : projectRuntime?.modelSelection ? { defaultModelSelection: projectRuntime.modelSelection } : {}),
             ...(basePermissionMode ? { basePermissionMode } : {}),
             ...(projectRuntime ? { toolPolicy: projectRuntime.toolPolicy } : {}),
             ...(attachments.length > 0 ? { attachments } : {}),
@@ -1980,7 +1994,7 @@ export async function runChatViaGateway(
 
     // Automatic review is a bounded, same-session independent run. User queue
     // dispatch above always wins; review runs only after a successful user turn.
-    if (!options.internalReview && !hadQueuedInput && sawTurnCompleted
+    if (executionMode === 'autoSplit' && !options.internalReview && !hadQueuedInput && sawTurnCompleted
         && turnFinishReason === 'completed'
         && state.inputQueue.length === 0
         && !state.active && !state.deleted && !state.deleting) {
@@ -1988,7 +2002,7 @@ export async function runChatViaGateway(
             collaboration: projectRuntime?.collaboration,
             agents: projectRuntime?.agents,
         }, { agentId: projectRuntime?.agentId, reviewDepth: options.reviewDepth || 0 });
-        if (reviewer) {
+        if (reviewer && readSessionExecutionMode(projectKey, sessionKey) === 'autoSplit') {
             const {
                 images: _reviewImages,
                 attachments: _reviewAttachments,
@@ -2021,8 +2035,8 @@ export async function runChatViaGateway(
  *
  * `manual` collaboration mode turns the *automatic* review turn off; this is
  * the explicit user trigger for the very same review. The reviewer runs as an
- * ordinary project agent turn, so it keeps its own model, tool policy and
- * speaker identity, and its reply lands in the same conversation as an
+ * ordinary project agent turn, so it respects the session's model choice and
+ * keeps its own tool policy and speaker identity. Its reply lands as an
  * independent assistant message.
  *
  * @param {{sessionId?: string, sessionKey?: string, projectPath?: string, cwd?: string, agentId?: string}} options
@@ -2048,6 +2062,11 @@ export async function requestProjectReview(options = {}, writer, provider = 'pil
         return { sessionKey, dispatched: false };
     }
     const sessionKey = incoming;
+    if (readSessionExecutionMode(projectKey, sessionKey) === 'solo') {
+        writer.send(createNormalizedMessage({ provider, sessionId: sessionKey, kind: 'error',
+            code: 'review_solo_mode', content: 'Background review is disabled in solo mode.', terminal: false }));
+        return { sessionKey, dispatched: false };
+    }
     const state = ensureSessionState(sessionKey, projectKey, 'web');
     if (state.active) {
         const message = 'This session already has an active turn. Wait for it to finish before asking for a review.';
@@ -2095,9 +2114,6 @@ export async function requestProjectReview(options = {}, writer, provider = 'pil
         // The review turn must not trigger another review turn.
         internalReview: true,
         reviewDepth: 1,
-        // 审查员有自己的专属模型时用它的；没有就沿用本会话上一次接受的模型，
-        // 而不是让审查员静默地跑在另一个默认模型上。
-        modelSelection: options.modelSelection ?? state.lastAcceptedModelSelection?.selection,
         syntheticMessages: [{
             text: buildProjectReviewRequest({
                 agentName: lastRun?.name || reviewer.name,
@@ -2106,7 +2122,7 @@ export async function requestProjectReview(options = {}, writer, provider = 'pil
             purpose: 'project_agent_review_request',
         }],
     }, writer, provider, { ...hooks, fromQueue: true });
-    return { sessionKey, dispatched: true, reviewerId: reviewer.id, runId: result?.runId };
+    return { sessionKey, dispatched: result?.inputAccepted === true, reviewerId: reviewer.id, runId: result?.runId };
 }
 
 export function queuedInputDispositionAfterTurn(finishReason, queuePaused) {

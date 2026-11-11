@@ -9,6 +9,7 @@ import {
     resolveProjectTeamRuntime,
     getSessionAgentBinding,
     setSessionAgentBinding,
+    resolveProjectTaskAuthority,
 } from './projectTeamRuntime.js';
 import { writeProjectTeamConfig } from './projectTeamConfig.js';
 
@@ -44,6 +45,42 @@ function root() {
     roots.push(value);
     return value;
 }
+
+it.each(['commander', 'reviewer', 'inspector'])('hard-limits %s despite permissive stored permissions', (role) => {
+    const policy = buildProjectAgentToolPolicy(agent({ role, permissions: {
+        ...agent().permissions, writeScope: 'ask',
+    } }), { projectRoot: '/project' });
+    expect(policy.allow).toEqual(['read_file', 'grep', 'glob']);
+    expect(policy.deny).toEqual(expect.arrayContaining(['write_file', 'edit_file', 'bash', 'agent', 'task_create', 'mcp*', 'web_fetch']));
+    expect(policy.ask).not.toContain('write_file');
+    expect(policy).not.toHaveProperty('writeRoots');
+});
+
+it('binds the inspector member explicitly without selecting it as the default worker', async () => {
+    vi.stubEnv('PILOT_HOME', root());
+    const projectRoot = root();
+    const snapshotProvider = async () => [{ fullPath: projectRoot }];
+    await writeProjectTeamConfig({ projectRoot, revision: '0', collaboration: { mode: 'commander' },
+        agents: [agent({ role: 'inspector', id: 'inspector-1' }), agent()], snapshotProvider });
+    const scope = { projectRoot, sessionKey: 'web:inspector', snapshotProvider };
+    const resolve = () => resolveProjectTeamRuntime({ projectKey: projectRoot, sessionKey: scope.sessionKey, snapshotProvider });
+    expect((await resolve()).agentId).toBe('worker');
+    await setSessionAgentBinding({ ...scope, agentId: 'inspector-1' });
+    expect(await resolve()).toMatchObject({ agentId: 'inspector-1', agent: { role: 'inspector' } });
+});
+
+it('server resolves delegation authority only for the same registered commander project and enabled targets', async () => {
+    vi.stubEnv('PILOT_HOME', root());
+    const projectRoot = root();
+    const snapshotProvider = async () => [{ fullPath: projectRoot }];
+    await writeProjectTeamConfig({ projectRoot, revision: '0', collaboration: { mode: 'commander' },
+        agents: [agent({ id: 'command', role: 'commander' }), agent(), agent({ id: 'disabled', enabled: false })], snapshotProvider });
+    const authority = await resolveProjectTaskAuthority({ projectKey: projectRoot, sessionKey: 'web:tasks', snapshotProvider });
+    expect(authority.members.map(member => member.id)).toEqual(['worker']);
+    expect(authority.members[0].briefing).toContain('Execute assigned tasks');
+    expect(await resolveProjectTaskAuthority({ projectKey: projectRoot, sessionKey: 'web:tasks', agentId: 'worker', snapshotProvider })).toBeUndefined();
+    expect(await getSessionAgentBinding({ projectRoot, sessionKey: 'web:tasks', snapshotProvider })).toEqual({});
+});
 
 describe('project agent tool policy', () => {
     it('omits allow for all and preserves an explicitly empty allow-list', () => {

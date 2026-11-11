@@ -44,6 +44,9 @@ export default function ToolsPanel({
         onSelectAgent={onSelectAgent}
       />
 
+      {["commander", "reviewer", "inspector"].includes(agent.role) && (
+        <p className="text-[13px] text-muted-foreground">{t("templates.restricted")}</p>
+      )}
       <SettingsCard divided>
         <FormRow label={t("tools.toolAccess")} description={t("tools.toolAccessHint")}>
           <Select

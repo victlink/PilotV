@@ -46,6 +46,7 @@ export const PROJECT_TEAM_ROLES = Object.freeze([
     'executor',
     'reviewer',
     'supervisor',
+    'inspector',
 ]);
 export const PROJECT_TEAM_MAX_AGENTS = 32;
 export const PROJECT_TEAM_MAX_FILE_BYTES = 256 * 1024;

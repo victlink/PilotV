@@ -26,6 +26,13 @@ export function resolvePilotDeckWorkspacePath(
   }
 
   const absolutePath = path.resolve(path.isAbsolute(inputPath) ? inputPath : path.join(context.cwd, inputPath));
+  if (context.strictProjectScope) {
+    const root = safeRealpath(context.cwd);
+    const real = safeRealpath(absolutePath);
+    if (!root || !real || !isPathWithinRoot(real, root)) {
+      return { ok: false, error: toolError("path_not_allowed", "Path resolves outside the authorized project scope or does not exist.") };
+    }
+  }
   // Writes follow symlinks, so authorization must also hold for the path the
   // OS will actually write to, not just the literal path the caller supplied.
   const realWritePath = options?.forWrite ? resolveRealWritePath(absolutePath) : undefined;

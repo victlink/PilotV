@@ -8,6 +8,7 @@ const chatMocks = vi.hoisted(() => ({
   useSessionInputQueue: vi.fn(),
   useChatSessionState: vi.fn(),
   fetchProjectTeam: vi.fn(),
+  sessionExecutionMode: vi.fn(async (_root: string, _session: string, mode?: 'solo' | 'autoSplit') => mode ?? 'autoSplit'),
   sessionAgentBinding: vi.fn(async (_root: string, _session: string, agentId?: string | null): Promise<string | null | undefined> => agentId),
   /**
    * Every `agentId` that `ChatInterfaceV2` handed to `useChatComposerState`.
@@ -120,6 +121,7 @@ vi.mock('../hooks/useChatComposerState', async (importOriginal) => {
 vi.mock('../../../lib/projectTeamApi', () => ({
   fetchProjectTeam: chatMocks.fetchProjectTeam,
   sessionAgentBinding: chatMocks.sessionAgentBinding,
+  sessionExecutionMode: chatMocks.sessionExecutionMode,
 }));
 
 vi.mock('./MessagesPane', () => ({
@@ -307,6 +309,17 @@ function teamStripButton(): HTMLElement {
   return button;
 }
 
+it('restores the session execution mode, saves the choice, and hides background review in solo', async () => {
+  chatMocks.sessionExecutionMode.mockResolvedValueOnce('solo');
+  renderChat(vi.fn());
+  const picker = await screen.findByRole('combobox', { name: 'Execution mode' }) as HTMLSelectElement;
+  await waitFor(() => expect(picker.value).toBe('solo'));
+  expect(screen.queryByTestId('request-review')).toBeNull();
+  fireEvent.change(picker, { target: { value: 'autoSplit' } });
+  await waitFor(() => expect(chatMocks.sessionExecutionMode).toHaveBeenCalledWith(DEMO_PROJECT.fullPath, 'web:s_agent', 'autoSplit'));
+  await waitFor(() => expect(picker.value).toBe('autoSplit'));
+});
+
 describe('ChatInterfaceV2 project agents', () => {
   it('offers an explicit retry after GET failure and blocks sending until recovery', async () => {
     chatMocks.sessionAgentBinding.mockRejectedValueOnce(new Error('read failed')).mockResolvedValueOnce('agent-a');
@@ -433,11 +446,12 @@ describe('ChatInterfaceV2 project agents', () => {
     chatMocks.useChatSessionState.mockReturnValue(createChatSessionState({ currentSessionId: null }));
     view.rerender(<ChatInterfaceV2 {...({ ...chatProps(DEMO_PROJECT, sendMessage), selectedSession: null } as any)} />);
     await act(async () => {});
+    fireEvent.change(screen.getByRole('combobox', { name: 'Execution mode' }), { target: { value: 'solo' } });
     fireEvent.change(screen.getByTestId('message-input'), { target: { value: 'draft task' } });
     fireEvent.click(screen.getByTestId('clear-agent'));
     fireEvent.click(screen.getByTestId('send-input'));
     await waitFor(() => expect(sendMessage).toHaveBeenCalled());
-    expect(sendMessage.mock.calls[0][0]).toMatchObject({ type: 'pilotdeck-command', options: { agentId: null } });
+    expect(sendMessage.mock.calls[0][0]).toMatchObject({ type: 'pilotdeck-command', options: { agentId: null, executionMode: 'solo' } });
   });
 
   it('preserves an explicit clear in the real regenerate payload', async () => {

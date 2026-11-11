@@ -54,7 +54,11 @@ import type { TelemetryClient } from "../telemetry/index.js";
 import { currentRequestContext } from "../network/requestContext.js";
 import { buildCachePlan } from "../context/cache/CachePlan.js";
 
+export type ProjectTaskModelResolution = { model: { provider: string; model: string }; difficulty: string; reason: string };
+
 export type RouterRuntimeDeps = {
+  /** Server-loaded catalog; never supplied by a tool payload. */
+  modelConfig?: import("../model/index.js").ModelConfig;
   modelRuntime: ModelRuntime;
   judgeRuntime?: ModelRuntime;
   customRouterRegistry?: CustomRouterRegistry;
@@ -78,6 +82,7 @@ export type InvalidateStickyResult = {
 };
 
 export type RouterRuntime = {
+  resolveProjectTaskModel?(input: { directive: string; sessionId: string; abortSignal?: AbortSignal }): Promise<ProjectTaskModelResolution>;
   decide(input: RouterDecisionInput): Promise<RouterDecision>;
   execute(
     decision: RouterDecision,
@@ -507,7 +512,7 @@ export function createRouterRuntime(
     if (cacheAwareSwitch) {
       mutations = { ...mutations, cacheAwareSwitch };
     }
-    if (config.autoOrchestrate?.enabled && orchGate) {
+    if (!input.delegationDisabled && config.autoOrchestrate?.enabled && orchGate) {
       const orchestrated = applyOrchestration({
         config: config.autoOrchestrate,
         isMainAgent: input.isMainAgent,
@@ -587,7 +592,7 @@ export function createRouterRuntime(
     request: CanonicalModelRequest,
     ctx: RouterExecuteContext,
   ): AsyncIterable<CanonicalModelEvent> {
-    if (!enabled) {
+    if (!enabled || decision.scenarioType === "explicit") {
       if (ctx.abortSignal?.aborted) return;
       request = await ctx.requestForTarget?.(decision) ?? request;
       const routedCachePlan = request.cachePlan &&
@@ -1052,7 +1057,29 @@ export function createRouterRuntime(
     return { previousTier, previousProvider, previousModel, orchestrating };
   }
 
+  async function resolveProjectTaskModel(input: { directive: string; sessionId: string; abortSignal?: AbortSignal }): Promise<ProjectTaskModelResolution> {
+    const pool = config.tokenSaver;
+    if (config.enabled !== true || !pool?.enabled || !deps.modelConfig) throw new Error("AUTO_POOL_UNAVAILABLE: enable server router tokenSaver tiers and catalog.");
+    const tiers = Object.fromEntries(Object.entries(pool.tiers).filter(([, tier]) => {
+      const ref = tier.model;
+      const provider = deps.modelConfig!.providers[ref.provider];
+      if (!provider?.apiKey || !provider.models[ref.model]) return false;
+      try {
+        const cap = deps.modelRuntime.getCapabilities(ref.provider, ref.model);
+        return cap.supportsToolUse && cap.supportsStreaming && cap.supportsSystemPrompt;
+      } catch { return false; }
+    }));
+    if (!Object.keys(tiers).length || !tiers[pool.defaultTier]) throw new Error("AUTO_NO_CANDIDATE: no capable authenticated default tier in server pool.");
+    const decision = await classifyAndRoute({ config: { ...pool, tiers }, messages: [{ role: "user", content: [{ type: "text", text: input.directive }] }], judgeRuntime, sessionId: input.sessionId, abortSignal: input.abortSignal });
+    if (!decision) throw new Error("AUTO_NO_CANDIDATE: classification unavailable.");
+    const ref = tiers[decision.tier]?.model;
+    if (!ref) throw new Error("AUTO_NO_CANDIDATE: classifier selected outside server pool.");
+    return { model: { provider: ref.provider, model: ref.model }, difficulty: decision.tier,
+      reason: `${decision.resolvedFrom}${decision.failureReason ? `:${decision.failureReason}` : ""}; server tier ${decision.tier}; ${tiers[decision.tier]?.description ?? "configured tier"}; capable authenticated candidate ${ref.id}` };
+  }
+
   return {
+    resolveProjectTaskModel,
     decide,
     execute,
     stream,

@@ -53,6 +53,8 @@ export class ToolRuntime {
               return this.execute(nestedCall, {
                 ...runtimeContext,
                 ...contextPatch,
+                delegationDisabled: runtimeContext.delegationDisabled || contextPatch?.delegationDisabled,
+                strictProjectScope: runtimeContext.strictProjectScope || contextPatch?.strictProjectScope,
                 readFileState: runtimeContext.readFileState,
                 writeSnapshots: runtimeContext.writeSnapshots,
                 executeTool: runtimeContext.executeTool,
@@ -111,6 +113,10 @@ export class ToolRuntime {
         startedAt,
         runtimeContext,
       );
+    }
+
+    if (context.delegationDisabled && ["agent", "delegate_project_tasks"].includes(tool.name)) {
+      return this.errorResult(call.id, tool.name, "permission_denied", "Agent delegation is disabled in solo mode.", startedAt, context);
     }
 
     // Shell permission checks below are sync and need the bash grammar loaded.
@@ -173,7 +179,15 @@ export class ToolRuntime {
       );
     }
 
-    let decision = await this.permissionRuntime.decide(tool, executeInput, context, call.id);
+    // Only an in-process server authority can grant the narrow delegation tool.
+    // This does not grant the commander the generic agent tool or child rights.
+    const permissionContext = tool.name === "delegate_project_tasks" && context.delegateProjectTasks
+      ? { ...context, permissionContext: { ...context.permissionContext, rules: {
+          ...context.permissionContext.rules,
+          allowList: [{ source: "project" as const, behavior: "allow" as const, toolName: tool.name }],
+        } } }
+      : context;
+    let decision = await this.permissionRuntime.decide(tool, executeInput, permissionContext, call.id);
     if (decision.type === "ask") {
       const permissionHookResult = await this.dispatchLifecycle("PermissionRequest", tool.name, call.id, executeInput, context, {
         permissionSuggestions: decision.request.options,

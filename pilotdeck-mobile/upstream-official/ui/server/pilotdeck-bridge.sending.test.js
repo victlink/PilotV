@@ -42,27 +42,32 @@ it('binds a new real session, restores omitted sends and snapshots queued agent 
         },
     };
     const writer = { send: frame => frames.push(frame) };
-    const first = await runChatViaGateway('hello', { projectPath: projectRoot, agentId: 'worker' }, writer);
+    const first = await runChatViaGateway('hello', { projectPath: projectRoot, agentId: 'worker', executionMode: 'solo' }, writer);
+    expect(calls.at(-1).executionMode).toBe('solo');
     expect(frames.some(frame => frame.kind === 'session_created' || frame.newSessionId === first.sessionKey)).toBe(true);
     expect((await getSessionAgentBinding({ projectRoot, sessionKey: first.sessionKey })).agentId).toBe('worker');
     await runChatViaGateway('again', { projectPath: projectRoot, sessionId: first.sessionKey }, writer);
     expect(calls.at(-1).syntheticMessages[0].text).toContain('Worker');
     const regenerated = await regenerateLastMessageTransaction({
-        data: { command: 'edited', options: { projectPath: projectRoot, sessionId: first.sessionKey, runId: 'binding-edit' } },
+        data: { command: 'edited', options: { projectPath: projectRoot, sessionId: first.sessionKey, runId: 'binding-edit', executionMode: 'autoSplit' } },
         sessionId: first.sessionKey, requestId: 'binding-edit', expectedTurnId: 'old', provider: 'pilotdeck',
         writer, streamWriter: writer, runChat: runChatViaGateway,
         replaceLastTurn: async () => ({ replacedTurnId: 'old', transactionId: 'binding-tx' }),
         finalizeLastTurnReplacement: vi.fn(),
     });
     expect(regenerated.success).toBe(true);
+    expect(calls.at(-1).executionMode).toBe('solo');
     expect(calls.at(-1).syntheticMessages[0].text).toContain('Worker');
     expect((await getSessionAgentBinding({ projectRoot, sessionKey: first.sessionKey })).agentId).toBe('worker');
+    const beforeReview = calls.length;
     await runChatViaGateway('review', { projectPath: projectRoot, sessionId: first.sessionKey, agentId: 'reviewer', reviewDepth: 1 }, writer);
+    expect(calls).toHaveLength(beforeReview);
     expect((await getSessionAgentBinding({ projectRoot, sessionKey: first.sessionKey })).agentId).toBe('worker');
-    await enqueueInputViaGateway(first.sessionKey, { id: 'bound-queue', command: 'queued', options: { projectPath: projectRoot } }, writer);
+    await enqueueInputViaGateway(first.sessionKey, { id: 'bound-queue', command: 'queued', options: { projectPath: projectRoot, executionMode: 'autoSplit' } }, writer);
     await vi.waitFor(() => expect(calls.at(-1).message).toBe('queued'));
     expect(calls.at(-1).syntheticMessages[0].text).toContain('Worker');
     expect(calls.at(-1).toolPolicy.deny).toContain('agent');
+    expect(calls.at(-1).executionMode).toBe('solo');
     await runChatViaGateway('clear', { projectPath: projectRoot, sessionId: first.sessionKey, agentId: null }, writer);
     expect(calls.at(-1).syntheticMessages).toBeUndefined();
     expect((await getSessionAgentBinding({ projectRoot, sessionKey: first.sessionKey })).agentId).toBeNull();

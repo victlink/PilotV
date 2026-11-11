@@ -110,7 +110,12 @@ type AgentStatusMessage = {
   detail?: Record<string, unknown>;
 };
 
+import { dispatchProjectTasks, sameProjectRoot } from "../sub/ProjectTeamDispatch.js";
+
 export type AgentLoopInput = {
+  /** Trusted server-resolved authority; never accepted from a gateway payload. */
+  projectTeamDispatch?: import("../sub/ProjectTeamDispatch.js").ProjectTeamDispatch;
+  strictProjectScope?: boolean;
   sessionId: string;
   turnId: string;
   messages: CanonicalMessage[];
@@ -125,6 +130,8 @@ export type AgentLoopInput = {
   canPrompt?: boolean;
   permissionRules?: Partial<PermissionRuleSet>;
   modelOverride?: import("../protocol/input.js").AgentModelOverride;
+  executionMode?: import("../protocol/input.js").ExecutionMode;
+  inheritModelOverride?: boolean;
   abortSignal?: AbortSignal;
   onDurableMessage?: (message: CanonicalMessage) => void | Promise<void>;
   onModelContext?: (snapshot: ModelContextSnapshot) => void | Promise<void>;
@@ -153,6 +160,7 @@ export type AgentLoopSeedState = {
 };
 
 export class AgentLoop {
+  private readonly projectTaskModels = new Map<string, Promise<import("../../router/RouterRuntime.js").ProjectTaskModelResolution>>();
   /**
    * Session-wide subagent pool, built on first fork and reused after that.
    * Kept on the loop (not the dependencies) so a host that never wired a gate
@@ -192,6 +200,9 @@ export class AgentLoop {
   }
 
   async *run(input: AgentLoopInput): AsyncGenerator<AgentEvent, AgentLoopRunResult, unknown> {
+    // Keep pins for same-turn retry, discard previous turns to bound session memory.
+    const turnPrefix = JSON.stringify([input.sessionId, input.turnId]).slice(0, -1) + ",";
+    for (const key of this.projectTaskModels.keys()) if (!key.startsWith(turnPrefix)) this.projectTaskModels.delete(key);
     const timeline = new TurnTimeline(input.turnId);
     const generator = this.runOrdered({
       ...input,
@@ -570,6 +581,7 @@ export class AgentLoop {
           sessionId: input.sessionId,
           abortSignal: input.abortSignal,
           isMainAgent: !this.config.isSubagent,
+          delegationDisabled: input.executionMode === "solo" || Boolean(input.projectTeamDispatch),
           metadata: stickyInfo
             ? { previousTier, previousProvider: stickyInfo.previousProvider, previousModel: stickyInfo.previousModel }
             : previousTier ? { previousTier } : undefined,
@@ -2079,7 +2091,12 @@ export class AgentLoop {
   private modelRequestDependencies(input: AgentLoopInput, emitInstructionEvents?: boolean): ModelRequestPreparationDependencies {
     const planTodo = this.dependencies.planTodoManager?.forSession(input.sessionId);
     return {
-      toolRegistry: this.dependencies.tools.registry,
+      toolRegistry: { list: () => this.dependencies.tools.registry.list().filter(tool => {
+        if (tool.name === "delegate_project_tasks") return this.canDispatchProjectTasks(input);
+        if (tool.name === "agent" && (input.executionMode === "solo" || input.projectTeamDispatch)) return false;
+        const allowList = this.config.permissionContext.rules.allowList;
+        return !input.projectTeamDispatch || allowList === undefined || allowList.some(rule => rule.toolName === tool.name);
+      }) },
       context: this.dependencies.context,
       getModelProtocol: (provider) => this.dependencies.getModelProtocol?.(provider),
       getModelSupportsPromptCache: (provider, model) => this.dependencies.getModelSupportsPromptCache?.(provider, model),
@@ -2379,6 +2396,10 @@ export class AgentLoop {
       elicitation: this.dependencies.elicitation,
       fileHistory: this.dependencies.fileHistory,
       subagentDepth: this.config.subagentDepth ?? 0,
+      delegationDisabled: input.executionMode === "solo",
+      strictProjectScope: input.strictProjectScope,
+      ...(this.canDispatchProjectTasks(input) ? { delegateProjectTasks: (tasks: import("../../tool/builtin/delegateProjectTasks.js").ProjectTask[], signal?: AbortSignal) =>
+        this.runProjectTasks(input, tasks, signal) } : {}),
       subagent: this.buildSubagentForkApi(input, messages),
       modelMultimodal: this.config.modelMultimodal,
       maxOutputTokens: this.config.maxOutputTokens,
@@ -2401,6 +2422,80 @@ export class AgentLoop {
     };
   }
 
+  private canDispatchProjectTasks(input: AgentLoopInput): boolean {
+    if (input.executionMode === "solo" || !input.projectTeamDispatch || this.config.isSubagent
+      || this.config.runMode === "ask" || this.config.permissionMode === "plan") return false;
+    return sameProjectRoot(input.projectTeamDispatch.projectRoot, this.config.cwd);
+  }
+
+  private async runProjectTasks(
+    input: AgentLoopInput,
+    tasks: import("../../tool/builtin/delegateProjectTasks.js").ProjectTask[],
+    signal?: AbortSignal,
+  ) {
+    if (!this.canDispatchProjectTasks(input)) throw new Error("Project delegation is unavailable.");
+    return dispatchProjectTasks(tasks, input.projectTeamDispatch!, this.resolveSubagentGate(), signal, async (task, member, dependencies, recordModel) => {
+      const { SubAgentSession } = await import("../sub/SubAgentSession.js");
+      const { PermissionRuntime, toolPolicyToRuleSet } = await import("../../permission/index.js");
+      const { ToolRegistry } = await import("../../tool/registry/ToolRegistry.js");
+      const { ToolRuntime } = await import("../../tool/execution/ToolRuntime.js");
+      const { ConcurrentToolScheduler } = await import("../../tool/scheduler/ConcurrentToolScheduler.js");
+      // A separate authorization envelope, not a copy of the commander's rules.
+      // This first slice only supports project-scoped inspection. Role policies
+      // may tighten this set; neither role nor parent may add shell/network/write.
+      const registry = new ToolRegistry();
+      const candidates = ["read_file", "grep", "glob"].filter(name =>
+        member.toolPolicy.allow === undefined || member.toolPolicy.allow.includes(name));
+      for (const name of candidates) {
+        const tool = this.dependencies.tools.registry.get(name);
+        if (tool) registry.register(tool);
+      }
+      const rules = toolPolicyToRuleSet({ ...member.toolPolicy, allow: candidates });
+      const runtime = new ToolRuntime(registry, new PermissionRuntime());
+      const scheduler = new ConcurrentToolScheduler(runtime, registry);
+      const subagentId = this.dependencies.uuid?.() ?? (await import("node:crypto")).randomUUID();
+      const cacheKey = JSON.stringify([input.sessionId, input.turnId, task.id, task.memberId, task.directive]);
+      let selected = this.projectTaskModels.get(cacheKey);
+      if (!selected) {
+        selected = input.inheritModelOverride && input.modelOverride
+          ? Promise.resolve({ model: input.modelOverride, difficulty: "fixed", reason: "User fixed contract; difficulty cannot override." })
+          : this.dependencies.router.resolveProjectTaskModel?.({ directive: task.directive, sessionId: `${input.sessionId}::task::${task.id}`, abortSignal: signal });
+        if (selected) this.projectTaskModels.set(cacheKey, selected);
+      }
+      const resolution = await selected;
+      if (!resolution) throw new Error("AUTO_POOL_UNAVAILABLE: project task resolver unavailable.");
+      const { model } = resolution;
+      recordModel({ resolvedModel: model, difficulty: resolution.difficulty, selectionReason: resolution.reason });
+      const subSession = new SubAgentSession({
+        definition: getSubagentDefinition("explore")!,
+        directive: JSON.stringify({ task: task.id, directive: task.directive, dependencies }),
+        parentConfig: {
+          provider: this.config.provider, model: this.config.model,
+          cwd: this.config.cwd, permissionMode: "default", runMode: "ask",
+          permissionContext: { mode: "default", rules, cwd: this.config.cwd,
+            additionalWorkingDirectories: [], canPrompt: false, bypassAvailable: false },
+          systemPrompt: member.briefing, isSubagent: true, subagentDepth: 1,
+        },
+        parentDependencies: {
+          router: this.dependencies.router,
+          tools: { registry, scheduler },
+          now: this.dependencies.now, uuid: this.dependencies.uuid,
+          getModelProtocol: this.dependencies.getModelProtocol,
+          getModelTokenLimits: this.dependencies.getModelTokenLimits,
+          eventEmitter: this.dependencies.eventEmitter,
+        },
+        fixedModel: model,
+        strictProjectScope: true,
+        syntheticDirective: true,
+        parentSessionId: input.sessionId, parentTurnId: input.turnId,
+        subagentSessionId: `${this.config.cwd}::sub::${subagentId}`, subagentId,
+        maxTurns: 8, abortSignal: signal,
+      });
+      const report = await subSession.run();
+      return { report: report.markdown, model, resolvedModel: model, difficulty: resolution.difficulty, selectionReason: resolution.reason };
+    });
+  }
+
   private buildSubagentForkApi(
     input: AgentLoopInput,
     messages: CanonicalMessage[],
@@ -2417,6 +2512,7 @@ export class AgentLoop {
         })),
       isAllowedDefinition: (id: string) => getSubagentDefinition(id) !== undefined,
       fork: async ({ definitionId, directive, subagentId, toolCallId, abortSignal, timeoutMs }) => {
+        if (input.executionMode === "solo" || input.projectTeamDispatch) throw new Error("Generic delegation is disabled for this turn.");
         // Defer SubAgentSession import to avoid the runtime cycle (sub → loop → sub).
         const { SubAgentSession } = await import("../sub/SubAgentSession.js");
         const def = getSubagentDefinition(definitionId);
@@ -2492,6 +2588,7 @@ export class AgentLoop {
             isSubagent: true,
           },
           parentDependencies: this.dependencies,
+          fixedModel: input.inheritModelOverride ? input.modelOverride : undefined,
           parentReadFileState: this.readFileState,
           parentWriteSnapshots: this.writeSnapshots,
           parentSessionId: input.sessionId,

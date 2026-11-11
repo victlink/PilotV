@@ -1,9 +1,11 @@
 import express from 'express';
+import { readSessionExecutionMode, writeSessionExecutionMode } from '../services/sessionExecutionMode.js';
 import { getSessionAgentBinding, setSessionAgentBinding } from '../services/projectTeamRuntime.js';
 
 import {
     ProjectTeamConfigError,
     readProjectTeamConfig,
+    resolveRegisteredProjectRoot,
     validateProjectTeamPayload,
     writeProjectTeamConfig,
 } from '../services/projectTeamConfig.js';
@@ -122,6 +124,19 @@ function sendError(res, error) {
 export function createProjectTeamRouter({ snapshotProvider = null } = {}) {
     const router = express.Router();
     const provider = createSnapshotCache(snapshotProvider ?? defaultSnapshotProvider);
+
+    async function sessionExecutionMode(req, res) {
+        try {
+            const root = await resolveRegisteredProjectRoot(readProjectRootParam(req), { snapshotProvider: provider });
+            const { sessionKey } = req.query;
+            const executionMode = req.method === 'PUT'
+                ? writeSessionExecutionMode(root, sessionKey, req.body?.executionMode)
+                : readSessionExecutionMode(root, sessionKey);
+            res.json({ executionMode });
+        } catch (error) { sendError(res, error); }
+    }
+    router.get('/session-execution-mode', sessionExecutionMode);
+    router.put('/session-execution-mode', sessionExecutionMode);
 
     router.get('/session-agent', async (req, res) => {
         try {

@@ -68,6 +68,7 @@ interface UseChatComposerStateArgs {
   model: string;
   modelSelection?: ChatModelSelection | null;
   agentId?: string | null;
+  draftExecutionMode?: import("../../../lib/projectTeamApi").ExecutionMode;
   isModelSelectionReady?: boolean;
   isPermissionModeReady?: boolean;
   permissionMode: PermissionMode | string;
@@ -275,6 +276,7 @@ export function useChatComposerState({
   model,
   modelSelection,
   agentId,
+  draftExecutionMode,
   isModelSelectionReady = true,
   isPermissionModeReady = true,
   permissionMode,
@@ -328,6 +330,8 @@ export function useChatComposerState({
   // captured value would keep sending the previously selected agent.
   const agentIdRef = useRef<string | null | undefined>(agentId);
   agentIdRef.current = agentId;
+  const draftExecutionModeRef = useRef(draftExecutionMode);
+  draftExecutionModeRef.current = draftExecutionMode;
   const [documentReferences, setDocumentReferences] = useState<ContentReference[]>([]);
   const documentReferencesRef = useRef<ContentReference[]>([]);
   documentReferencesRef.current = documentReferences;
@@ -1527,6 +1531,7 @@ export function useChatComposerState({
         toolsSettings,
         modelSelection: submittedModelSelection,
         agentId: agentIdRef.current,
+        draftExecutionMode: draftExecutionModeRef.current,
         images: uploadedImages,
         attachments: turnAttachments,
         uploadedAttachments: uploadedAttachmentRefs,

@@ -59,6 +59,10 @@ export type SubAgentSessionOptions = {
   parentConfig: AgentRuntimeConfig;
   /** Parent agent's runtime dependencies (model, scheduler factory, ...). */
   parentDependencies: AgentRuntimeDependencies;
+  /** User-selected turn model, inherited by all descendants. */
+  fixedModel?: import("../protocol/input.js").AgentModelOverride;
+  strictProjectScope?: boolean;
+  syntheticDirective?: boolean;
   /** Parent agent's read-file deduplication cache (cloned into the child). */
   parentReadFileState?: PilotDeckReadFileStateMap;
   /** Parent agent's write snapshots (cloned into the child). */
@@ -150,6 +154,10 @@ export class SubAgentSession {
       turnId,
       messages,
       maxTurns: this.options.maxTurns,
+      strictProjectScope: this.options.strictProjectScope,
+      executionMode: this.options.strictProjectScope ? "solo" : undefined,
+      modelOverride: this.options.fixedModel,
+      inheritModelOverride: Boolean(this.options.fixedModel),
       abortSignal: this.options.abortSignal,
     });
     while (true) {
@@ -187,6 +195,9 @@ export class SubAgentSession {
         `SubAgentSession: subagent turn aborted (${last.result.stopReason})`,
       );
     }
+    if (this.options.strictProjectScope && last.result.stopReason !== "completed") {
+      throw new Error(`Project task did not complete: ${last.result.stopReason}`);
+    }
     if (last.result.type === "error") {
       const details = last.result.errors?.map((error) => error.message).join("; ");
       throw new Error(
@@ -209,7 +220,9 @@ export class SubAgentSession {
   }
 
   private buildInitialMessages(): CanonicalMessage[] {
-    return buildForkedMessages(this.options.directive);
+    const messages = buildForkedMessages(this.options.directive);
+    if (this.options.syntheticDirective) messages[0]!.metadata = { synthetic: true, purpose: "project_task" };
+    return messages;
   }
 
   private buildScopedRegistry(): ToolRegistry {

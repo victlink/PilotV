@@ -22,8 +22,28 @@ vi.mock('./services/gatewayConnectionCache.js', () => ({ createGatewayConnection
 vi.mock('./services/projectTeamConfig.js', () => ({
     readProjectTeamConfig: async () => mock.config,
 }));
-import { enqueueInputViaGateway, requestProjectReview, runChatViaGateway } from './pilotdeck-bridge.js';
-import { rm } from 'node:fs/promises';
+import { enqueueInputViaGateway, getInputQueueStateViaGateway, requestProjectReview, resumeInputQueueViaGateway, runChatViaGateway } from './pilotdeck-bridge.js';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { join, resolve } from 'node:path';
+
+it('resolves persisted solo mode for a queued turn and blocks both reviews', async () => {
+    const sessionKey = 'web:s_review_solo';
+    const projectPath = '/fixture/project';
+    const key = createHash('sha256').update(JSON.stringify([resolve(projectPath), sessionKey])).digest('hex');
+    const dir = join(mock.home, 'session-execution-modes');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, `${key}.json`), JSON.stringify({ executionMode: 'solo' }));
+    const { calls } = await run('worker', { sessionId: sessionKey, projectPath, executionMode: 'autoSplit' });
+    expect(calls.map(call => call.executionMode)).toEqual(['solo']);
+    const frames = [];
+    const getGateway = vi.fn();
+    const result = await requestProjectReview({ sessionId: sessionKey, projectPath },
+        { send: frame => frames.push(frame) }, 'pilotdeck', { getGateway });
+    expect(result.dispatched).toBe(false);
+    expect(frames[0]?.code).toBe('review_solo_mode');
+    expect(getGateway).not.toHaveBeenCalled();
+});
 beforeEach(() => { mock.config = { collaboration: { mode: 'automated' }, agents: [
     { id: 'worker', name: '执行员', role: 'implementer', enabled: true },
     { id: 'reviewer', name: '审查员', role: 'reviewer', enabled: true, reportsTo: null,
@@ -46,6 +66,48 @@ async function run(agentId, extra = {}, finishReason = 'completed') {
         { send: frame => frames.push(frame) }, 'pilotdeck', { getGateway: async () => gateway, fromQueue: true });
     return { calls, frames };
 }
+it.each([{ mode: 'auto' }, { mode: 'model', provider: 'fixture', model: 'user-model' }])(
+    'keeps the queued user choice $mode for both the worker and background review', async selection => {
+        mock.config.agents[0].model = { mode: 'model', provider: 'fixture', model: 'worker-model' };
+        const { calls } = await run('worker', { modelSelection: selection });
+        expect(calls.map(call => call.modelSelection)).toEqual([selection, selection]);
+        expect(calls.every(call => call.modelOverride === undefined)).toBe(true);
+    });
+it('keeps legacy override turn-only for the worker and background review', async () => {
+    mock.config.agents[0].model = { mode: 'model', provider: 'fixture', model: 'worker-model' };
+    const override = { mode: 'model', provider: 'fixture', model: 'legacy-model' };
+    const { calls } = await run('worker', { modelOverride: override });
+    expect(calls.map(call => call.modelOverride)).toEqual([override, override]);
+    expect(calls.every(call => call.modelSelection === undefined)).toBe(true);
+});
+it('reuses the queued model choice after a pre-acceptance failure', async () => {
+    mock.config.agents[0].model = { mode: 'model', provider: 'fixture', model: 'worker-model' };
+    const selection = { mode: 'model', provider: 'fixture', model: 'user-model' };
+    const calls = [];
+    const writer = { send() {} };
+    const sessionKey = 'web:s_review_model_retry';
+    mock.gateway = {
+        getActiveTurnSnapshot: async () => ({ active: false, events: [] }),
+        async *submitTurn(input) {
+            calls.push(input);
+            if (calls.length === 1) {
+                yield { type: 'error', code: 'fixture_failure', message: 'Try again', runId: input.runId };
+                return;
+            }
+            yield { type: 'input_accepted', runId: input.runId };
+            yield { type: 'turn_completed', runId: input.runId, finishReason: 'completed', usage: {} };
+        },
+    };
+    expect((await enqueueInputViaGateway(sessionKey, {
+        id: 'model-retry', command: 'retry fixture',
+        options: { projectPath: '/fixture/project', agentId: 'worker', modelSelection: selection },
+    }, writer)).ok).toBe(true);
+    await vi.waitFor(async () => expect(await getInputQueueStateViaGateway(sessionKey)).toMatchObject({ paused: true, items: [{ status: 'failed' }] }));
+    expect((await resumeInputQueueViaGateway(sessionKey, writer)).ok).toBe(true);
+    await vi.waitFor(() => expect(calls.map(call => call.modelSelection)).toEqual([selection, selection, selection]));
+    expect(calls[1].runId).toBe(calls[0].runId);
+    expect(calls[2].message).toBe('');
+});
 it.each(['worker', undefined])('starts one independent same-session review after %s, including queued turns', async agentId => {
     const { calls, frames } = await run(agentId, { uploadedAttachments: [{ id: 'original-upload' }] });
     expect(calls).toHaveLength(2);
@@ -53,7 +115,8 @@ it.each(['worker', undefined])('starts one independent same-session review after
     expect(calls[1].runId).not.toBe(calls[0].runId);
     expect(calls[1].message).toBe('');
     expect(calls[1].syntheticMessages).toEqual(expect.arrayContaining([expect.objectContaining({ purpose: 'project_agent_review_request' })]));
-    expect(calls[1].modelSelection).toEqual(mock.config.agents[1].model);
+    expect(calls[1].modelSelection).toBeUndefined();
+    expect(calls[1].defaultModelSelection).toEqual(mock.config.agents[1].model);
     expect(calls[1].toolPolicy).toEqual({ allow: ['read_file'] });
     expect(calls[1].uploadedAttachments).toBeUndefined();
     expect(frames.some(f => f.kind === 'stream_delta' && f.agentName === '审查员')).toBe(true);
@@ -134,7 +197,8 @@ it('explicit review request runs one reviewer turn in manual mode', async () => 
         expect.objectContaining({ purpose: 'project_agent_review_request' }),
     ]));
     // 审查员用自己的模型和工具权限。
-    expect(calls[1].modelSelection).toEqual(mock.config.agents[1].model);
+    expect(calls[1].modelSelection).toBeUndefined();
+    expect(calls[1].defaultModelSelection).toEqual(mock.config.agents[1].model);
     expect(calls[1].toolPolicy).toEqual({ allow: ['read_file'] });
     // 回复挂在同一个会话里，并带上审查员的身份。
     expect(frames.some(f => f.kind === 'stream_delta' && f.agentName === '审查员')).toBe(true);

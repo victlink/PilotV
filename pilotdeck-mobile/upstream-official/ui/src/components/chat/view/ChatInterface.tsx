@@ -10,7 +10,7 @@ import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { api } from '../../../utils/api';
 import type { ChatInterfaceProps, ChatMessage, ChatRunMode, PermissionMode, Provider } from '../types/types';
-import { fetchProjectTeam, sessionAgentBinding, ProjectTeamConflictError, saveProjectTeam } from '../../../lib/projectTeamApi';
+import { fetchProjectTeam, sessionAgentBinding, sessionExecutionMode, type ExecutionMode, ProjectTeamConflictError, saveProjectTeam } from '../../../lib/projectTeamApi';
 import type { ProjectAgentModel, ProjectTeamAgent, ProjectTeamConfig } from '../../../lib/projectTeam';
 import { withAgentModel } from './agentModelScope';
 import {
@@ -399,6 +399,41 @@ function ChatInterface({
     });
   }, [bindingScope, projectRoot, bindingSessionId, addToast]);
 
+  const isDraftExecution = !bindingSessionId || bindingSessionId.startsWith('new-session-');
+  const [execution, setExecution] = useState<{ scope: string; mode: ExecutionMode; status: 'ready' | 'saving' | 'error' }>({ scope: '', mode: 'autoSplit', status: 'ready' });
+  const [executionReload, setExecutionReload] = useState(0);
+  const executionRequests = useRef(new Map<string, Promise<ExecutionMode>>());
+  const activeExecutionScope = useRef(bindingScope);
+  activeExecutionScope.current = bindingScope;
+  const executionMode = execution.scope === bindingScope ? execution.mode : 'autoSplit';
+  const executionReady = !projectRoot || isDraftExecution || (execution.scope === bindingScope && execution.status === 'ready');
+
+  useEffect(() => {
+    if (!projectRoot || isDraftExecution || sessionIsReadOnly) return;
+    let cancelled = false;
+    void (executionRequests.current.get(bindingScope) ?? Promise.resolve()).catch(() => undefined)
+      .then(() => sessionExecutionMode(projectRoot, bindingSessionId))
+      .then(mode => { if (!cancelled) setExecution({ scope: bindingScope, mode, status: 'ready' }); })
+      .catch(() => { if (!cancelled) setExecution({ scope: bindingScope, mode: 'autoSplit', status: 'error' }); });
+    return () => { cancelled = true; };
+  }, [projectRoot, isDraftExecution, sessionIsReadOnly, bindingSessionId, bindingScope, executionReload]);
+
+  const selectExecutionMode = (mode: ExecutionMode) => {
+    if (!executionReady || !projectRoot || sessionIsReadOnly || executionRequests.current.has(bindingScope)) return;
+    if (isDraftExecution) {
+      setExecution({ scope: bindingScope, mode, status: 'ready' });
+      return;
+    }
+    setExecution({ scope: bindingScope, mode, status: 'saving' });
+    const request = sessionExecutionMode(projectRoot, bindingSessionId, mode);
+    executionRequests.current.set(bindingScope, request);
+    void request.then(saved => {
+      if (activeExecutionScope.current === bindingScope) setExecution({ scope: bindingScope, mode: saved, status: 'ready' });
+    }).catch(() => {
+      if (activeExecutionScope.current === bindingScope) setExecution({ scope: bindingScope, mode, status: 'error' });
+    }).finally(() => { executionRequests.current.delete(bindingScope); });
+  };
+
   const bindReview = review?.bind;
   useEffect(() => {
     bindReview?.(selectedProject && !isGeneralProject(selectedProject) ? selectedProject : null, selectedSession?.id ?? currentSessionId ?? null, isLoading, sessionIsReadOnly);
@@ -442,7 +477,7 @@ function ChatInterface({
   const handleRequestProjectReview = useCallback(() => {
     const reviewer = teamAgents.find((agent) => agent.role === 'reviewer');
     const sessionId = selectedSession?.id || currentSessionId;
-    if (!reviewer || !sessionId || isReviewRequestPending) return;
+    if (!reviewer || !sessionId || isReviewRequestPending || !executionReady || executionMode === 'solo') return;
     setIsReviewRequestPending(true);
     if (reviewRequestTimerRef.current) window.clearTimeout(reviewRequestTimerRef.current);
     // 后端在会话忙碌时会直接拒绝第二次请求，这里只是避免连点把错误消息刷出来。
@@ -459,7 +494,7 @@ function ChatInterface({
         agentId: reviewer.id,
       },
     });
-  }, [teamAgents, selectedSession?.id, currentSessionId, projectRoot, sendMessage, isReviewRequestPending]);
+  }, [teamAgents, selectedSession?.id, currentSessionId, projectRoot, sendMessage, isReviewRequestPending, executionReady, executionMode]);
   const inputQueue = useSessionInputQueue({
     sessionId: watchedSessionId,
     projectPath: selectedProject?.fullPath || selectedProject?.path,
@@ -543,7 +578,8 @@ function ChatInterface({
     model,
     modelSelection,
     agentId: activeAgentId,
-    isModelSelectionReady: isModelSelectionReady && bindingReady,
+    draftExecutionMode: projectRoot && isDraftExecution ? executionMode : undefined,
+    isModelSelectionReady: isModelSelectionReady && bindingReady && executionReady,
     isPermissionModeReady,
     runMode,
     permissionMode: effectivePermissionMode,
@@ -815,6 +851,7 @@ function ChatInterface({
     }
 
     if (!bindingReady) throw new Error("会话角色尚未加载或保存完成。");
+    if (!executionReady) throw new Error(t("executionMode.unavailable", { defaultValue: "Execution mode has not loaded or saved yet." }));
     if (!isPermissionModeReady) throw new Error(permissionModeError || "Permission preference is still loading.");
     if (!isModelSelectionReady || !modelSelection) throw new Error(modelCatalogError || "Model selection is still loading.");
     const attachments = Array.isArray(message.attachments) ? message.attachments : [];
@@ -887,6 +924,7 @@ function ChatInterface({
   }, [
     currentSessionId,
     bindingReady,
+    executionReady,
     isModelSelectionReady,
     isPermissionModeReady,
     permissionModeError,
@@ -1048,7 +1086,7 @@ function ChatInterface({
       modelCatalog={modelCatalog}
       modelSelection={modelSelection}
       isModelCatalogLoading={isModelCatalogLoading}
-      isModelSelectionReady={isModelSelectionReady && bindingReady}
+      isModelSelectionReady={isModelSelectionReady && bindingReady && executionReady}
       isPermissionModeReady={isPermissionModeReady}
       permissionModeError={permissionModeError}
       onRetryPermissionMode={reloadPermissionMode}
@@ -1059,7 +1097,7 @@ function ChatInterface({
       selectedAgentId={activeAgentId}
       onAgentSelectionChange={selectSessionAgent}
       onAgentModelChange={handleAgentModelChange}
-      reviewRequestTarget={teamReviewer ? { reviewerId: teamReviewer.id, reviewerName: teamReviewer.name } : null}
+      reviewRequestTarget={executionReady && executionMode !== 'solo' && teamReviewer ? { reviewerId: teamReviewer.id, reviewerName: teamReviewer.name } : null}
       onRequestReview={handleRequestProjectReview}
       isReviewPending={isReviewRequestPending || isLoading}
       onModelSelectionChange={setModelSelection}
@@ -1096,6 +1134,28 @@ function ChatInterface({
             if (bindingError.operation === 'save' && activeAgentId !== undefined) selectSessionAgent(activeAgentId);
             else setBindingReload(value => value + 1);
           }}>重试会话角色</button>
+        </div>
+      )}
+      {projectRoot && !sessionIsReadOnly && (
+        <div className="flex items-center gap-2 px-3 py-1 text-xs">
+          <label className="flex items-center gap-2">
+            {t('executionMode.label', { defaultValue: 'Execution mode' })}
+            <select
+              className="rounded border bg-transparent px-2 py-1"
+              disabled={!executionReady || isLoading}
+              value={executionReady || execution.scope === bindingScope ? executionMode : ''}
+              onChange={event => selectExecutionMode(event.target.value as ExecutionMode)}
+            >
+              <option value="" disabled>{t('executionMode.loading', { defaultValue: 'Loading…' })}</option>
+              <option value="autoSplit">{t('executionMode.autoSplit', { defaultValue: 'Auto split (existing scheduling)' })}</option>
+              <option value="solo">{t('executionMode.solo', { defaultValue: 'Main Agent only' })}</option>
+            </select>
+          </label>
+          {execution.scope === bindingScope && execution.status === 'error' && (
+            <button type="button" className="underline" onClick={() => setExecutionReload(value => value + 1)}>
+              {t('executionMode.retry', { defaultValue: 'Execution mode unavailable — retry' })}
+            </button>
+          )}
         </div>
       )}
       {composer}

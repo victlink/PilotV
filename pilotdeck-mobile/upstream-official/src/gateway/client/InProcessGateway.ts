@@ -197,6 +197,8 @@ export type InProcessGatewayOptions = {
     projectKey: string;
     uploads: UploadedAttachmentRef[];
   }) => Promise<ChannelAttachment[]>;
+  resolveProjectTaskAuthority?: (input: GatewaySubmitTurnInput) => Promise<import("../../agent/sub/ProjectTeamDispatch.js").ProjectTeamDispatch | undefined>;
+  resolveSavedSoloMode?: (input: GatewaySubmitTurnInput) => Promise<boolean>;
   resolveTurnModelSelection?: (input: GatewaySubmitTurnInput) => Promise<{
     selection?: import("../protocol/types.js").ExplicitModelSelection;
     source: "turn" | "session" | "router" | "default";
@@ -754,7 +756,23 @@ export class InProcessGateway implements Gateway {
             ? { source: "router" as const }
             : input.modelSelection?.mode === "model" || input.modelOverride
               ? { selection: input.modelSelection?.mode === "model" ? input.modelSelection : input.modelOverride, source: "turn" as const }
-              : { source: "default" as const };
+              : { selection: input.defaultModelSelection, source: "default" as const };
+        const savedSolo = await this.options.resolveSavedSoloMode?.({
+          ...input,
+          projectKey: this.router.getCachedProjectKey(input.sessionKey) ?? input.projectKey,
+        });
+        const executionMode = input.executionMode === "solo" || savedSolo ? "solo" : "autoSplit";
+        if (executionMode === "solo" && input.backgroundReview) {
+          throw new Error("Background review is disabled in solo mode.");
+        }
+        const projectTeamDispatch = executionMode === "solo" || input.backgroundReview ? undefined
+          : await this.options.resolveProjectTaskAuthority?.({
+            ...input, projectKey: this.router.getCachedProjectKey(input.sessionKey) ?? input.projectKey,
+          });
+        if (projectTeamDispatch?.members.length) syntheticMessages.push({
+          role: "user", metadata: { synthetic: true, purpose: "project_task_authority" },
+          content: [{ type: "text", text: `You may use delegate_project_tasks for bounded project-scoped read-only tasks. Enabled targets: ${projectTeamDispatch.members.map(member => member.id).join(", ")}. This does not authorize writing, shell, network or generic agent calls. Summarize the batch results yourself.` }],
+        });
         markTiming("selectionMs");
         if (cancelled) return;
         let lastEmittedModel: string | undefined;
@@ -779,6 +797,9 @@ export class InProcessGateway implements Gateway {
           {
             turnId: runId,
             modelSelection: input.modelSelection,
+            executionMode,
+            projectTeamDispatch,
+            inheritModelOverride: modelSelection.source === "turn" || modelSelection.source === "session",
             maxTurns: input.maxTurns,
             runMode,
             permissionMode,

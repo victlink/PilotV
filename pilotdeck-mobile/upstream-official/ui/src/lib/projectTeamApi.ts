@@ -19,6 +19,18 @@ import {
 } from './projectTeam';
 
 export const PROJECT_TEAM_API_BASE = '/api/project-team';
+export type ExecutionMode = 'autoSplit' | 'solo';
+
+export async function sessionExecutionMode(projectRoot: string, sessionKey: string, executionMode?: ExecutionMode): Promise<ExecutionMode> {
+    const response = await authenticatedFetch(`${PROJECT_TEAM_API_BASE}/session-execution-mode?projectRoot=${encodeURIComponent(projectRoot)}&sessionKey=${encodeURIComponent(sessionKey)}`, {
+        method: executionMode === undefined ? 'GET' : 'PUT',
+        ...(executionMode !== undefined ? { body: JSON.stringify({ executionMode }) } : {}),
+    });
+    if (!response.ok) throw new ProjectTeamRequestError(await readErrorDetail(response) || 'Could not load or save execution mode.', response.status);
+    const result = (await response.json()).executionMode;
+    if (result !== 'autoSplit' && result !== 'solo') throw new Error('Invalid session execution mode.');
+    return result;
+}
 
 // Missing agentId follows defaults; null explicitly disables team fallback.
 export async function sessionAgentBinding(projectRoot: string, sessionKey: string, agentId?: string | null): Promise<string | null | undefined> {

@@ -111,6 +111,10 @@ export type GatewaySubmitTurnInput = {
   modelOverride?: ExplicitModelSelection;
   /** Submitted choice: used for this turn and recorded with accepted input; never updates the Web global preference. */
   modelSelection?: SessionModelSelection;
+  /** Member default, only used without a turn or saved session choice; never persisted. */
+  defaultModelSelection?: ExplicitModelSelection;
+  executionMode?: import("../../agent/protocol/input.js").ExecutionMode;
+  backgroundReview?: boolean;
   runMode?: AgentRunMode;
   mode?: GatewayMode;
   /** The user's actual permission preference before plan-mode override. */

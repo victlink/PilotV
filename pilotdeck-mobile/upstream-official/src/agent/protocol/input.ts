@@ -14,7 +14,11 @@ export type AgentInput =
   | { type: "text"; text: string; isMeta?: boolean }
   | { type: "blocks"; content: CanonicalContentBlock[]; isMeta?: boolean };
 
+export type ExecutionMode = "autoSplit" | "solo";
+
 export type AgentSubmitOptions = {
+  projectTeamDispatch?: import("../sub/ProjectTeamDispatch.js").ProjectTeamDispatch;
+  executionMode?: ExecutionMode;
   turnId?: string;
   maxTurns?: number;
   metadata?: Record<string, unknown>;
@@ -34,6 +38,8 @@ export type AgentSubmitOptions = {
    */
   syntheticMessages?: import("../../model/index.js").CanonicalMessage[];
   modelOverride?: AgentModelOverride;
+  /** True only for a user model contract, not an ordinary resolved target. */
+  inheritModelOverride?: boolean;
   /** Submitted model snapshot, recorded for replay and legacy session clients. */
   modelSelection?: NonNullable<import("../../session/transcript/TranscriptEntry.js").SessionMetadataValue["modelSelection"]>;
 };

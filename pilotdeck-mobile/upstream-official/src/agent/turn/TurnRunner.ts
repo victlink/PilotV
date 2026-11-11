@@ -37,6 +37,9 @@ export type TurnRunnerOptions = {
   /** Synthetic messages appended after user input; stored with metadata.synthetic flag. */
   syntheticMessages?: CanonicalMessage[];
   modelOverride?: AgentModelOverride;
+  executionMode?: import("../protocol/input.js").ExecutionMode;
+  projectTeamDispatch?: import("../sub/ProjectTeamDispatch.js").ProjectTeamDispatch;
+  inheritModelOverride?: boolean;
   modelSelection?: NonNullable<SessionMetadataValue["modelSelection"]>;
   openSteerMailbox?: () => void;
   drainSteerMessages?: () => AgentSteerMessage[];
@@ -288,6 +291,9 @@ export class TurnRunner {
           canPrompt: options.canPrompt,
           permissionRules: options.permissionRules,
           modelOverride: options.modelOverride,
+          executionMode: options.executionMode,
+          projectTeamDispatch: options.projectTeamDispatch,
+          inheritModelOverride: options.inheritModelOverride,
           abortSignal: options.abortSignal,
           drainSteerMessages: options.drainSteerMessages
             ? () => trackDrainedSteers(options.drainSteerMessages?.() ?? [])

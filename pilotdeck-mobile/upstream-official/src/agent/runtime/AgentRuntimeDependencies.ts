@@ -28,6 +28,7 @@ import type { ModelProtocol } from "../../model/index.js";
  * compaction pass between the routing decision and the model call.
  */
 export type AgentRouterRuntime = Pick<RouterRuntime, "stream" | "decide" | "execute"> & {
+  resolveProjectTaskModel?: RouterRuntime["resolveProjectTaskModel"];
   materializeRequest?: RouterRuntime["materializeRequest"];
   observeUsage?: RouterRuntime["observeUsage"];
   invalidateSticky?: RouterRuntime["invalidateSticky"];

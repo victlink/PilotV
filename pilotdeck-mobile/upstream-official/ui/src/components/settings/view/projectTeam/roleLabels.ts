@@ -60,6 +60,16 @@ const ROLE_TEMPLATES: Record<ProjectAgentRole, Record<ProjectTeamLocale, AgentTe
         "Reviews and verifies only; never modifies code and reports a reproducible list of issues.",
     },
   },
+  inspector: {
+    "zh-CN": {
+      description: PROJECT_AGENT_ROLE_TEMPLATES.inspector.description,
+      roleDefinition: PROJECT_AGENT_ROLE_TEMPLATES.inspector.roleDefinition,
+    },
+    en: {
+      description: "Independently inspect project health and operational risks",
+      roleDefinition: "Inspect project health and existing diagnostic evidence. Report anomalies, evidence, and recommendations without making repairs.",
+    },
+  },
   supervisor: {
     "zh-CN": {
       description: PROJECT_AGENT_ROLE_TEMPLATES.supervisor.description,

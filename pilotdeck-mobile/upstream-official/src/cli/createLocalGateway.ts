@@ -10,7 +10,7 @@ import type { ExplicitModelSelection } from "../gateway/protocol/types.js";
 import { isOptionalFeatureEnabled } from "../pilot/config/optionalFeature.js";
 import { resolveWebSearchConfig } from "../pilot/config/webSearchConfig.js";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync as mkdirSyncFs, renameSync, readFileSync, watchFile, unwatchFile } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync as mkdirSyncFs, renameSync, readFileSync, realpathSync, watchFile, unwatchFile } from "node:fs";
 import { dirname, resolve, join as joinPath } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -594,6 +594,40 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
       });
       await router.close(input.sessionKey);
     },
+    async resolveProjectTaskAuthority(input) {
+      const projectKey = await dialogProjects.resolveProjectKey(input.projectKey ?? fallbackProjectRoot);
+      // Source and built installations share the shipped UI runtime module.
+      const candidates = [new URL("../../ui/server/services/projectTeamRuntime.js", import.meta.url),
+        new URL("../../../ui/server/services/projectTeamRuntime.js", import.meta.url)];
+      const moduleUrl = candidates.find(candidate => existsSync(fileURLToPath(candidate)));
+      if (!moduleUrl) throw new Error("Project team runtime is unavailable.");
+      const { resolveProjectTaskAuthority } = await import(moduleUrl.href);
+      const authority = await resolveProjectTaskAuthority({
+        projectKey, sessionKey: input.sessionKey,
+        snapshotProvider: async () => [{ fullPath: projectKey }],
+      });
+      // A member default is not a substitute for the user's Auto contract.
+      // Non-fixed children resolve once from the server Auto tier pool.
+      if (authority) for (const member of authority.members) delete member.model;
+      return authority;
+    },
+    async resolveSavedSoloMode(input) {
+      // Keep the key and strict read in sync with the Web session preference store.
+      const projectKey = await dialogProjects.resolveProjectKey(input.projectKey ?? fallbackProjectRoot);
+      let root = resolve(projectKey);
+      try { root = realpathSync(root); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      const key = createHash("sha256").update(JSON.stringify([root, input.sessionKey])).digest("hex");
+      try {
+        const { executionMode } = JSON.parse(readFileSync(joinPath(pilotHome, "session-execution-modes", `${key}.json`), "utf8"));
+        if (executionMode !== "autoSplit" && executionMode !== "solo") throw new Error("Invalid stored execution mode.");
+        return executionMode === "solo";
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      }
+    },
     async resolveTurnModelSelection(input) {
       const projectKey = await dialogProjects.resolveProjectKey(input.projectKey ?? fallbackProjectRoot);
       if (input.modelSelection !== undefined && input.modelOverride !== undefined) {
@@ -613,6 +647,10 @@ export function createLocalGateway(options: CreateLocalGatewayOptions = {}): Cre
       if (saved) validateModelSelection(projectKey, saved, env);
       if (saved?.mode === "model") {
         return { selection: saved, source: "session" as const };
+      }
+      if (!saved && input.defaultModelSelection) {
+        validateExplicitModelSelection(projectKey, input.defaultModelSelection, env);
+        return { selection: normalizeSessionModelSelection(input.defaultModelSelection) as ExplicitModelSelection, source: "default" as const };
       }
       const config = loadPilotConfig({ projectRoot: projectKey, env }).config;
       return { source: config.router?.enabled ? "router" as const : "default" as const };
@@ -1212,6 +1250,7 @@ class ProjectRuntimeRegistry {
     });
     const routerConfig = ensureRouterConfig(snapshot.config.router, snapshot.config.agent.model);
     const router = createRouterRuntime(routerConfig, {
+      modelConfig: snapshot.config.model,
       modelRuntime: model,
       now: this.options.now,
       customRouterRegistry: pluginRuntime,

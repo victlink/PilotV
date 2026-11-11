@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -26,6 +27,7 @@ vi.mock("react-i18next", () => ({
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   mocks.fetch.mockReset();
 });
 
@@ -88,6 +90,181 @@ function requestBody(callIndex: number): Record<string, any> {
   const [, options] = mocks.fetch.mock.calls[callIndex] as [string, RequestInit];
   return JSON.parse(String(options.body)) as Record<string, any>;
 }
+
+it("copies a reusable inspector definition without overwriting the template or binding identity", async () => {
+  mocks.fetch.mockResolvedValue(jsonResponse(loadPayload));
+  const view = renderSection();
+  await screen.findByText("Reviewer One");
+  fireEvent.click(screen.getByRole("tab", { name: "tabs.roles" }));
+  const choose = (value: string) => fireEvent.change(screen.getByLabelText("templates.choose"), { target: { value } });
+  const definition = () => screen.getByLabelText("templates.definition") as HTMLTextAreaElement;
+  choose("builtin:inspector");
+  const builtin = definition().value;
+  expect(builtin).toMatch(/inspect/i);
+  fireEvent.change(definition(), { target: { value: "Inspect deployment health" } });
+  fireEvent.change(screen.getByLabelText("templates.name"), { target: { value: "Health checks" } });
+  fireEvent.click(screen.getByRole("button", { name: "templates.saveAs" }));
+  expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  view.unmount();
+
+  renderSection();
+  await screen.findByText("Reviewer One");
+  fireEvent.click(screen.getByRole("tab", { name: "tabs.roles" }));
+  const saved = screen.getByRole<HTMLOptionElement>("option", { name: "Health checks" });
+  choose(saved.value);
+  expect(definition().value).toBe("Inspect deployment health");
+  fireEvent.click(screen.getByRole("button", { name: "templates.apply" }));
+  fireEvent.click(screen.getByRole("button", { name: "actions.save" }));
+  await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(3));
+  expect(requestBody(2).agents).toEqual([expect.objectContaining({
+    id: "agent-1", name: "Reviewer One", role: "reviewer",
+    description: "Independently inspect project health and operational risks",
+    roleDefinition: "Inspect deployment health", permissions: agentFixture.permissions,
+  })]);
+  expect(requestBody(2)).not.toHaveProperty("templates");
+  choose(saved.value);
+  fireEvent.click(screen.getByRole("button", { name: "templates.restore" }));
+  expect(definition().value).toBe(builtin);
+  expect(screen.getByRole("option", { name: "Health checks" })).toBeTruthy();
+});
+
+it("requires confirmation before changing the member role and preserves custom text and permissions", async () => {
+  mocks.fetch.mockResolvedValue(jsonResponse(loadPayload));
+  renderSection();
+  await screen.findByText("Reviewer One");
+  fireEvent.click(screen.getByRole("tab", { name: "tabs.roles" }));
+  const memberRole = screen.getByRole<HTMLSelectElement>("combobox", { name: "roles.reviewer" });
+
+  fireEvent.change(memberRole, { target: { value: "executor" } });
+  expect(memberRole.value).toBe("reviewer");
+  let dialog = within(screen.getByRole("dialog"));
+  expect(dialog.getByText("roles.changeConfirm")).toBeTruthy();
+  fireEvent.click(dialog.getByRole("button", { name: "confirmDialog.cancel" }));
+  expect(memberRole.value).toBe("reviewer");
+  expect(screen.queryByRole("dialog")).toBeNull();
+
+  fireEvent.change(memberRole, { target: { value: "executor" } });
+  dialog = within(screen.getByRole("dialog"));
+  fireEvent.click(dialog.getByRole("button", { name: "roles.changeAction" }));
+  expect(memberRole.value).toBe("executor");
+  fireEvent.click(screen.getByRole("button", { name: "actions.save" }));
+  await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(2));
+  expect(requestBody(1).agents).toEqual([{ ...agentFixture, role: "executor" }]);
+});
+
+it("keeps simultaneous same-name saves when the second tab writes between the first tab read and write", async () => {
+  mocks.fetch.mockResolvedValue(jsonResponse(loadPayload));
+  const first = renderSection();
+  await within(first.container).findByText("Reviewer One");
+  fireEvent.click(within(first.container).getByRole("tab", { name: "tabs.roles" }));
+  const second = renderSection();
+  await within(second.container).findByText("Reviewer One");
+  fireEvent.click(within(second.container).getByRole("tab", { name: "tabs.roles" }));
+
+  for (const [view, definition] of [[first, "First definition"], [second, "Second definition"]] as const) {
+    const editor = within(view.container);
+    fireEvent.change(editor.getByLabelText("templates.definition"), { target: { value: definition } });
+    fireEvent.change(editor.getByLabelText("templates.name"), { target: { value: "Shared name" } });
+  }
+
+  // Suspend the first write after its read; the other tab completes a save before it resumes.
+  // Unlike two sequential clicks, this deterministically exercises the lost-update window.
+  const originalSetItem = Storage.prototype.setItem;
+  let interleaved = false;
+  const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+    if (!interleaved && key.startsWith("pilotdeck.projectTeam.roleTemplates.")) {
+      interleaved = true;
+      fireEvent.click(within(second.container).getByRole("button", { name: "templates.saveAs" }));
+    }
+    originalSetItem.call(this, key, value);
+  });
+  try {
+    fireEvent.click(within(first.container).getByRole("button", { name: "templates.saveAs" }));
+    expect(interleaved).toBe(true);
+  } finally {
+    write.mockRestore();
+  }
+
+  first.unmount();
+  second.unmount();
+  renderSection();
+  await screen.findByText("Reviewer One");
+  fireEvent.click(screen.getByRole("tab", { name: "tabs.roles" }));
+  const copies = screen.getAllByRole<HTMLOptionElement>("option", { name: "Shared name" });
+  expect(copies).toHaveLength(2);
+  const definitions = copies.map(({ value }) => {
+    fireEvent.change(screen.getByLabelText("templates.choose"), { target: { value } });
+    return screen.getByLabelText<HTMLTextAreaElement>("templates.definition").value;
+  });
+  expect(definitions.sort()).toEqual(["First definition", "Second definition"]);
+});
+
+it("refreshes same-origin templates without changing the selected template when the list is reordered", async () => {
+  const key = "pilotdeck.projectTeam.roleTemplates.v1";
+  const legacy = { role: "inspector", name: "Legacy copy", description: "Duty", roleDefinition: "Legacy definition" };
+  const first = { ...legacy, id: "first", name: "First", roleDefinition: "First definition" };
+  const second = { ...legacy, id: "second", name: "Second", roleDefinition: "Second definition" };
+  localStorage.setItem(key, JSON.stringify([legacy, first, second]));
+  mocks.fetch.mockResolvedValue(jsonResponse(loadPayload));
+  renderSection();
+  await screen.findByText("Reviewer One");
+  fireEvent.click(screen.getByRole("tab", { name: "tabs.roles" }));
+  const choose = screen.getByLabelText<HTMLSelectElement>("templates.choose");
+  expect(screen.getByRole("option", { name: "Legacy copy" })).toBeTruthy();
+  fireEvent.change(choose, { target: { value: screen.getByRole<HTMLOptionElement>("option", { name: "First" }).value } });
+  const newValue = JSON.stringify([second, first]);
+  localStorage.setItem(key, newValue);
+  act(() => window.dispatchEvent(new StorageEvent("storage", { key, newValue, storageArea: localStorage })));
+  expect(screen.queryByRole("option", { name: "Legacy copy" })).toBeNull();
+  expect(choose.selectedOptions[0].textContent).toBe("First");
+  expect(screen.getByLabelText<HTMLTextAreaElement>("templates.definition").value).toBe("First definition");
+});
+
+it("preserves identical legacy copies across saving and remount without rewriting the legacy table", async () => {
+  const key = "pilotdeck.projectTeam.roleTemplates.v1";
+  const legacy = { role: "inspector", name: "Legacy", description: "Duty", roleDefinition: "Old definition" };
+  const original = JSON.stringify([legacy, legacy]);
+  localStorage.setItem(key, original);
+  mocks.fetch.mockResolvedValue(jsonResponse(loadPayload));
+  const view = renderSection();
+  await screen.findByText("Reviewer One");
+  fireEvent.click(screen.getByRole("tab", { name: "tabs.roles" }));
+  const copies = screen.getAllByRole<HTMLOptionElement>("option", { name: "Legacy" });
+  expect(copies).toHaveLength(2);
+  expect(copies[0].value).not.toBe(copies[1].value);
+  fireEvent.change(screen.getByLabelText("templates.choose"), { target: { value: copies[0].value } });
+  fireEvent.change(screen.getByLabelText("templates.name"), { target: { value: "New copy" } });
+  fireEvent.click(screen.getByRole("button", { name: "templates.saveAs" }));
+  expect(localStorage.getItem(key)).toBe(original);
+  view.unmount();
+  renderSection();
+  await screen.findByText("Reviewer One");
+  fireEvent.click(screen.getByRole("tab", { name: "tabs.roles" }));
+  expect(screen.getAllByRole("option", { name: "Legacy" })).toHaveLength(2);
+  fireEvent.change(screen.getByLabelText("templates.choose"), {
+    target: { value: screen.getByRole<HTMLOptionElement>("option", { name: "New copy" }).value },
+  });
+  expect(screen.getByLabelText<HTMLTextAreaElement>("templates.definition").value).toBe("Old definition");
+});
+
+it("subscribes to per-ID additions and deletion and resets a deleted selection", async () => {
+  mocks.fetch.mockResolvedValue(jsonResponse(loadPayload));
+  renderSection();
+  await screen.findByText("Reviewer One");
+  fireEvent.click(screen.getByRole("tab", { name: "tabs.roles" }));
+  const key = "pilotdeck.projectTeam.roleTemplates.v2:remote";
+  const value = JSON.stringify({ id: "remote", role: "inspector", name: "Remote", description: "Duty", roleDefinition: "Remote definition" });
+  localStorage.setItem(key, value);
+  act(() => window.dispatchEvent(new StorageEvent("storage", { key, newValue: value, storageArea: localStorage })));
+  fireEvent.change(screen.getByLabelText("templates.choose"), {
+    target: { value: screen.getByRole<HTMLOptionElement>("option", { name: "Remote" }).value },
+  });
+  expect(screen.getByLabelText<HTMLTextAreaElement>("templates.definition").value).toBe("Remote definition");
+  localStorage.removeItem(key);
+  act(() => window.dispatchEvent(new StorageEvent("storage", { key, newValue: null, storageArea: localStorage })));
+  expect(screen.queryByRole("option", { name: "Remote" })).toBeNull();
+  expect(screen.getByLabelText<HTMLSelectElement>("templates.choose").value).toBe("builtin:executor");
+});
 
 it("loads the team configuration for the selected project", async () => {
   mocks.fetch.mockResolvedValue(jsonResponse(loadPayload));

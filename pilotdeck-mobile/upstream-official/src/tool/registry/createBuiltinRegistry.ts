@@ -1,6 +1,7 @@
 import { createVideoGenerationTools, type VideoToolOptions } from "../builtin/videoGeneration.js";
 import { createImageGenerationTools, type ImageToolOptions } from "../builtin/imageGeneration.js";
 import type { BackgroundTaskRuntime } from "../../task/runtime/BackgroundTaskRuntime.js";
+import { createDelegateProjectTasksTool } from "../builtin/delegateProjectTasks.js";
 import { createAgentTool, type CreateAgentToolOptions } from "../builtin/agent.js";
 import { createAskUserQuestionTool } from "../builtin/askUserQuestion.js";
 import { createBashTool, type CreateBashToolOptions } from "../builtin/bash.js";
@@ -94,6 +95,7 @@ export type CreateBuiltinRegistryOptions = {
 
 export function createBuiltinRegistry(options?: CreateBuiltinRegistryOptions): ToolRegistry {
   const registry = new ToolRegistry();
+  registry.register(createDelegateProjectTasksTool());
   if (options?.videoGeneration?.getConfig()?.enabled === true) {
     for (const tool of createVideoGenerationTools(options.videoGeneration)) registry.register(tool);
   }

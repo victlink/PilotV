@@ -75,6 +75,10 @@ export class SessionRouter {
     }
   }
 
+  getCachedProjectKey(sessionKey: string): string | undefined {
+    return this.sessions.get(sessionKey)?.context.projectKey;
+  }
+
   async getOrCreate(context: GatewaySessionContext, turnRunId?: string): Promise<AgentSession> {
     if (this.isShutdown) throw new Error("Session router is closed.");
     this.sweepIdle();

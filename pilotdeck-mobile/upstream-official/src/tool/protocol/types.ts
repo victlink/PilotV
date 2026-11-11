@@ -242,6 +242,9 @@ export type PilotDeckPlanTodoStateHandle = {
 };
 
 export type PilotDeckToolRuntimeContext = {
+  delegateProjectTasks?: (tasks: import("../builtin/delegateProjectTasks.js").ProjectTask[], signal?: AbortSignal) => Promise<import("../../agent/sub/ProjectTeamDispatch.js").ProjectTaskResult[]>;
+  delegationDisabled?: boolean;
+  strictProjectScope?: boolean;
   sessionId: string;
   turnId: string;
   cwd: string;

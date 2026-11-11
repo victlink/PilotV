@@ -420,6 +420,7 @@ describe('project team payload validation', () => {
             'executor',
             'reviewer',
             'supervisor',
+            'inspector',
         ]);
     });
 

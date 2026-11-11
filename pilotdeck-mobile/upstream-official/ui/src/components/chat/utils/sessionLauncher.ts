@@ -20,6 +20,7 @@ type StartSessionOptions = {
   toolsSettings?: PilotDeckSettings;
   modelSelection?: ChatModelSelection;
   agentId?: string | null;
+  draftExecutionMode?: import("../../../lib/projectTeamApi").ExecutionMode;
   modelOverride?: {
     mode: 'model';
     provider: string;
@@ -122,6 +123,7 @@ export function startSessionCommand({
   displayAttachments,
   alwaysOnPlanId,
   alwaysOnExecutionToken,
+  draftExecutionMode,
   workspaceCwd,
 }: StartSessionOptions): string | null {
   const sessionToActivate =
@@ -150,6 +152,7 @@ export function startSessionCommand({
       ...(typeof userVisibleInput === 'string' && userVisibleInput.trim()
         ? { userVisibleInput: userVisibleInput.trim() }
         : {}),
+      ...(draftExecutionMode && (!sessionId || isTemporarySessionId(sessionId)) ? { executionMode: draftExecutionMode } : {}),
       ...(alwaysOnPlanId ? { alwaysOnPlanId } : {}),
       ...(alwaysOnExecutionToken ? { alwaysOnExecutionToken } : {}),
       ...(Array.isArray(images) && images.length > 0 ? { images } : {}),

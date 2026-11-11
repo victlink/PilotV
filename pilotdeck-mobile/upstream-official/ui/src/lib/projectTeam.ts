@@ -47,7 +47,7 @@ export const PROJECT_TEAM_MAX_ROLE_DEFINITION_LENGTH = 4000;
 export const PROJECT_TEAM_MODEL_PROVIDER_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 export const PROJECT_TEAM_MODEL_ID_PATTERN = /^[A-Za-z0-9._:/-]{1,128}$/;
 
-export type ProjectAgentRole = 'commander' | 'executor' | 'reviewer' | 'supervisor';
+export type ProjectAgentRole = 'commander' | 'executor' | 'reviewer' | 'supervisor' | 'inspector';
 export type ProjectToolAccessMode = 'allow-list' | 'all';
 /** 工具条目的两个列表；后端对它们分别限制条目数量。 */
 export type ProjectToolListName = 'allowedTools' | 'deniedTools';
@@ -60,6 +60,7 @@ export const PROJECT_TEAM_ROLES: ProjectAgentRole[] = [
     'executor',
     'reviewer',
     'supervisor',
+    'inspector',
 ];
 
 export const PROJECT_TEAM_TOOL_ACCESS_MODES: ProjectToolAccessMode[] = ['allow-list', 'all'];
@@ -149,6 +150,11 @@ export const PROJECT_AGENT_ROLE_TEMPLATES: Record<
         labelKey: 'projectTeam.roles.reviewer',
         description: '审查实现与回归风险',
         roleDefinition: '只做审查与验证，不修改代码；给出可复现的问题清单。',
+    },
+    inspector: {
+        labelKey: 'projectTeam.roles.inspector',
+        description: '独立巡检项目状态与运行风险',
+        roleDefinition: '独立检查项目状态与既有诊断证据，记录异常、证据与建议，不直接修复。',
     },
     supervisor: {
         labelKey: 'projectTeam.roles.supervisor',

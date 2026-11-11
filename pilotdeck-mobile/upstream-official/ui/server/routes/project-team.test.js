@@ -106,6 +106,24 @@ describe('session agent binding API', () => {
     }, 20_000);
 });
 
+it('persists execution mode per project and session without a team config', async () => {
+    const workspace = createWorkspace();
+    const root = workspace.registerProject('execution');
+    const other = workspace.registerProject('other');
+    const app = createApp({ snapshotProvider: async () => [] });
+    const url = (project, session) => `/api/project-team/session-execution-mode?projectRoot=${encodeURIComponent(project)}&sessionKey=${session}`;
+    const put = executionMode => ({ method: 'PUT', body: JSON.stringify({ executionMode }) });
+    const target = url(root, 'web:s_mode');
+    expect(await requestJson(app, target)).toEqual({ status: 200, body: { executionMode: 'autoSplit' } });
+    expect(await requestJson(app, target, put('solo'))).toEqual({ status: 200, body: { executionMode: 'solo' } });
+    expect((await requestJson(createApp(), target)).body.executionMode).toBe('solo');
+    expect((await requestJson(app, url(root, 'web:s_other'))).body.executionMode).toBe('autoSplit');
+    expect((await requestJson(app, url(other, 'web:s_mode'))).body.executionMode).toBe('autoSplit');
+    expect((await requestJson(app, target, put('invalid'))).status).toBe(400);
+    expect((await requestJson(app, target)).body.executionMode).toBe('solo');
+    expect((await requestJson(app, url(join(workspace.base, 'unregistered'), 'web:s_mode'), put('solo'))).status).toBe(404);
+});
+
 describe('GET /api/project-team', () => {
     it('returns the empty configuration for a registered project', async () => {
         const workspace = createWorkspace();

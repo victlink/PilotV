@@ -67,11 +67,28 @@ async function defaultSnapshotProvider() {
     }
 }
 
+const RESTRICTED_ROLES = new Set(['commander', 'reviewer', 'inspector']);
+const READ_ONLY_TOOLS = ['read_file', 'grep', 'glob'];
+
+function effectivePermissions(agent) {
+    const permissions = agent.permissions;
+    if (!RESTRICTED_ROLES.has(agent.role)) return permissions;
+    return {
+        ...permissions,
+        toolAccess: 'allow-list',
+        allowedTools: permissions.toolAccess === 'all'
+            ? READ_ONLY_TOOLS
+            : READ_ONLY_TOOLS.filter((tool) => permissions.allowedTools.includes(tool)),
+        writeScope: 'read-only',
+        network: 'none',
+    };
+}
+
 export function buildProjectAgentBriefing(agent) {
     const lines = [`你现在是本项目的 Agent「${agent.name}」。`];
     if (agent.description) lines.push(`职责：${agent.description}`);
     if (agent.roleDefinition) lines.push(`角色定义：${agent.roleDefinition}`);
-    const permissions = agent.permissions;
+    const permissions = effectivePermissions(agent);
     if (permissions.toolAccess === 'allow-list') {
         lines.push(`可用工具（白名单）：${permissions.allowedTools.join(', ') || '（空）'}`);
     }
@@ -135,7 +152,7 @@ const WRITE_TOOLS = ['write_file', 'edit_file', 'edit_notebook'];
  * @param {{ projectRoot?: string }} [options] root the agent is bound to
  */
 export function buildProjectAgentToolPolicy(agent, { projectRoot } = {}) {
-    const permissions = agent.permissions;
+    const permissions = effectivePermissions(agent);
     const deny = new Set(permissions.deniedTools);
     const ask = new Set();
 
@@ -190,6 +207,38 @@ export function buildProjectAgentToolPolicy(agent, { projectRoot } = {}) {
     return policy;
 }
 
+/** Resolve a fresh, server-owned delegation envelope. Never persists a binding. */
+export async function resolveProjectTaskAuthority(options = {}) {
+    const runtime = await resolveProjectTeamRuntime({ ...options, persistBinding: false });
+    if (!runtime || runtime.agent?.role !== 'commander') return undefined;
+    const members = runtime.agents.filter(member => member.enabled && member.id !== runtime.agentId
+        && member.role !== 'commander').map(member => ({
+        id: member.id,
+        briefing: buildProjectAgentBriefing(member),
+        toolPolicy: buildProjectAgentToolPolicy(member, { projectRoot: runtime.projectRoot }),
+        ...(member.model ? { model: member.model } : {}),
+    }));
+    return {
+        projectRoot: runtime.projectRoot,
+        members,
+        async resolveMember(memberId) {
+            // Re-read registered project, session binding, role and permissions
+            // after queue waits; never authorize from the advertised snapshot.
+            const fresh = await resolveProjectTeamRuntime({ ...options, persistBinding: false });
+            if (!fresh || path.resolve(fresh.projectRoot) !== path.resolve(runtime.projectRoot)
+                || fresh.agentId !== runtime.agentId || fresh.agent?.role !== 'commander') return undefined;
+            const member = fresh.agents.find(candidate => candidate.id === memberId && candidate.enabled
+                && candidate.id !== fresh.agentId && candidate.role !== 'commander');
+            if (!member) return undefined;
+            return {
+                id: member.id,
+                briefing: buildProjectAgentBriefing(member),
+                toolPolicy: buildProjectAgentToolPolicy(member, { projectRoot: fresh.projectRoot }),
+            };
+        },
+    };
+}
+
 export async function resolveProjectTeamRuntime({ projectKey, cwd, agentId, sessionKey, persistBinding = true, snapshotProvider = defaultSnapshotProvider } = {}) {
     const root = projectKey || cwd;
     if (root && sessionKey) {
@@ -219,7 +268,7 @@ export async function resolveProjectTeamRuntime({ projectKey, cwd, agentId, sess
         const mode = config.collaboration?.mode || 'manual';
         if (mode === 'manual') return null;
         const fallback = config.agents.find((candidate) => candidate.enabled && candidate.role === 'commander')
-            || config.agents.find((candidate) => candidate.enabled && candidate.role !== 'reviewer');
+            || config.agents.find((candidate) => candidate.enabled && candidate.role !== 'reviewer' && candidate.role !== 'inspector');
         if (!fallback) return { projectRoot: root, teamConfig: config, syntheticMessages: [] };
         selectedAgentId = fallback.id;
     }
