@@ -3,6 +3,25 @@ import { useOptionalWebSocket } from '../../../contexts/WebSocketContext';
 
 type Subscribe = (handler: (message: any) => void) => () => void;
 
+// History is loaded by the session store, often before the header mounts.
+const historyTimings = new Map<string, any>();
+const historyListeners = new Set<(message: any) => void>();
+export function restoreSessionTurnTiming(sessionId: string, messages: readonly any[]): void {
+  const latest = [...messages].reverse().find((message) => {
+    const start = Date.parse(message.turnTiming?.startedAt);
+    const end = Date.parse(message.turnTiming?.completedAt);
+    return Number.isFinite(start) && Number.isFinite(end) && end >= start;
+  });
+  if (!latest) return;
+  const cached = historyTimings.get(sessionId);
+  if (cached && Date.parse(cached.turnTiming.startedAt) > Date.parse(latest.turnTiming.startedAt)) return;
+  const frame = { ...latest, sessionId, kind: 'complete', restoredHistory: true };
+  historyTimings.delete(sessionId);
+  historyTimings.set(sessionId, frame);
+  if (historyTimings.size > 100) historyTimings.delete(historyTimings.keys().next().value!);
+  for (const listener of historyListeners) listener(frame);
+}
+
 /**
  * Execution time (ms) for the conversation's current turn.
  *
@@ -33,9 +52,23 @@ export function useTurnTaskElapsed({ sessionId, subscribe }: {
     }
   }, [sessionId]);
 
-  useEffect(() => subscribe((message: any) => {
+  useEffect(() => {
+    const handle = (message: any) => {
     const messageSessionId = message?.sessionId;
     if (!messageSessionId || messageSessionId !== sessionId) return;
+    if (message.type === 'session-status') {
+      const frames = Array.isArray(message.activeTurnMessages) ? message.activeTurnMessages : [];
+      const start = frames.find((frame: any) => frame.kind === 'status' && frame.text === 'started'
+        && frame.runId === message.activeRunId);
+      const timestamp = typeof start?.timestamp === 'string' ? Date.parse(start.timestamp) : NaN;
+      if (message.isProcessing && Number.isFinite(timestamp)) {
+        runIdRef.current = message.activeRunId;
+        startedAtRef.current = timestamp;
+        frozenRef.current = null;
+        setTaskElapsed(Math.max(0, Date.now() - timestamp));
+      }
+      return;
+    }
     const runId = typeof message.runId === 'string' && message.runId ? message.runId : null;
     if (message.kind === 'status' && message.text === 'started') {
       if (runId && runIdRef.current === runId) return;
@@ -50,11 +83,29 @@ export function useTurnTaskElapsed({ sessionId, subscribe }: {
       || message.kind === 'interrupted'
       || (message.kind === 'error' && message.terminal !== false);
     if (!terminal) return;
-    if (runId && runIdRef.current && runId !== runIdRef.current) return;
+    const timingStart = typeof message.turnTiming?.startedAt === 'string' ? Date.parse(message.turnTiming.startedAt) : NaN;
+    const timingEnd = typeof message.turnTiming?.completedAt === 'string' ? Date.parse(message.turnTiming.completedAt) : NaN;
+    // Late history cannot overwrite a running turn or regress a known result.
+    // A newer completed turn may have happened while the socket was offline.
+    if (message.restoredHistory && startedAtRef.current !== null
+      && (frozenRef.current === null || !Number.isFinite(timingStart) || timingStart < startedAtRef.current)) return;
+    if (!message.restoredHistory && runId && runIdRef.current && runId !== runIdRef.current) return;
+    if (Number.isFinite(timingStart) && Number.isFinite(timingEnd) && timingEnd >= timingStart) {
+      runIdRef.current = runId;
+      startedAtRef.current = timingStart;
+      frozenRef.current = timingEnd - timingStart;
+      setTaskElapsed(frozenRef.current);
+      return;
+    }
     if (startedAtRef.current === null || frozenRef.current !== null) return;
     frozenRef.current = Date.now() - startedAtRef.current;
     setTaskElapsed(Math.max(0, frozenRef.current));
-  }), [sessionId, subscribe]);
+    };
+    historyListeners.add(handle);
+    const unsubscribe = subscribe(handle);
+    if (sessionId && historyTimings.has(sessionId)) handle(historyTimings.get(sessionId));
+    return () => { historyListeners.delete(handle); unsubscribe(); };
+  }, [sessionId, subscribe]);
 
   useEffect(() => {
     // A frozen duration stops ticking; only a live turn needs the redraw.
@@ -99,10 +150,14 @@ export function useSessionContextUsage({ sessionId, subscribe }: {
   }, [sessionId]);
   useEffect(() => subscribe((message: any) => {
     if (!sessionId || message?.sessionId !== sessionId) return;
-    const isBudget = (message.kind === 'status' && message.text === 'token_budget') || message.kind === 'compact_boundary';
+    const isSnapshot = message.type === 'session-status';
+    const isBudget = isSnapshot || (message.kind === 'status' && message.text === 'token_budget') || message.kind === 'compact_boundary';
     if (!isBudget) return;
     const budget = message.tokenBudget;
-    if (!budget || typeof budget !== 'object' || budget.unknown === true) return;
+    if (!budget || typeof budget !== 'object' || budget.unknown === true) {
+      if (isSnapshot) setUsage(null);
+      return;
+    }
     const used = readFinite(budget.used ?? budget.displayUsed);
     const total = readFinite(budget.total);
     if (total === null || total <= 0 || used === null || used < 0) return;
@@ -117,6 +172,14 @@ function readFinite(value: unknown): number | null {
 
 /** Socket-fed variant for the workspace header. */
 export function useSessionContextUsageFromSocket(sessionId: string | null): { used: number; total: number } | null {
-  const { subscribe } = useOptionalWebSocket();
-  return useSessionContextUsage({ sessionId, subscribe });
+  const { subscribe, sendMessage, isConnected } = useOptionalWebSocket();
+  const usage = useSessionContextUsage({ sessionId, subscribe });
+  // Subscribe before requesting: a fast reply must not be missed. The same
+  // request restores the snapshot on mount, session switch and reconnect.
+  useEffect(() => {
+    if (sessionId && isConnected) {
+      sendMessage({ type: 'check-session-status', sessionId, includeActiveTurnMessages: true });
+    }
+  }, [sessionId, isConnected, sendMessage]);
+  return usage;
 }

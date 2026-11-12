@@ -14,6 +14,7 @@ import { parseUserAttachmentNote } from '../components/chat/utils/attachmentNote
 import type { ChatAttachment } from '../components/chat/types/types';
 import { SessionTimeline, isTimelineMessage, mergeTimeline, type TimelinePosition } from './sessionTimeline';
 import { SessionHistoryCache } from './SessionHistoryCache';
+import { restoreSessionTurnTiming } from '../components/chat/view/useTurnTaskElapsed';
 
 // ─── NormalizedMessage (mirrors server/adapters/types.js) ────────────────────
 
@@ -1795,6 +1796,7 @@ export function useSessionStore() {
         slot.tokenUsage = data.tokenUsage;
       }
 
+      restoreSessionTurnTiming(sessionId, slot.serverMessages);
       notify(sessionId, 'history');
       historyCache.confirmHistory(sessionId, slot, Boolean(data.stream?.messages?.length));
       return slot;
@@ -2360,6 +2362,7 @@ export function useSessionStore() {
         slot.status = 'idle';
         slot.lastError = null;
       }
+      restoreSessionTurnTiming(sessionId, slot.serverMessages);
       notify(sessionId, 'history');
       historyCache.confirmHistory(sessionId, slot, Boolean(data.stream?.messages?.length));
       return slot;

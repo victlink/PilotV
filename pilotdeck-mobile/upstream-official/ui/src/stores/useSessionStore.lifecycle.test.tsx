@@ -3,6 +3,23 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useSessionStore } from './useSessionStore';
 import { authenticatedFetch } from '../utils/api';
+import { useTurnTaskElapsed } from '../components/chat/view/useTurnTaskElapsed';
+
+it('restores header timing from the real history load path', async () => {
+  vi.mocked(authenticatedFetch).mockResolvedValue(new Response(JSON.stringify({
+    messages: [{ id: 'complete', sessionId: 'history-integration', kind: 'complete', role: 'assistant',
+      timestamp: '2026-11-08T12:02:00Z', provider: 'pilotdeck', turnTiming: {
+        startedAt: '2026-11-08T12:00:00Z', completedAt: '2026-11-08T12:02:00Z',
+      } }], total: 1, hasMore: false,
+  })));
+  const subscribe = () => () => {};
+  const { result } = renderHook(() => ({
+    store: useSessionStore(),
+    elapsed: useTurnTaskElapsed({ sessionId: 'history-integration', subscribe }),
+  }));
+  await act(async () => { await result.current.store.fetchFromServer('history-integration'); });
+  expect(result.current.elapsed).toBe(120_000);
+});
 
 vi.mock('../utils/api', () => ({ authenticatedFetch: vi.fn(), readAgentStatusErrorFromResponse: vi.fn() }));
 let frames: Map<number, FrameRequestCallback>;

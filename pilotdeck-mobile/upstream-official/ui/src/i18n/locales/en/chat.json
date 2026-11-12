@@ -79,7 +79,6 @@
     "emptyTitle": "Ask PilotV about this project",
     "emptyDescription": "Reference a workspace file with @ when you want it included."
   },
-  "input": {"agents": {"select": "Select agent", "default": "Default agent"}},
   "inputQueue": {
     "sending": "Sending",
     "label": "Queued messages",
@@ -439,7 +438,8 @@
     "showAllCommands": "Show all commands",
     "clearInput": "Clear input",
     "scrollToBottom": "Scroll to bottom",
-    "contextStatusTitle": "Context window",
+    "contextStatusUsed": "{{used}} tokens used out of {{total}}.",
+    "contextStatusTitle":"Context window",
     "contextStatus": "{{percentLabel}} used. {{used}} tokens used out of {{total}}. Auto compact runs near the limit.",
     "contextStatusBlocking": "{{percentLabel}} used. {{used}} tokens used out of {{total}}. Auto compact ran, but the context is still at the protection threshold.",
     "contextStatusUnknown": "Context usage unknown. It will appear after the next model response.",

@@ -78,7 +78,6 @@
     "emptyTitle": "就这个项目询问 PilotV",
     "emptyDescription": "需要把文件加入上下文时，请用 @ 引用工作区文件。"
   },
-  "input": {"agents": {"select": "选择 Agent", "default": "默认 Agent"}},
   "inputQueue": {
     "sending": "发送中",
     "label": "排队消息",
@@ -421,7 +420,8 @@
     "showAllCommands": "显示所有命令",
     "clearInput": "清空输入",
     "scrollToBottom": "滚动到底部",
-    "contextStatusTitle": "上下文窗口",
+    "contextStatusUsed": "已用 {{used}} / {{total}} tokens。",
+    "contextStatusTitle":"上下文窗口",
     "contextStatus": "已使用 {{percentLabel}}。已用 {{used}} / {{total}} tokens。接近上限时会自动压缩上下文。",
     "contextStatusBlocking": "已使用 {{percentLabel}}。已用 {{used}} / {{total}} tokens。已执行压缩，但上下文仍处于保护阈值。",
     "contextStatusUnknown": "上下文用量未知，将在下次模型响应后显示。",

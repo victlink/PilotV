@@ -1,7 +1,19 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useSessionContextUsage, useTurnTaskElapsed } from './useTurnTaskElapsed';
+import { restoreSessionTurnTiming, useSessionContextUsage, useTurnTaskElapsed } from './useTurnTaskElapsed';
+
+it('restores persisted timing loaded before mount and after a session switch', () => {
+  restoreSessionTurnTiming('history-a', [{ runId: 'a', turnTiming: { startedAt: '2026-11-08T11:59:00Z', completedAt: '2026-11-08T12:00:00Z' } }]);
+  const { result, rerender } = renderHook(({ id }) => useTurnTaskElapsed({ sessionId: id, subscribe }), { initialProps: { id: 'history-a' } });
+  expect(result.current).toBe(60_000);
+  rerender({ id: 'history-b' });
+  expect(result.current).toBeNull();
+  act(() => restoreSessionTurnTiming('history-a', [{ turnTiming: { startedAt: '2026-11-08T11:58:00Z', completedAt: '2026-11-08T12:00:00Z' } }]));
+  expect(result.current).toBeNull();
+  act(() => restoreSessionTurnTiming('history-b', [{ runId: 'b', turnTiming: { startedAt: '2026-11-08T11:59:30Z', completedAt: '2026-11-08T12:00:00Z' } }]));
+  expect(result.current).toBe(30_000);
+});
 
 let handler: (message: any) => void = () => {};
 const unsubscribe = vi.fn();
@@ -22,6 +34,55 @@ function send(message: Record<string, unknown>) {
 }
 
 describe('useTurnTaskElapsed', () => {
+  it('restores an active turn from a session snapshot', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-11-08T12:00:00Z');
+    const { result } = renderHook(() => useTurnTaskElapsed({ sessionId: 's1', subscribe }));
+    send({ type: 'session-status', isProcessing: true, activeRunId: 'r1', activeTurnMessages: [
+      { kind: 'status', text: 'started', runId: 'r1', timestamp: '2026-11-08T11:59:00Z' },
+    ] });
+    expect(result.current).toBe(60_000);
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(result.current).toBe(61_000);
+  });
+  it('restores completed timing without requiring a live start frame', () => {
+    const { result } = renderHook(() => useTurnTaskElapsed({ sessionId: 's1', subscribe }));
+    send({ kind: 'complete', runId: 'historical', turnTiming: {
+      startedAt: '2026-11-08T11:59:00Z', completedAt: '2026-11-08T12:00:00Z',
+    } });
+    expect(result.current).toBe(60_000);
+  });
+  it('accepts newer persisted completion after a missed run but ignores older history', () => {
+    const { result } = renderHook(() => useTurnTaskElapsed({ sessionId: 'history-update', subscribe }));
+    act(() => restoreSessionTurnTiming('history-update', [{ runId: 'old', turnTiming: {
+      startedAt: '2026-11-08T11:58:00Z', completedAt: '2026-11-08T11:59:00Z',
+    } }]));
+    expect(result.current).toBe(60_000);
+    act(() => restoreSessionTurnTiming('history-update', [{ runId: 'new', turnTiming: {
+      startedAt: '2026-11-08T12:00:00Z', completedAt: '2026-11-08T12:02:00Z',
+    } }]));
+    expect(result.current).toBe(120_000);
+    act(() => restoreSessionTurnTiming('history-update', [{ runId: 'old', turnTiming: {
+      startedAt: '2026-11-08T11:58:00Z', completedAt: '2026-11-08T11:59:00Z',
+    } }]));
+    expect(result.current).toBe(120_000);
+    const restored = renderHook(() => useTurnTaskElapsed({ sessionId: 'history-update', subscribe }));
+    expect(restored.result.current).toBe(120_000);
+  });
+
+  it('does not let delayed history replace a running turn', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-11-08T12:00:00Z');
+    const { result } = renderHook(() => useTurnTaskElapsed({ sessionId: 'history-live', subscribe }));
+    act(() => handler({ sessionId: 'history-live', kind: 'status', text: 'started', runId: 'live', timestamp: '2026-11-08T11:59:50Z' }));
+    act(() => restoreSessionTurnTiming('history-live', [{ runId: 'old', turnTiming: {
+      startedAt: '2026-11-08T11:58:00Z', completedAt: '2026-11-08T11:59:00Z',
+    } }]));
+    expect(result.current).toBe(10_000);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(result.current).toBe(11_000);
+  });
+
   it('ticks from the turn start frame and freezes on completion', () => {
     vi.useFakeTimers();
     vi.setSystemTime('2026-11-08T12:00:00Z');
@@ -96,6 +157,13 @@ describe('useTurnTaskElapsed', () => {
 });
 
 describe('useSessionContextUsage', () => {
+  it('restores authoritative context from a session-status snapshot', () => {
+    const { result } = renderHook(() => useSessionContextUsage({ sessionId: 's1', subscribe }));
+    send({ type: 'session-status', tokenBudget: { used: 12000, total: 128000 } });
+    expect(result.current).toEqual({ used: 12000, total: 128000 });
+    send({ type: 'session-status', tokenBudget: { unknown: true } });
+    expect(result.current).toBeNull();
+  });
   it('tracks token budget frames and ignores unknown or partial payloads', () => {
     const { result } = renderHook(() => useSessionContextUsage({ sessionId: 's1', subscribe }));
     expect(result.current).toBeNull();

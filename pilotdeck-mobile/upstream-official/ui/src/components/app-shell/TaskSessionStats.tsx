@@ -6,24 +6,23 @@ import { formatElapsed } from './TaskMonitorPanel';
 /**
  * Execution time + context occupancy (tokens used / window) for the current
  * conversation, pinned left of the header task button — the PilotDeck-style
- * header stats. Both chips are hover/click targets that explain themselves;
- * neither renders invented numbers: they appear once the gateway reported a
- * real turn start / token budget and reset when the conversation changes.
+ * header stats. Both chips stay visible, with explanatory tooltips and an
+ * em dash until an authoritative turn timing / token budget is available.
+ * Values reset when the conversation changes and restore from session data.
  */
 export default function TaskSessionStats({ sessionId }: { sessionId: string | null }) {
   const { t } = useTranslation(['sidebar', 'chat']);
   const taskElapsed = useTurnTaskElapsedFromSocket(sessionId);
   const contextUsage = useSessionContextUsageFromSocket(sessionId);
-  if (taskElapsed === null && contextUsage === null) return null;
   const elapsedLabel = taskElapsed === null
-    ? null
+    ? '—'
     : formatElapsed(Math.max(0, taskElapsed));
   const contextLabel = contextUsage === null
-    ? null
+    ? '—'
     : `${formatTokens(contextUsage.used)}/${formatTokens(contextUsage.total)}`;
   return (
     <div className="pd-header-task-stats flex shrink-0 items-center gap-1.5">
-      {elapsedLabel !== null ? (
+
         <span
           data-testid="current-task-elapsed"
           title={t('sidebar:tasks.elapsedRunning', { defaultValue: 'Elapsed time for this turn' }) as string}
@@ -32,21 +31,18 @@ export default function TaskSessionStats({ sessionId }: { sessionId: string | nu
           <Clock className="h-3 w-3 shrink-0" strokeWidth={1.8} aria-hidden />
           {elapsedLabel}
         </span>
-      ) : null}
-      {contextLabel !== null ? (
+
         <span
           data-testid="current-context-usage"
-          title={t('chat:input.contextStatusUsed', {
-            used: contextUsage!.used.toLocaleString(),
-            total: contextUsage!.total.toLocaleString(),
-            defaultValue: '{{used}} tokens used out of {{total}}.',
-          }) as string}
+          title={contextUsage ? t('chat:input.contextStatusUsed', {
+            used: contextUsage.used.toLocaleString(),
+            total: contextUsage.total.toLocaleString(),
+          }) as string : t('chat:input.contextStatusUnknown') as string}
           className="inline-flex h-6 items-center gap-1 rounded-md border border-neutral-200 px-1.5 text-[11px] tabular-nums text-neutral-600 dark:border-neutral-800 dark:text-neutral-300"
         >
           <CircleGauge className="h-3 w-3 shrink-0" strokeWidth={1.8} aria-hidden />
           {contextLabel}
         </span>
-      ) : null}
     </div>
   );
 }
