@@ -24,6 +24,20 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO="$(cd "$HERE/.." && pwd -P)"
 UPSTREAM="$REPO/pilotdeck-mobile/upstream-official"
 UI="$UPSTREAM/ui"
+DIST="$UI/dist"
+
+# Shared helpers: one digest algorithm for every consumer, plus the staging
+# helpers that keep the served dist intact while a build runs.
+# shellcheck source=deploy/lib/dist-digest.sh
+. "$HERE/lib/dist-digest.sh"
+# shellcheck source=deploy/lib/dist-stage.sh
+. "$HERE/lib/dist-stage.sh"
+
+STAGE_ROOT="${PILOTV_STAGE_ROOT:-$REPO/.pilotdeck/work/pilotv-dist-stage}"
+BACKUP_ROOT="${PILOTV_BACKUP_ROOT:-$REPO/.pilotdeck/work/pilotv-dist-backup}"
+STAGE=""
+BACKUP_DIR=""
+DIST_BACKED_UP=0
 
 TAG=""
 DRY_RUN=0
@@ -60,7 +74,7 @@ command -v node >/dev/null 2>&1 || die "node is required"
 # ---- release-maintainer helper ----------------------------------------------
 if [ "$WRITE_MANIFEST" -eq 1 ]; then
   [ -d "$UI/dist" ] || die "dist not built: $UI/dist"
-  DIGEST="$(find "$UI/dist" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+  DIGEST="$(pilotv_dist_digest "$DIST")" || die "cannot compute the dist digest for $DIST"
   printf '%s  %s  %s\n' "$DIGEST" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git -C "$REPO" rev-parse HEAD)" > "$HERE/dist-manifest.sha256"
   log "wrote deploy/dist-manifest.sha256 ($DIGEST)"
   log "commit this file, then create the release tag. Devices will verify against it."
@@ -143,6 +157,10 @@ ROLLBACK_DONE=0
 rollback() {
   [ "$ROLLBACK_DONE" -eq 1 ] && return
   ROLLBACK_DONE=1
+  if [ "$DIST_BACKED_UP" -eq 1 ] && [ -n "${BACKUP_DIR:-}" ] && [ -d "${BACKUP_DIR:-}" ]; then
+    warn "restoring the previous dist from $BACKUP_DIR"
+    pilotv_dist_restore "$DIST" "$BACKUP_DIR" || warn "dist restore failed; recover manually from $BACKUP_DIR"
+  fi
   warn "upgrade failed; rolling the checkout back to $PREV_HEAD"
   git -C "$REPO" checkout --detach "$PREV_HEAD" || warn "rollback checkout failed; fix manually"
   restart_services || warn "rollback restart failed"
@@ -162,15 +180,39 @@ done
 if [ "$NO_BUILD" -eq 1 ]; then
   log "dist rebuild skipped (--no-build)"
 else
+  mkdir -p "$STAGE_ROOT" "$BACKUP_ROOT"
+  STAGE="$(mktemp -d "$STAGE_ROOT/stage-XXXXXXXX")" || die "cannot create a staging directory under $STAGE_ROOT"
+  BACKUP_DIR="$(mktemp -d "$BACKUP_ROOT/backup-XXXXXXXX")" || die "cannot create a snapshot directory under $BACKUP_ROOT"
+  if [ -d "$DIST" ]; then
+    cp -a "$DIST/." "$BACKUP_DIR/" || die "cannot snapshot the current dist into $BACKUP_DIR"
+    DIST_BACKED_UP=1
+  fi
+  SERVED_BEFORE="$(pilotv_dist_digest "$DIST" 2>/dev/null || echo '')"
+  export PILOTV_DIST_STAGE_DIR="$STAGE"
+  export PILOTV_WEB_BUILD_OUTPUT="$STAGE"
   if [ -n "${PILOTV_BUILD_CMD:-}" ]; then
-    log "building dist: $PILOTV_BUILD_CMD"
+    log "building dist into the staging directory: $PILOTV_BUILD_CMD"
     (cd "$UI" && eval "$PILOTV_BUILD_CMD")
   else
-    log "building dist from tagged sources: npm run build"
-    (cd "$UI" && npm run build)
+    log "building dist into the staging directory: npm run build -- --outDir $STAGE"
+    (cd "$UI" && npm run build -- --outDir "$STAGE")
   fi
+  [ -f "$STAGE/index.html" ] || die "the isolated build did not produce $STAGE/index.html (a custom PILOTV_BUILD_CMD must write into PILOTV_DIST_STAGE_DIR)"
+  SERVED_AFTER="$(pilotv_dist_digest "$DIST" 2>/dev/null || echo '')"
+  if [ "$SERVED_AFTER" != "$SERVED_BEFORE" ]; then
+    if [ "$DIST_BACKED_UP" -eq 1 ]; then
+      pilotv_dist_restore "$DIST" "$BACKUP_DIR" || warn "could not restore the served dist from $BACKUP_DIR"
+    fi
+    die "the build modified the served dist ($DIST); it was restored and the upgrade is blocked"
+  fi
+  log "publishing the staged build into $DIST (the previously served assets are kept)"
+  if ! pilotv_dist_publish "$STAGE" "$DIST"; then
+    pilotv_dist_restore "$DIST" "$BACKUP_DIR" || warn "could not restore the served dist from $BACKUP_DIR"
+    die "publishing the staged build failed; the previous dist was restored from $BACKUP_DIR"
+  fi
+  log "the snapshot of the previous dist is kept at $BACKUP_DIR"
 fi
-[ -f "$UI/dist/index.html" ] || die "dist build did not produce index.html"
+[ -f "$DIST/index.html" ] || die "dist build did not produce index.html"
 
 restart_services
 
@@ -180,4 +222,14 @@ log "verifying"
 ROLLBACK_ARMED=0
 trap - ERR
 log "upgrade to $TAG complete. HEAD=$TAG_COMMIT"
-log "rollback if needed: deploy/upgrade.sh ${PREV_HEAD} --no-build --allow-rc"
+PREV_TAG="$(git -C "$REPO" describe --tags --abbrev=0 "$PREV_HEAD" 2>/dev/null || true)"
+if [ -n "$PREV_TAG" ]; then
+  log "rollback if needed: deploy/upgrade.sh $PREV_TAG --allow-rc (rebuilds in a staging directory and republishes the previous assets)"
+else
+  log "rollback if needed: no tag is reachable from $PREV_HEAD and deploy/upgrade.sh only accepts tags."
+  log "  manual recovery: git -C $REPO checkout --detach $PREV_HEAD"
+  log "  then rebuild in an isolated staging directory and republish into $DIST"
+fi
+if [ -n "${BACKUP_DIR:-}" ] && [ -d "${BACKUP_DIR:-}" ]; then
+  log "  the snapshot of the previous dist is at $BACKUP_DIR"
+fi

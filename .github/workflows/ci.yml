@@ -141,6 +141,9 @@ jobs:
         run: |
           node -e "const d=require('./deploy/release.json'); if(!d.releaseTag||!d.policy||!d.policy.singleSourceOfTruth||!d.components.webServer) process.exit(1)"
 
+      - name: Release staging and rollback sandbox regressions
+        run: bash deploy/tests/run-all.sh
+
       - name: Upgrade / verify scripts parse
         run: |
           bash -n deploy/upgrade.sh

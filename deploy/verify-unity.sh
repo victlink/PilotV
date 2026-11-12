@@ -16,6 +16,11 @@ set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO="$(cd "$HERE/.." && pwd -P)"
+
+# Shared digest helper: the manifest writer and this check must use one
+# algorithm (relative paths, LC_ALL=C ordering).
+# shellcheck source=deploy/lib/dist-digest.sh
+. "$HERE/lib/dist-digest.sh"
 STRICT=0
 OFFLINE=0
 PROBE=0
@@ -177,7 +182,7 @@ fi
 # ---- 6. dist manifest -------------------------------------------------------
 DIST="$UPSTREAM/ui/dist"
 if [ -d "$DIST" ]; then
-  CUR="$(find "$DIST" -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | awk '{print $1}')"
+  CUR="$(pilotv_dist_digest "$DIST" 2>/dev/null || true)"
   info "dist digest  $CUR"
   if [ -f "$HERE/dist-manifest.sha256" ]; then
     REC="$(awk 'NR==1{print $1}' "$HERE/dist-manifest.sha256")"

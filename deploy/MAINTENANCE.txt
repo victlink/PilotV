@@ -1,0 +1,70 @@
+PilotV 维护与发布统一流程（2026-11-12）
+
+一、真源与修改路径
+唯一集成主线：origin/main；设备只运行经审批的不可变 release tag，不跟随浮动分支。
+正式产品源码：
+- UI：pilotdeck-mobile/upstream-official/ui/src/
+- Web 服务：pilotdeck-mobile/upstream-official/ui/server/
+- Agent、权限、模型与会话：pilotdeck-mobile/upstream-official/src/
+- 网关：service/pilotv_gateway.mjs
+- 成果台：scripts/artifacts_service.py、artifacts-mcp.mjs
+- 发布门禁与升级：deploy/、.github/workflows/ci.yml
+发布组件以 deploy/release.json 为准。pilotdeck-mobile/src/、旧 gateway/ 和 scripts/_archive/
+不是正式修复或部署入口；不得修改编译后的 ui/dist 来代替源码修复，也不得热修设备目录。
+独立 PilotDeck 实例及其工作树不属于本流程操作对象。
+
+二、问题修复与提交合并
+1. 开始先检查 git status、分支、HEAD、staged/untracked 和当前 diff，保留他人改动。
+2. 从已同步 main 建单一问题分支；明确问题、文件范围、验收与部署影响。
+3. 先写确定性失败回归，再最小修复。使用现有依赖，隔离 HOME、PILOT_HOME、WORK、
+   WORKSPACES_ROOT、DATABASE_PATH，不能读取真实认证数据或 .env。
+4. 运行相关定向测试、UI/core noEmit 类型检查、git diff --check；权限和数据清理修改必须有安全反例。
+5. 按主题精确暂存并复核 staged diff，提交后正常推送，经审查集成 main。
+   main 可快进时用 --ff-only；不可快进先审查新提交，不强推、不盲目 rebase/覆盖用户工作。
+6. 用 merge-base、提交差集及补丁等价判断遗漏；已包含分支不重复合并。
+   backup/inflight 是恢复快照，不等于待合并功能；保留备份和他人 worktree。
+7. 结束检查工作树干净、远端 SHA 与本地集成 SHA 一致。提交/合并不代表部署或验收通过。
+
+三、最低本地门禁（仓库根执行）
+- bash deploy/tests/run-all.sh
+- node deploy/check-api-compat.mjs
+- node deploy/check-no-device-paths.mjs
+- bash -n deploy/upgrade.sh && bash -n deploy/verify-unity.sh
+- 核心目录：node node_modules/typescript/bin/tsc --noEmit
+- UI 目录：npm run typecheck；npm test -- <本次相关测试文件>
+CI 已包含发布沙箱回归；沙箱只使用合成 fixture，不执行真实服务升级。
+限定测试不是全量套件，类型检查不是浏览器验收，mock 不证明线上运行链路。
+
+四、发布准入（任何一项未完成则 NO-GO）
+1. main 干净且已同步；明确发布 SHA、变更范围、目标设备及责任人。
+2. 核对 source -> build output -> served directory -> running service；确认真实进程、静态目录、
+   首页入口资源和 /web-build.json 与发布版本一致，不能用本地 dist 推断线上版本。
+3. 真实浏览器验收通过：会话绑定、sending、滚动、指标恢复、多窗口、设备/API/静态资源/
+   WebSocket 隔离。未测试项逐项保留，不以单测结果代替。
+4. UI-only 必须有经验证的正式静态切换及可验证回滚工具；当前 helper 仅逐文件 rename、资产先于
+   index、保留旧资源，并非整目录/跨文件事务原子切换。不得称为正式 UI-only 原子发布。
+5. 后端修改需独立批准准确的服务重启列表；UI-only 不得夹带后端发布或重启。
+6. 发布维护者选新 tag，生成该版本产物与摘要、更新 descriptor，审查后设为 released 并打注释 tag。
+   不复用或移动已有 RC tag；当前 pending-review descriptor 不得冒充已发布版本。
+7. staged/dist 保留旧资源时，整个 served 树摘要可能不同于新 bundle 摘要；必须在正式发布前明确
+   manifest 是新包还是合并服务目录的口径，并重新生成验证，不沿用旧算法的历史摘要。
+
+五、经批准后的设备升级与回滚顺序
+正式入口：deploy/upgrade.sh <已批准tag>，先检查 dry-run 与设备权限；不得使用归档脚本。
+升级：备份现役 dist -> checkout 指定 tag -> 隔离 staging 构建 -> 校验入口/摘要 -> 发布资产，
+最后发布 index -> 经批准重启必要服务 -> verify/probe + 真实页面、资源和进程检查。
+内置快照及错误 trap 改善失败恢复，但不提供崩溃/掉电一致性、数据库或配置回滚保证。
+失败：返回非零；恢复旧 dist 与源码，核对恢复日志，再验证真实页面与进程。
+恢复步骤失败必须人工从保留快照恢复，不得以 restart 或脚本退出码代替恢复验收。
+--no-build 不能证明现有产物对应新 tag，--no-restart 不能证明后端已更新，--allow-rc 不能替代批准。
+
+六、截至本轮仍未关闭的事项（必须追踪，不因此阻断安全修复的提交）
+- 正式 UI-only 原子发布工具、掉电/失败切换与真实回滚验收。
+- NAS/Marc-pc 的真实 served 目录、进程和入口资源映射及浏览器验收。
+- 跨 turn 的任务总耗时（本轮是单 turn/历史 timing 恢复，不等于完整任务聚合）。
+- 角色模板同源多标签并发保存、完整 Auto 候选池及排队/重试/恢复的模型稳定绑定。
+- 可写委派的独立授权/父子权限求交与审计的端到端验收；当前回归仅证明部分边界。
+- service/artifacts-mcp.service 仍是设备特定模板；路径守卫覆盖有限，不证明跨设备安装可靠。
+- packaged-only 后端布局的构建策略与安全升级；当前源码布局使用 tsx。
+- 发布失败时恢复不保证整套服务事务成功；当前 release.json 仍为 pending-review。
+本轮不构建真实产物、不部署、不重启、不修改发布状态、不打正式 tag。
