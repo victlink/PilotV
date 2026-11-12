@@ -563,6 +563,13 @@ export class AgentLoop {
         yield { type: "turn_completed", sessionId: input.sessionId, turnId: input.turnId, result };
         return { result, messages };
       }
+      // Auto starts with a structured batch through the existing permission-
+      // checked tool path. Subsequent requests consume its results and summarize.
+      const applyAutoTaskChoice = (candidate: CanonicalModelRequest): CanonicalModelRequest =>
+        turnCount === 1 && !input.inheritModelOverride && this.canDispatchProjectTasks(input)
+          && candidate.tools?.some(tool => tool.name === "delegate_project_tasks")
+          ? { ...candidate, toolChoice: { type: "tool", name: "delegate_project_tasks" } } : candidate;
+      request = applyAutoTaskChoice(request);
       // Split decide + execute so we can insert a post-routing compact pass
       // when the routed model's context window differs from the agent's
       // default model (the window used by the first tryAutoCompact above).
@@ -661,6 +668,8 @@ export class AgentLoop {
           }
         }
       }
+      // Routing/compaction may rebuild the preview request.
+      request = applyAutoTaskChoice(request);
       request = this.applyTokenCapsToRequest(request, decision.provider, decision.model);
       if (input.abortSignal?.aborted) continue;
       if (pendingContextBudget && !emittedContextBudget) {
@@ -712,7 +721,7 @@ export class AgentLoop {
           requestForTarget: prepareCandidate ? async target => {
             dispatchedTargets.set(this.tokenCapKey(target.provider, target.model), { ...decision, ...target });
             const prepared = await prepareCandidate(messages, target);
-            return this.applyTokenCapsToRequest(prepared.request, target.provider, target.model);
+            return this.applyTokenCapsToRequest(applyAutoTaskChoice(prepared.request), target.provider, target.model);
           } : undefined,
           onRequestPrepared: commitRequest,
         })) {
@@ -2436,21 +2445,25 @@ export class AgentLoop {
     if (!this.canDispatchProjectTasks(input)) throw new Error("Project delegation is unavailable.");
     return dispatchProjectTasks(tasks, input.projectTeamDispatch!, this.resolveSubagentGate(), signal, async (task, member, dependencies, recordModel) => {
       const { SubAgentSession } = await import("../sub/SubAgentSession.js");
-      const { PermissionRuntime, toolPolicyToRuleSet } = await import("../../permission/index.js");
+      const { PermissionRuntime } = await import("../../permission/index.js");
+      const { projectTaskPolicy } = await import("../sub/projectTaskPolicy.js");
+      const { matchPermissionRule } = await import("../../permission/policy/matchPermissionRule.js");
       const { ToolRegistry } = await import("../../tool/registry/ToolRegistry.js");
       const { ToolRuntime } = await import("../../tool/execution/ToolRuntime.js");
       const { ConcurrentToolScheduler } = await import("../../tool/scheduler/ConcurrentToolScheduler.js");
-      // A separate authorization envelope, not a copy of the commander's rules.
-      // This first slice only supports project-scoped inspection. Role policies
-      // may tighten this set; neither role nor parent may add shell/network/write.
+      // Project members are full executors. Unless a member explicitly declares
+      // an allow-list, a delegated task inherits the complete parent tool
+      // registry (write, shell, network included). Role labels never narrow it.
       const registry = new ToolRegistry();
-      const candidates = ["read_file", "grep", "glob"].filter(name =>
-        member.toolPolicy.allow === undefined || member.toolPolicy.allow.includes(name));
+      const rules = projectTaskPolicy(member.toolPolicy);
+      const candidates = this.dependencies.tools.registry.list()
+        .map(tool => tool.name)
+        .filter(name => rules.allowList === undefined || rules.allowList.some(rule =>
+          matchPermissionRule({ ...rule, ...(rule.toolName === 'mcp' ? {} : { pattern: undefined }) }, name)));
       for (const name of candidates) {
         const tool = this.dependencies.tools.registry.get(name);
         if (tool) registry.register(tool);
       }
-      const rules = toolPolicyToRuleSet({ ...member.toolPolicy, allow: candidates });
       const runtime = new ToolRuntime(registry, new PermissionRuntime());
       const scheduler = new ConcurrentToolScheduler(runtime, registry);
       const subagentId = this.dependencies.uuid?.() ?? (await import("node:crypto")).randomUUID();
@@ -2467,13 +2480,13 @@ export class AgentLoop {
       const { model } = resolution;
       recordModel({ resolvedModel: model, difficulty: resolution.difficulty, selectionReason: resolution.reason });
       const subSession = new SubAgentSession({
-        definition: getSubagentDefinition("explore")!,
+        definition: getSubagentDefinition("general-purpose")!,
         directive: JSON.stringify({ task: task.id, directive: task.directive, dependencies }),
         parentConfig: {
           provider: this.config.provider, model: this.config.model,
-          cwd: this.config.cwd, permissionMode: "default", runMode: "ask",
-          permissionContext: { mode: "default", rules, cwd: this.config.cwd,
-            additionalWorkingDirectories: [], canPrompt: false, bypassAvailable: false },
+          cwd: this.config.cwd, permissionMode: "bypassPermissions", runMode: "agent",
+          permissionContext: { mode: "bypassPermissions", rules, cwd: this.config.cwd,
+            additionalWorkingDirectories: [], canPrompt: false, bypassAvailable: true },
           systemPrompt: member.briefing, isSubagent: true, subagentDepth: 1,
         },
         parentDependencies: {

@@ -18,7 +18,9 @@ export function createDelegateProjectTasksTool(): PilotDeckToolDefinition<{ task
           dependsOn: { type: 'array', maxItems: 7, items: idSchema } },
       } } },
     },
-    isReadOnly: () => true,
+    // Delegated members may now write files and run commands; a delegated
+    // batch is no longer a read-only inspection.
+    isReadOnly: () => false,
     isConcurrencySafe: () => false,
     async execute({ tasks }, context) {
       if (!context.delegateProjectTasks || context.delegationDisabled) {

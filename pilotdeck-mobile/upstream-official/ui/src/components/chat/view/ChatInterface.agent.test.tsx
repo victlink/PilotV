@@ -309,15 +309,13 @@ function teamStripButton(): HTMLElement {
   return button;
 }
 
-it('restores the session execution mode, saves the choice, and hides background review in solo', async () => {
+it('restores persisted solo without exposing an execution mode selector', async () => {
   chatMocks.sessionExecutionMode.mockResolvedValueOnce('solo');
   renderChat(vi.fn());
-  const picker = await screen.findByRole('combobox', { name: 'Execution mode' }) as HTMLSelectElement;
-  await waitFor(() => expect(picker.value).toBe('solo'));
+  await waitFor(() => expect(chatMocks.sessionExecutionMode).toHaveBeenCalledWith(DEMO_PROJECT.fullPath, 'web:s_agent'));
+  expect(screen.queryByRole('combobox', { name: 'Execution mode' })).toBeNull();
   expect(screen.queryByTestId('request-review')).toBeNull();
-  fireEvent.change(picker, { target: { value: 'autoSplit' } });
-  await waitFor(() => expect(chatMocks.sessionExecutionMode).toHaveBeenCalledWith(DEMO_PROJECT.fullPath, 'web:s_agent', 'autoSplit'));
-  await waitFor(() => expect(picker.value).toBe('autoSplit'));
+  expect(chatMocks.sessionExecutionMode.mock.calls.every(call => call.length === 2)).toBe(true);
 });
 
 describe('ChatInterfaceV2 project agents', () => {
@@ -446,12 +444,12 @@ describe('ChatInterfaceV2 project agents', () => {
     chatMocks.useChatSessionState.mockReturnValue(createChatSessionState({ currentSessionId: null }));
     view.rerender(<ChatInterfaceV2 {...({ ...chatProps(DEMO_PROJECT, sendMessage), selectedSession: null } as any)} />);
     await act(async () => {});
-    fireEvent.change(screen.getByRole('combobox', { name: 'Execution mode' }), { target: { value: 'solo' } });
+    expect(screen.queryByRole('combobox', { name: 'Execution mode' })).toBeNull();
     fireEvent.change(screen.getByTestId('message-input'), { target: { value: 'draft task' } });
     fireEvent.click(screen.getByTestId('clear-agent'));
     fireEvent.click(screen.getByTestId('send-input'));
     await waitFor(() => expect(sendMessage).toHaveBeenCalled());
-    expect(sendMessage.mock.calls[0][0]).toMatchObject({ type: 'pilotdeck-command', options: { agentId: null, executionMode: 'solo' } });
+    expect(sendMessage.mock.calls[0][0]).toMatchObject({ type: 'pilotdeck-command', options: { agentId: null, executionMode: 'autoSplit' } });
   });
 
   it('preserves an explicit clear in the real regenerate payload', async () => {

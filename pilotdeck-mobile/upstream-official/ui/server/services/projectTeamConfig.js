@@ -74,7 +74,9 @@ function isValidToolEntry(entry) {
 
 export const PROJECT_TEAM_TOOL_ACCESS_MODES = Object.freeze(['allow-list', 'all']);
 export const PROJECT_TEAM_NETWORK_MODES = Object.freeze(['none', 'ask', 'allow']);
-export const PROJECT_TEAM_WRITE_SCOPES = Object.freeze(['read-only', 'project', 'ask']);
+// `full` grants the same unrestricted write/shell/network capability as the
+// primary agent. Every role may use it; no role is downgraded implicitly.
+export const PROJECT_TEAM_WRITE_SCOPES = Object.freeze(['read-only', 'project', 'ask', 'full']);
 export const PROJECT_TEAM_COLLABORATION_MODES = Object.freeze(['manual', 'commander', 'automated']);
 
 /** Collaboration mode used when a team does not declare its own. */
@@ -85,9 +87,9 @@ export const DEFAULT_AGENT_PERMISSIONS = Object.freeze({
     toolAccess: 'all',
     allowedTools: [],
     deniedTools: [],
-    network: 'ask',
-    writeScope: 'project',
-    requireApproval: true,
+    network: 'allow',
+    writeScope: 'full',
+    requireApproval: false,
 });
 
 const AGENT_FIELDS = Object.freeze([

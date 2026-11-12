@@ -76,7 +76,7 @@ it('binds a new real session, restores omitted sends and snapshots queued agent 
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const item = id => ({ id, runId: id, command: 'fixture', displayText: id, options: { projectPath: '/tmp/sending-project' } });
 
-it('queues commander defaults for unbound sessions but preserves explicit and restored clears', async () => {
+it('runs unbound sessions on the primary agent and preserves explicit and restored clears', async () => {
     const projectRoot = path.join(mock.home, 'three-state-workspace');
     await mkdir(projectRoot, { recursive: true });
     await mkdir(path.join(mock.home, 'projects', 'three-state'), { recursive: true });
@@ -99,7 +99,10 @@ it('queues commander defaults for unbound sessions but preserves explicit and re
     const queue = (id, options = {}) => enqueueInputViaGateway(sid, { id, command: id, options: { projectPath: projectRoot, ...options } }, writer);
     expect((await queue('default')).ok).toBe(true);
     await vi.waitFor(() => expect(calls).toHaveLength(1));
-    expect(calls[0].syntheticMessages[0].text).toContain('Commander');
+    // The primary agent is the executor: no synthetic role briefing and no
+    // project tool policy are injected into an unbound session.
+    expect(calls[0].syntheticMessages).toBeUndefined();
+    expect(calls[0].toolPolicy).toBeUndefined();
     expect((await queue('explicit-clear', { agentId: null })).ok).toBe(true);
     await vi.waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1].syntheticMessages).toBeUndefined();

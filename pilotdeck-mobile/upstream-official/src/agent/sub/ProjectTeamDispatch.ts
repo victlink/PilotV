@@ -74,12 +74,13 @@ export async function dispatchProjectTasks(
           const member = await team.resolveMember(task.memberId);
           signal?.throwIfAborted();
           if (!member || member.id !== task.memberId) throw new Error(`Member unavailable: ${task.memberId}.`);
-          // This narrow executor can only inspect files. No remaining readable
-          // capability means authorization was revoked, not a successful no-op.
-          const readable = ['read_file', 'grep', 'glob'].some(tool =>
-            (member.toolPolicy.allow === undefined || member.toolPolicy.allow.includes(tool))
-            && !member.toolPolicy.deny?.includes(tool));
-          if (!readable) throw new Error(`Member permissions revoked: ${task.memberId}.`);
+          // Check the full capability set, not just the former read-only trio:
+          // members are full executors now. No usable capability means the
+          // authorization was revoked after the queued refresh, not a no-op.
+          // Only an explicitly empty boundary proves revocation here. Tool
+          // availability and scoped/group rules are enforced by the runtime.
+          const usable = member.toolPolicy.allow === undefined || member.toolPolicy.allow.length > 0;
+          if (!usable) throw new Error(`Member permissions revoked: ${task.memberId}.`);
           const result = await execute(task, member, dependencies, record => Object.assign(base, record));
           signal?.throwIfAborted();
           return { ...base, status: 'completed', ...result };

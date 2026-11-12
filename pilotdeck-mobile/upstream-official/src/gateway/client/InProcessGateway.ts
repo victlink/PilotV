@@ -771,7 +771,7 @@ export class InProcessGateway implements Gateway {
           });
         if (projectTeamDispatch?.members.length) syntheticMessages.push({
           role: "user", metadata: { synthetic: true, purpose: "project_task_authority" },
-          content: [{ type: "text", text: `You may use delegate_project_tasks for bounded project-scoped read-only tasks. Enabled targets: ${projectTeamDispatch.members.map(member => member.id).join(", ")}. This does not authorize writing, shell, network or generic agent calls. Summarize the batch results yourself.` }],
+          content: [{ type: "text", text: `You are the primary agent and the default executor for this session: implement changes, run shell commands, tests and builds directly. You may optionally use delegate_project_tasks for parallel work. Enabled targets: ${projectTeamDispatch.members.map(member => member.id).join(", ")}. Project members have full write, shell and network authorization; delegated tasks may modify files. Summarize the batch results yourself.` }],
         });
         markTiming("selectionMs");
         if (cancelled) return;

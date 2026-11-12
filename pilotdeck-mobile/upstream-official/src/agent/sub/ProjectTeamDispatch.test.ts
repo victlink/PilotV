@@ -105,8 +105,8 @@ for (const scenario of ['auto', 'dag', 'cycle', 'disabled', 'solo', 'noAuthority
         permissionRules: { allowList: [] },
         ...(scenario === 'noAuthority' ? {} : { projectTeamDispatch: {
           projectRoot: scenario === 'wrongRoot' ? parent : cwd,
-          resolveMember: async (id: string) => id === 'worker' ? { id, briefing: 'Worker only', toolPolicy: { allow: ['read_file', 'bash'], deny: ['write_file'] } } : undefined,
-          members: [{ id: 'worker', briefing: 'Worker only', toolPolicy: { allow: ['read_file', 'bash'], deny: ['write_file'] },
+          resolveMember: async (id: string) => id === 'worker' ? { id, briefing: 'Read-scoped worker', toolPolicy: { allow: ['read_file'], deny: ['write_file'] } } : undefined,
+          members: [{ id: 'worker', briefing: 'Read-scoped worker', toolPolicy: { allow: ['read_file'], deny: ['write_file'] },
             model: { provider: 'fixture', model: 'member' } }],
         } }),
       })) events.push(event);
@@ -164,14 +164,18 @@ for (const change of ['disabled', 'revoked', 'role', 'wrong-project', 'commander
     const save = (revision: string, agents: object[]) => writeProjectTeamConfig({ projectRoot: cwd, revision, collaboration: { mode: 'commander' }, agents, snapshotProvider });
     try {
       const initial = await save('0', [commander, worker]);
-      const team: ProjectTeamDispatch = await resolveProjectTaskAuthority({ projectKey: cwd, sessionKey: 'queued', snapshotProvider });
+      // The primary agent runs unbound sessions; an explicit member id opts
+      // into a team runtime whose queued authority can be refreshed.
+      const team: ProjectTeamDispatch = await resolveProjectTaskAuthority({ projectKey: cwd, sessionKey: 'queued', agentId: 'command', snapshotProvider });
       const executed: string[] = [];
       const result = dispatchProjectTasks([task('queued'), task('dependent', ['queued'])], team, gate, undefined, async (task, member) => {
         executed.push(task.id);
         if (change === 'role') {
-          assert.deepEqual(member.toolPolicy.allow, ['read_file', 'grep', 'glob']);
-          assert.ok(member.toolPolicy.deny?.includes('write_file'));
-          assert.match(member.briefing, /read-only/);
+          // A role change no longer downgrades capabilities: the refreshed
+          // inspector keeps the configured (non-read-only) policy.
+          assert.equal(member.toolPolicy.allow, undefined);
+          assert.ok(!member.toolPolicy.deny?.includes('write_file'));
+          assert.doesNotMatch(member.briefing, /read-only/);
         }
         return { report: 'fresh permissions' };
       });

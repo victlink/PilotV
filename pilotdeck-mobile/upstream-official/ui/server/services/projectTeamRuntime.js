@@ -1,5 +1,5 @@
 import { ProjectTeamConfigError, readProjectTeamConfig } from './projectTeamConfig.js';
-import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { resolvePilotHome } from '../utils/pilotPaths.js';
 
@@ -67,21 +67,19 @@ async function defaultSnapshotProvider() {
     }
 }
 
-const RESTRICTED_ROLES = new Set(['commander', 'reviewer', 'inspector']);
-const READ_ONLY_TOOLS = ['read_file', 'grep', 'glob'];
-
+/**
+ * Every role is authorized exactly as configured. There is deliberately no
+ * role-based downgrade here: commander / reviewer / inspector are first-class
+ * executors with the same write, shell and network capabilities as any other
+ * member. The primary agent is the default executor of every session, so no
+ * separate executor assignment is required.
+ *
+ * Restrictions, when wanted, are expressed explicitly in the team config via
+ * `permissions` (toolAccess / allowedTools / deniedTools / network /
+ * writeScope / requireApproval), never inferred from a role label.
+ */
 function effectivePermissions(agent) {
-    const permissions = agent.permissions;
-    if (!RESTRICTED_ROLES.has(agent.role)) return permissions;
-    return {
-        ...permissions,
-        toolAccess: 'allow-list',
-        allowedTools: permissions.toolAccess === 'all'
-            ? READ_ONLY_TOOLS
-            : READ_ONLY_TOOLS.filter((tool) => permissions.allowedTools.includes(tool)),
-        writeScope: 'read-only',
-        network: 'none',
-    };
+    return agent.permissions;
 }
 
 export function buildProjectAgentBriefing(agent) {
@@ -96,6 +94,8 @@ export function buildProjectAgentBriefing(agent) {
     if (permissions.network !== 'allow') lines.push(`联网策略：${permissions.network}`);
     if (permissions.writeScope === 'project') {
         lines.push('写入范围：project（只允许写入项目目录内的文件，无法限定路径的写入工具不可用）。');
+    } else if (permissions.writeScope === 'full') {
+        lines.push('写入范围：full（与主 Agent 一致：可写文件、可执行 shell 命令、可联网。你是本轮的执行者，需要时直接动手实现并自测）。');
     } else {
         lines.push(`写入范围：${permissions.writeScope}`);
     }
@@ -133,6 +133,8 @@ const WRITE_TOOLS = ['write_file', 'edit_file', 'edit_notebook'];
  *
  * Write scope semantics:
  * - `read-only` denies every writer.
+ * - `full` authorizes every writer, shell capability and network tool. No
+ *   writeRoots boundary is installed: the member acts as a full executor.
  * - `project` is a hard boundary: the direct writers are confined to the
  *   project root by `writeRoots`, and the writers that cannot be path scoped
  *   are denied. They must not be turned into an approval: the permission
@@ -172,6 +174,10 @@ export function buildProjectAgentToolPolicy(agent, { projectRoot } = {}) {
 
     if (permissions.writeScope === 'read-only') {
         writeCapable.forEach((tool) => deny.add(tool));
+    } else if (permissions.writeScope === 'full') {
+        // Full executor: keep the complete tool registry. Neither direct
+        // writers nor shell/MCP/network capabilities are denied, and no
+        // writeRoots boundary is installed.
     } else if (permissions.writeScope === 'ask') {
         writeCapable.forEach((tool) => ask.add(tool));
     } else if (permissions.writeScope === 'project') {
@@ -210,9 +216,10 @@ export function buildProjectAgentToolPolicy(agent, { projectRoot } = {}) {
 /** Resolve a fresh, server-owned delegation envelope. Never persists a binding. */
 export async function resolveProjectTaskAuthority(options = {}) {
     const runtime = await resolveProjectTeamRuntime({ ...options, persistBinding: false });
-    if (!runtime || runtime.agent?.role !== 'commander') return undefined;
-    const members = runtime.agents.filter(member => member.enabled && member.id !== runtime.agentId
-        && member.role !== 'commander').map(member => ({
+    if (!runtime) return undefined;
+    // Any role may dispatch work, and every enabled member is an authorized
+    // executor. Role labels never restrict capability.
+    const members = runtime.agents.filter(member => member.enabled && member.id !== runtime.agentId).map(member => ({
         id: member.id,
         briefing: buildProjectAgentBriefing(member),
         toolPolicy: buildProjectAgentToolPolicy(member, { projectRoot: runtime.projectRoot }),
@@ -226,9 +233,9 @@ export async function resolveProjectTaskAuthority(options = {}) {
             // after queue waits; never authorize from the advertised snapshot.
             const fresh = await resolveProjectTeamRuntime({ ...options, persistBinding: false });
             if (!fresh || path.resolve(fresh.projectRoot) !== path.resolve(runtime.projectRoot)
-                || fresh.agentId !== runtime.agentId || fresh.agent?.role !== 'commander') return undefined;
+                || fresh.agentId !== runtime.agentId) return undefined;
             const member = fresh.agents.find(candidate => candidate.id === memberId && candidate.enabled
-                && candidate.id !== fresh.agentId && candidate.role !== 'commander');
+                && candidate.id !== fresh.agentId);
             if (!member) return undefined;
             return {
                 id: member.id,
@@ -250,28 +257,13 @@ export async function resolveProjectTeamRuntime({ projectKey, cwd, agentId, sess
         throw new ProjectTeamConfigError('An agent requires a project root.', { statusCode: 400, code: 'PROJECT_ROOT_REQUIRED' });
     }
     if (agentId === null) return null;
-    // In commander/automated collaboration, an omitted UI selection still
-    // runs through the configured commander (or first enabled worker). This
-    // keeps the default chat turn eligible for a bounded reviewer turn.
+    // The primary agent is the executor for every session. An unbound session
+    // runs with the primary agent's own full capabilities and no synthetic
+    // role briefing, so no separate executor needs to be assigned. Only an
+    // explicit member selection opts into a project-team runtime.
     const hasExplicitAgent = agentId !== undefined && agentId !== null && agentId !== '';
-    // Ordinary chats without a team file must not wait for a gateway snapshot.
-    if (!hasExplicitAgent && !existsSync(path.join(root, '.pilotdeck', 'project-team.json'))) return null;
-    let selectedAgentId = agentId;
-    if (selectedAgentId === undefined || selectedAgentId === null || selectedAgentId === '') {
-        let config;
-        try {
-            config = await readProjectTeamConfig({ projectRoot: root, snapshotProvider });
-        } catch (error) {
-            if (error?.code === 'PROJECT_NOT_REGISTERED') return null;
-            throw error;
-        }
-        const mode = config.collaboration?.mode || 'manual';
-        if (mode === 'manual') return null;
-        const fallback = config.agents.find((candidate) => candidate.enabled && candidate.role === 'commander')
-            || config.agents.find((candidate) => candidate.enabled && candidate.role !== 'reviewer' && candidate.role !== 'inspector');
-        if (!fallback) return { projectRoot: root, teamConfig: config, syntheticMessages: [] };
-        selectedAgentId = fallback.id;
-    }
+    if (!hasExplicitAgent) return null;
+    const selectedAgentId = agentId;
     const config = await readProjectTeamConfig({ projectRoot: root, snapshotProvider });
     const agent = config.agents.find((candidate) => candidate.id === selectedAgentId && candidate.enabled);
     if (!agent) {

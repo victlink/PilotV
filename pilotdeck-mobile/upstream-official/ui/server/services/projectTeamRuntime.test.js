@@ -46,14 +46,15 @@ function root() {
     return value;
 }
 
-it.each(['commander', 'reviewer', 'inspector'])('hard-limits %s despite permissive stored permissions', (role) => {
-    const policy = buildProjectAgentToolPolicy(agent({ role, permissions: {
-        ...agent().permissions, writeScope: 'ask',
-    } }), { projectRoot: '/project' });
-    expect(policy.allow).toEqual(['read_file', 'grep', 'glob']);
-    expect(policy.deny).toEqual(expect.arrayContaining(['write_file', 'edit_file', 'bash', 'agent', 'task_create', 'mcp*', 'web_fetch']));
-    expect(policy.ask).not.toContain('write_file');
+it.each(['commander', 'reviewer', 'inspector'])('grants %s full write and shell capabilities', (role) => {
+    const configured = { ...agent().permissions, writeScope: 'full', network: 'allow', requireApproval: false };
+    const member = agent({ role, permissions: configured });
+    const policy = buildProjectAgentToolPolicy(member, { projectRoot: '/project' });
+    expect(policy).not.toHaveProperty('allow');
+    expect(policy.deny).toEqual([]);
+    expect(policy.ask).toEqual([]);
     expect(policy).not.toHaveProperty('writeRoots');
+    expect(buildProjectAgentBriefing(member)).not.toMatch(/read-only/);
 });
 
 it('binds the inspector member explicitly without selecting it as the default worker', async () => {
@@ -64,7 +65,8 @@ it('binds the inspector member explicitly without selecting it as the default wo
         agents: [agent({ role: 'inspector', id: 'inspector-1' }), agent()], snapshotProvider });
     const scope = { projectRoot, sessionKey: 'web:inspector', snapshotProvider };
     const resolve = () => resolveProjectTeamRuntime({ projectKey: projectRoot, sessionKey: scope.sessionKey, snapshotProvider });
-    expect((await resolve()).agentId).toBe('worker');
+    // Unbound sessions are executed by the primary agent, not a fallback member.
+    expect(await resolve()).toBeNull();
     await setSessionAgentBinding({ ...scope, agentId: 'inspector-1' });
     expect(await resolve()).toMatchObject({ agentId: 'inspector-1', agent: { role: 'inspector' } });
 });
@@ -75,10 +77,11 @@ it('server resolves delegation authority only for the same registered commander 
     const snapshotProvider = async () => [{ fullPath: projectRoot }];
     await writeProjectTeamConfig({ projectRoot, revision: '0', collaboration: { mode: 'commander' },
         agents: [agent({ id: 'command', role: 'commander' }), agent(), agent({ id: 'disabled', enabled: false })], snapshotProvider });
-    const authority = await resolveProjectTaskAuthority({ projectKey: projectRoot, sessionKey: 'web:tasks', snapshotProvider });
+    const authority = await resolveProjectTaskAuthority({ projectKey: projectRoot, sessionKey: 'web:tasks', agentId: 'command', snapshotProvider });
     expect(authority.members.map(member => member.id)).toEqual(['worker']);
     expect(authority.members[0].briefing).toContain('Execute assigned tasks');
-    expect(await resolveProjectTaskAuthority({ projectKey: projectRoot, sessionKey: 'web:tasks', agentId: 'worker', snapshotProvider })).toBeUndefined();
+    // Any role may dispatch; a worker turn may delegate to the commander.
+    expect((await resolveProjectTaskAuthority({ projectKey: projectRoot, sessionKey: 'web:tasks', agentId: 'worker', snapshotProvider }))?.members.map(member => member.id)).toEqual(['command']);
     expect(await getSessionAgentBinding({ projectRoot, sessionKey: 'web:tasks', snapshotProvider })).toEqual({});
 });
 
@@ -297,14 +300,14 @@ describe('project agent capability scoping', () => {
 });
 
 describe('session agent binding', () => {
-    it('keeps unbound distinct from explicit null across JSON and commander fallback', async () => {
+    it('keeps unbound distinct from explicit null with the primary agent as default executor', async () => {
         vi.stubEnv('PILOT_HOME', root());
         const projectRoot = root();
         const snapshotProvider = async () => [{ fullPath: projectRoot }];
         await writeProjectTeamConfig({ projectRoot, revision: '0', collaboration: { mode: 'commander' }, agents: [agent({ role: 'commander' })], snapshotProvider });
         const scope = { projectRoot, sessionKey: 'web:three-state', snapshotProvider };
         expect(JSON.parse(JSON.stringify(await getSessionAgentBinding(scope)))).not.toHaveProperty('agentId');
-        expect((await resolveProjectTeamRuntime({ projectKey: projectRoot, sessionKey: scope.sessionKey, snapshotProvider }))?.agentId).toBe('worker');
+        expect(await resolveProjectTeamRuntime({ projectKey: projectRoot, sessionKey: scope.sessionKey, snapshotProvider })).toBeNull();
         await setSessionAgentBinding({ ...scope, agentId: null });
         expect(JSON.parse(JSON.stringify(await getSessionAgentBinding(scope)))).toEqual({ agentId: null });
         expect(await resolveProjectTeamRuntime({ projectKey: projectRoot, sessionKey: scope.sessionKey, snapshotProvider })).toBeNull();

@@ -402,37 +402,17 @@ function ChatInterface({
   const isDraftExecution = !bindingSessionId || bindingSessionId.startsWith('new-session-');
   const [execution, setExecution] = useState<{ scope: string; mode: ExecutionMode; status: 'ready' | 'saving' | 'error' }>({ scope: '', mode: 'autoSplit', status: 'ready' });
   const [executionReload, setExecutionReload] = useState(0);
-  const executionRequests = useRef(new Map<string, Promise<ExecutionMode>>());
-  const activeExecutionScope = useRef(bindingScope);
-  activeExecutionScope.current = bindingScope;
   const executionMode = execution.scope === bindingScope ? execution.mode : 'autoSplit';
   const executionReady = !projectRoot || isDraftExecution || (execution.scope === bindingScope && execution.status === 'ready');
 
   useEffect(() => {
     if (!projectRoot || isDraftExecution || sessionIsReadOnly) return;
     let cancelled = false;
-    void (executionRequests.current.get(bindingScope) ?? Promise.resolve()).catch(() => undefined)
-      .then(() => sessionExecutionMode(projectRoot, bindingSessionId))
+    void sessionExecutionMode(projectRoot, bindingSessionId)
       .then(mode => { if (!cancelled) setExecution({ scope: bindingScope, mode, status: 'ready' }); })
       .catch(() => { if (!cancelled) setExecution({ scope: bindingScope, mode: 'autoSplit', status: 'error' }); });
     return () => { cancelled = true; };
   }, [projectRoot, isDraftExecution, sessionIsReadOnly, bindingSessionId, bindingScope, executionReload]);
-
-  const selectExecutionMode = (mode: ExecutionMode) => {
-    if (!executionReady || !projectRoot || sessionIsReadOnly || executionRequests.current.has(bindingScope)) return;
-    if (isDraftExecution) {
-      setExecution({ scope: bindingScope, mode, status: 'ready' });
-      return;
-    }
-    setExecution({ scope: bindingScope, mode, status: 'saving' });
-    const request = sessionExecutionMode(projectRoot, bindingSessionId, mode);
-    executionRequests.current.set(bindingScope, request);
-    void request.then(saved => {
-      if (activeExecutionScope.current === bindingScope) setExecution({ scope: bindingScope, mode: saved, status: 'ready' });
-    }).catch(() => {
-      if (activeExecutionScope.current === bindingScope) setExecution({ scope: bindingScope, mode, status: 'error' });
-    }).finally(() => { executionRequests.current.delete(bindingScope); });
-  };
 
   const bindReview = review?.bind;
   useEffect(() => {
@@ -1138,19 +1118,6 @@ function ChatInterface({
       )}
       {projectRoot && !sessionIsReadOnly && (
         <div className="flex items-center gap-2 px-3 py-1 text-xs">
-          <label className="flex items-center gap-2">
-            {t('executionMode.label', { defaultValue: 'Execution mode' })}
-            <select
-              className="rounded border bg-transparent px-2 py-1"
-              disabled={!executionReady || isLoading}
-              value={executionReady || execution.scope === bindingScope ? executionMode : ''}
-              onChange={event => selectExecutionMode(event.target.value as ExecutionMode)}
-            >
-              <option value="" disabled>{t('executionMode.loading', { defaultValue: 'Loading…' })}</option>
-              <option value="autoSplit">{t('executionMode.autoSplit', { defaultValue: 'Auto split (existing scheduling)' })}</option>
-              <option value="solo">{t('executionMode.solo', { defaultValue: 'Main Agent only' })}</option>
-            </select>
-          </label>
           {execution.scope === bindingScope && execution.status === 'error' && (
             <button type="button" className="underline" onClick={() => setExecutionReload(value => value + 1)}>
               {t('executionMode.retry', { defaultValue: 'Execution mode unavailable — retry' })}
