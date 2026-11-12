@@ -398,26 +398,57 @@ export class CompactionEngine {
       cacheBreakpoints: [],
     };
 
-    let text = "";
-    let usage: CanonicalUsage | undefined;
-    let finishReason: CanonicalFinishReason | undefined;
-    for await (const event of this.options.model.stream(request, signal)) {
-      switch (event.type) {
-        case "text_delta":
-          text += event.text;
-          break;
-        case "usage":
-          usage = event.usage;
-          break;
-        case "message_end":
-          finishReason = event.finishReason;
-          break;
-        case "error":
-          throw new Error(event.error.message);
-        default:
-          break;
+    // A reasoning model can spend the whole output budget on thinking deltas and
+    // emit zero text_delta; providers also occasionally return an empty stream.
+    // Both are transient, so retry once before declaring the summary failed.
+    // Two consecutive empty responses are still a real failure (see
+    // summaryTruncation.test.ts), keeping the failure/cooldown semantics intact.
+    const collect = async () => {
+      let text = "";
+      let thinkingChars = 0;
+      let events = 0;
+      let textDeltas = 0;
+      let thinkingDeltas = 0;
+      let usage: CanonicalUsage | undefined;
+      let finishReason: CanonicalFinishReason | undefined;
+      for await (const event of this.options.model.stream(request, signal)) {
+        events += 1;
+        switch (event.type) {
+          case "text_delta":
+            text += event.text;
+            textDeltas += 1;
+            break;
+          case "thinking_delta":
+            // Never use reasoning as the summary; count it for diagnostics only.
+            thinkingChars += event.text.length;
+            thinkingDeltas += 1;
+            break;
+          case "usage":
+            usage = event.usage;
+            break;
+          case "message_end":
+            finishReason = event.finishReason;
+            break;
+          case "error":
+            throw new Error(event.error.message);
+          default:
+            break;
+        }
       }
+      return { text, thinkingChars, events, textDeltas, thinkingDeltas, usage, finishReason };
+    };
+
+    let observed = await collect();
+    if (observed.text.trim().length === 0) {
+      console.warn(
+        `[context:auto-compact] empty summary attempt 1/2: model=${this.options.model_} provider=${this.options.provider} events=${observed.events} textDeltas=${observed.textDeltas} thinkingDeltas=${observed.thinkingDeltas} thinkingChars=${observed.thinkingChars} finishReason=${observed.finishReason ?? "none"}`,
+      );
+      if (signal?.aborted) throw new Error("Summary request aborted before producing content");
+      observed = await collect();
     }
+    const text = observed.text;
+    const usage = observed.usage;
+    const finishReason = observed.finishReason;
 
     if (text.trim().length === 0) {
       throw new Error("Summary model returned empty content");

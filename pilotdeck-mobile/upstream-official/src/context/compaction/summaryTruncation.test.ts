@@ -120,3 +120,44 @@ test("empty model output is still a real failure", async () => {
     "empty output must be reported",
   );
 });
+
+// A reasoning model can emit only thinking deltas (zero text_delta), or a provider
+// can return one transient empty stream. On a long turn that single failure marks
+// the session degraded; when every session is degraded /healthz reports ok:false
+// and the supervisor restarts the gateway, aborting the turn. Retry once so the
+// transient case completes, while two empty responses still fail as above.
+test("a transient empty stream is retried once and compaction completes", async () => {
+  let calls = 0;
+  const engine = new CompactionEngine({
+    model: {
+      async *stream() {
+        calls += 1;
+        if (calls === 1) {
+          yield { type: "thinking_delta", text: "planning the summary" } as CanonicalModelEvent;
+          yield { type: "message_end", finishReason: "stop" } as CanonicalModelEvent;
+          return;
+        }
+        for (const heading of [
+          "Objective", "Current State", "Completed", "Remaining",
+          "Decisions", "Files And Artifacts", "Tool Findings", "Errors And Recovery",
+        ]) {
+          yield { type: "text_delta", text: `${HEADING(heading)}\n` } as CanonicalModelEvent;
+        }
+        yield { type: "message_end", finishReason: "stop" } as CanonicalModelEvent;
+      },
+    },
+    provider: "test",
+    model_: "test-model",
+    maxOutputTokens: COMPACT_MAX_OUTPUT_TOKENS,
+  });
+  const result = await engine.run({ trigger: "manual", messages: history() });
+  assert.equal(calls, 2, "an empty stream must trigger exactly one retry");
+  assert.equal(result.error, undefined, `compaction failed: ${result.error}`);
+  assert.equal(result.summaryGenerated, true, "the retried summary must count as generated");
+  assert.ok(result.summaryMessage, "summary message must be written");
+  assert.equal(
+    result.diagnostics.some((diagnostic) => diagnostic.code === "compact_summary_failed"),
+    false,
+    "a retried transient empty response must not be reported as a failure",
+  );
+});
