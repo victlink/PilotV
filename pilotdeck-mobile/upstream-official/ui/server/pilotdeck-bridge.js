@@ -77,6 +77,19 @@ import { readSessionExecutionMode, writeSessionExecutionMode } from './services/
 import { resolveProjectTeamRuntime } from './services/projectTeamRuntime.js';
 import { readProjectTeamConfig } from './services/projectTeamConfig.js';
 import { buildProjectReviewRequest, selectProjectReviewer } from './services/projectTeamCollaboration.js';
+import {
+    buildJudgeRequest,
+    buildWorkerDispatch,
+    createCommanderState,
+    decideNextAction,
+    describeAction,
+    extractAcceptance,
+    lastAssistantText,
+    noteDispatch,
+    parseVerdict,
+    settleCommanderState,
+    summarizeEvidence,
+} from './services/commanderLoop.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1625,6 +1638,271 @@ function sendBridgeStatusEvent(writer, statusEvent, sessionKey, provider, runId)
     }
 }
 
+// ---------------------------------------------------------------------------
+// 指挥判定循环
+// ---------------------------------------------------------------------------
+
+/**
+ * 协作模式为「指挥驱动 / 自动」、项目里确实有指挥、并且部署方显式开了开关时，
+ * 才允许接管一轮之后的收尾。
+ *
+ * 默认关闭是刻意的：命令一开，这个项目里每一条消息结束后都会多跑一次判定轮，
+ * 那是真金白银的 token。什么时候开、开到多大，由部署方决定
+ * （`PILOTV_COMMANDER_LOOP=1`），而不是由一次升级偷偷改掉所有人的行为。
+ */
+/**
+ * 是否在用户这一轮之后启动指挥判定循环。
+ *
+ * 三个来源，优先级从高到低：
+ *   1. 输入框上的开关（`options.autoDrive === true/false`）——用户在界面上
+ *      明确表达的意愿，任何情况下都听它的；
+ *   2. 环境变量 `PILOTV_COMMANDER_LOOP=1`——老部署的默认开法（界面没有开关时
+ *      依然生效）；
+ *   3. 都没有 → 不开。
+ *
+ * 开关打开后不再强制要求项目里有 `commander` 角色：没有指挥时由当前 Agent
+ * 自己判定（`runCommanderLoop` 的 self 模式），否则开关在单人项目里等于没接。
+ */
+export function shouldRunCommanderLoop(projectRuntime, options = {}) {
+    const explicit = options?.autoDrive;
+    if (explicit === true) return true;
+    if (explicit === false) return false;
+    const raw = String(process.env.PILOTV_COMMANDER_LOOP ?? '').trim().toLowerCase();
+    if (raw !== '1' && raw !== 'true' && raw !== 'on') return false;
+    const config = projectRuntime?.teamConfig;
+    if (!config || !Array.isArray(config.agents)) return false;
+    const mode = config.collaboration?.mode || 'manual';
+    if (mode === 'manual') return false;
+    return config.agents.some((agent) => agent.enabled && agent.role === 'commander');
+}
+
+function commanderLimits() {
+    const limits = {};
+    const iterations = Number.parseInt(process.env.PILOTV_COMMANDER_MAX_ITERATIONS ?? '', 10);
+    if (Number.isFinite(iterations) && iterations > 0) limits.maxIterations = iterations;
+    const minutes = Number.parseInt(process.env.PILOTV_COMMANDER_MAX_MINUTES ?? '', 10);
+    if (Number.isFinite(minutes) && minutes > 0) limits.maxWallClockMs = minutes * 60_000;
+    return limits;
+}
+
+function sendCommanderStatus(writer, sessionKey, provider, text, detail = {}) {
+    if (!writer || typeof writer.send !== 'function') return;
+    writer.send(createNormalizedMessage({
+        provider,
+        sessionId: sessionKey,
+        kind: 'status',
+        role: 'system',
+        status: 'commander',
+        text,
+        content: text,
+        ...(Object.keys(detail).length > 0 ? { detail } : {}),
+    }));
+}
+
+/**
+ * 客观证据：工作区到底有没有变化。
+ *
+ * 指挥判定不能只信模型自述「我改好了」。git 状态是这一轮之外的事实，
+ * 便宜、无副作用、超时即放弃（拿不到就当没有，不阻断判定）。
+ */
+async function readWorkspaceEvidence(projectRoot) {
+    if (!projectRoot) return {};
+    try {
+        const { execFile } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const run = promisify(execFile);
+        const [status, diffStat] = await Promise.all([
+            run('git', ['status', '--porcelain'], { cwd: projectRoot, timeout: 2_000, maxBuffer: 256 * 1024 }),
+            run('git', ['diff', '--stat'], { cwd: projectRoot, timeout: 2_000, maxBuffer: 256 * 1024 }),
+        ]);
+        return { gitStatus: status.stdout, gitDiffStat: diffStat.stdout };
+    } catch {
+        return {};
+    }
+}
+
+async function readLastAssistantText(gateway, sessionKey, projectRoot) {
+    try {
+        const history = await gateway.readSessionMessages({ sessionKey, projectKey: projectRoot });
+        return lastAssistantText(history);
+    } catch (error) {
+        console.warn('[pilotdeck-bridge] commander loop could not read history:', error?.message || error);
+        return '';
+    }
+}
+
+/**
+ * 有界指挥循环：判定 → 派发 → 再判定，直到 done / 需要人工 / 触到预算。
+ *
+ * 设计约束（都是刻意的）：
+ *   - 每一轮判定都读真实会话记录和工作区状态，不读缓存。
+ *   - 判定结果以明文状态行 + 指挥自己的回复出现在同一会话里，可审计。
+ *   - 用户一插话就退出，绝不和人对抢同一个 session。
+ *   - 循环状态只存内存：进程重启后不会自己续跑（人可能已经接管了）。
+ */
+async function runCommanderLoop({
+    goal,
+    projectRuntime,
+    sessionKey,
+    writer,
+    provider,
+    options,
+    state,
+    getGateway,
+}) {
+    const config = projectRuntime?.teamConfig;
+    const agents = Array.isArray(config?.agents) ? config.agents.filter((agent) => agent.enabled) : [];
+    // 项目没配团队时 projectRuntime 为 null，根目录退回请求自带的项目路径，
+    // 否则「没有指挥也要自检」这条路径会直接抛错。
+    const projectRoot = projectRuntime?.projectRoot || options.projectPath || options.cwd || null;
+    // 没有指挥角色时退回 self 模式：由刚跑完这一轮的 Agent 自己判定。
+    // 界面开关是为单个任务开的，不能因为项目没配团队就静默失效。
+    const commander = agents.find((agent) => agent.role === 'commander')
+        ?? { id: projectRuntime?.agentId ?? null, name: projectRuntime?.agent?.name || '当前 Agent' };
+
+    // 有执行者就派发给他，没有就由指挥自己边判定边推进。
+    const worker = commander.id
+        ? agents.find((agent) => agent.role === 'executor'
+            && (agent.reportsTo == null || agent.reportsTo === commander.id)) || null
+        : null;
+    const mode = worker ? 'delegated' : 'self';
+
+    const loop = createCommanderState({
+        sessionKey,
+        goal,
+        acceptance: Array.isArray(options.acceptance) && options.acceptance.length > 0
+            ? options.acceptance
+            : extractAcceptance(goal),
+        mode,
+        commanderId: commander.id ?? null,
+        workerId: worker?.id ?? null,
+        limits: commanderLimits(),
+    });
+    state.commanderLoop = loop;
+
+    const resolveGateway = async () => (getGateway ? await getGateway() : await ensureGateway());
+    const baseOptions = {
+        ...options,
+        sessionId: sessionKey,
+        sessionKey,
+        runId: undefined,
+        projectPath: projectRoot,
+        internalReview: true,
+        // 内部轮次带上这个标记，收尾逻辑就不会再起一个新的指挥循环。
+        commanderIteration: 0,
+    };
+    const innerHooks = { ...(getGateway ? { getGateway } : {}), fromQueue: true };
+
+    const tookOver = () => Boolean(
+        state.active
+        || state.deleted
+        || state.deleting
+        || (Array.isArray(state.inputQueue) && state.inputQueue.length > 0),
+    );
+
+    sendCommanderStatus(
+        writer,
+        sessionKey,
+        provider,
+        `自动推进启动：${mode === 'delegated' ? `执行者「${worker.name}」` : `${commander.name} 自检`}，每轮完成后检查目标，上限 ${loop.limits.maxIterations} 轮。`,
+    );
+
+    try {
+        for (;;) {
+            if (tookOver()) {
+                settleCommanderState(loop, { type: 'stop', reason: 'user_took_over' });
+                sendCommanderStatus(writer, sessionKey, provider, '指挥循环退出：用户已接管本轮。');
+                return loop;
+            }
+
+            const iteration = loop.iteration + 1;
+            const evidence = summarizeEvidence({
+                lastAssistantText: await readLastAssistantText(
+                    await resolveGateway(),
+                    sessionKey,
+                    projectRoot,
+                ),
+                ...(await readWorkspaceEvidence(projectRoot)),
+            });
+
+            sendCommanderStatus(writer, sessionKey, provider, `指挥判定 #${iteration} 进行中…`);
+
+            await runChatViaGateway('', {
+                ...baseOptions,
+                ...(commander.id ? { agentId: commander.id } : {}),
+                commanderIteration: iteration,
+                syntheticMessages: [{
+                    text: buildJudgeRequest({
+                        goal,
+                        acceptance: loop.acceptance,
+                        iteration,
+                        evidence,
+                        mode,
+                        workerName: worker?.name ?? '',
+                    }),
+                    purpose: 'commander_judgement',
+                }],
+            }, writer, provider, innerHooks);
+
+            const verdictText = await readLastAssistantText(
+                await resolveGateway(),
+                sessionKey,
+                projectRoot,
+            );
+            const verdict = parseVerdict(verdictText);
+            loop.verdicts.push({
+                iteration,
+                status: verdict.status,
+                ok: verdict.ok,
+                reason: verdict.reason,
+                nextInstruction: verdict.nextInstruction,
+                at: new Date().toISOString(),
+            });
+
+            const action = decideNextAction(loop, verdict, { userTookOver: tookOver() });
+            sendCommanderStatus(writer, sessionKey, provider, describeAction(action, loop), {
+                status: action.type,
+                reason: action.reason ?? null,
+                iteration,
+                instruction: action.instruction ?? null,
+            });
+
+            if (action.type !== 'dispatch') {
+                settleCommanderState(loop, action);
+                return loop;
+            }
+
+            noteDispatch(loop, action);
+
+            // self 模式下判定轮本身已经带着「继续执行」的指令在干活，
+            // 不再额外开一轮；delegated 模式才把指令交给执行者。
+            if (mode === 'delegated') {
+                if (tookOver()) {
+                    settleCommanderState(loop, { type: 'stop', reason: 'user_took_over' });
+                    return loop;
+                }
+                await runChatViaGateway('', {
+                    ...baseOptions,
+                    agentId: action.assignee || worker.id,
+                    commanderIteration: iteration,
+                    syntheticMessages: [{
+                        text: buildWorkerDispatch({
+                            goal,
+                            acceptance: loop.acceptance,
+                            instruction: action.instruction,
+                            iteration,
+                        }),
+                        purpose: 'commander_dispatch',
+                    }],
+                }, writer, provider, innerHooks);
+            }
+        }
+    } finally {
+        if (state.commanderLoop === loop) state.commanderLoop = undefined;
+    }
+}
+
+
 /**
  * Run a chat command through the PilotV gateway.
  *
@@ -2025,6 +2303,30 @@ export async function runChatViaGateway(
                     purpose: 'project_agent_review_request',
                 }],
             }, writer, provider, { getGateway: hooks.getGateway });
+        }
+    }
+
+    // 指挥判定循环：上一步只是「一轮回复」，不代表任务完成。这里按项目组
+    // 的协作模式继续驱动，直到指挥明确判定 done / 需要人工 / 触到预算。
+    // 只在最外层用户轮次触发；内部轮次带 commanderIteration，不会递归。
+    if (!options.internalReview && !options.commanderIteration && !hadQueuedInput
+        && sawTurnCompleted && turnFinishReason === 'completed'
+        && state.inputQueue.length === 0
+        && !state.deleted && !state.deleting
+        && shouldRunCommanderLoop(projectRuntime, options)) {
+        try {
+            await runCommanderLoop({
+                goal: String(command ?? ''),
+                projectRuntime,
+                sessionKey,
+                writer,
+                provider,
+                options,
+                state,
+                getGateway: hooks.getGateway,
+            });
+        } catch (error) {
+            console.error('[pilotdeck-bridge] commander loop failed:', error);
         }
     }
     return { sessionKey, runId, inputAccepted, sawTurnCompleted, sawGatewayError };
