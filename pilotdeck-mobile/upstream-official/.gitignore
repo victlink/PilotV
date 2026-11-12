@@ -83,6 +83,10 @@ out
 # Nuxt.js build / generate output
 .nuxt
 dist
+# Rollback copies of the web build (vite cannot clear dist/ inside the sandbox,
+# so we build to dist.next and rename) — keep the files, keep them out of git.
+dist.old-*
+dist.next
 .output
 
 # Gatsby files
