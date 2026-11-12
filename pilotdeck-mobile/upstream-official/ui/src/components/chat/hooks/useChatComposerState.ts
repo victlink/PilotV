@@ -74,6 +74,8 @@ interface UseChatComposerStateArgs {
   permissionMode: PermissionMode | string;
   basePermissionMode?: PermissionMode | string;
   runMode?: string;
+  /** 自动推进：随每次发送带给后端，决定这一轮结束后要不要继续判定推进。 */
+  autoDrive?: boolean;
   cycleRunMode: () => void;
   isLoading: boolean;
   canAbortSession: boolean;
@@ -282,6 +284,7 @@ export function useChatComposerState({
   permissionMode,
   basePermissionMode,
   runMode,
+  autoDrive = false,
   cycleRunMode,
   isLoading,
   canAbortSession,
@@ -1468,6 +1471,7 @@ export function useChatComposerState({
                 ? { workspaceCwd: selectedProject.workspaceCwd }
                 : {}),
               runMode,
+              autoDrive,
               permissionMode,
               basePermissionMode,
               model,
@@ -1523,6 +1527,7 @@ export function useChatComposerState({
         sessionId: effectiveSessionId,
         temporarySessionId: optimisticSessionId,
         runMode,
+        autoDrive,
         permissionMode,
         basePermissionMode,
         model,
@@ -1598,6 +1603,7 @@ export function useChatComposerState({
       onSessionProcessing,
       pendingViewSessionRef,
       runMode,
+      autoDrive,
       permissionMode,
       basePermissionMode,
       resetCommandMenuState,

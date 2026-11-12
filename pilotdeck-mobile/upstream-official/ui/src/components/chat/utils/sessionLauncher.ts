@@ -14,6 +14,8 @@ type StartSessionOptions = {
   permissionMode?: PermissionMode | string;
   basePermissionMode?: PermissionMode | string;
   runMode?: ChatRunMode | string;
+  /** 自动推进开关：随请求带给 bridge。 */
+  autoDrive?: boolean;
   model?: string;
   thinking?: unknown;
   sessionSummary?: string | null;
@@ -110,6 +112,7 @@ export function startSessionCommand({
   permissionMode = 'default',
   basePermissionMode,
   runMode,
+  autoDrive = false,
   model,
   thinking,
   agentId,
@@ -141,6 +144,7 @@ export function startSessionCommand({
       ...(runId ? { runId } : {}),
       toolsSettings,
       ...(runMode ? { runMode } : {}),
+      ...(autoDrive ? { autoDrive: true } : {}),
       permissionMode,
       ...(basePermissionMode ? { basePermissionMode } : {}),
       ...(model ? { model } : {}),
@@ -180,6 +184,7 @@ export function regenerateLastSessionCommand({
   permissionMode = 'default',
   basePermissionMode,
   runMode,
+  autoDrive = false,
   model,
   thinking,
   sessionSummary,
@@ -209,6 +214,7 @@ export function regenerateLastSessionCommand({
       ...(runId ? { runId } : {}),
       toolsSettings,
       ...(runMode ? { runMode } : {}),
+      ...(autoDrive ? { autoDrive: true } : {}),
       permissionMode,
       ...(basePermissionMode ? { basePermissionMode } : {}),
       ...(model ? { model } : {}),

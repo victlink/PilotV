@@ -33,6 +33,8 @@ export type PreparedQueuedInput = {
     projectPath: string;
     cwd: string;
     runMode?: string;
+    /** 自动推进开关：排队消息被派发时同样要带上。 */
+    autoDrive?: boolean;
     permissionMode?: string;
     basePermissionMode?: string;
     model?: string;

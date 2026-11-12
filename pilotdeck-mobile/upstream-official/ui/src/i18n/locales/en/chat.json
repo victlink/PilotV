@@ -385,6 +385,7 @@
     }
   },
   "input": {
+    "autoDrive": {"label": "Auto-drive", "description": "After each round, check whether the original goal is met; keep going if not"},
     "placeholder": "Type / for commands, @ for files, or ask {{provider}} anything...",
     "placeholderDefault": "Type your message...",
     "disabled": "Input disabled",

@@ -366,6 +366,7 @@
     "technicalDetails": "技术细节"
   },
   "input": {
+    "autoDrive": {"label": "自动推进", "description": "每轮结束后检查是否达成最初目标，没达成就继续推进"},
     "placeholder": "输入 / 调用命令，@ 选择文件，或向 {{provider}} 提问...",
     "placeholderDefault": "输入您的消息...",
     "disabled": "输入已禁用",

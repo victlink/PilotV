@@ -113,6 +113,10 @@ export type ComposerProps = {
   onInputFocusChange?: (focused: boolean) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onAbortSession: () => void;
+  /** 自动推进：每轮完成后由指挥（或当前 Agent）检查目标，未达成继续推进。 */
+  autoDrive?: boolean;
+  /** 不传则不渲染开关（保持旧调用方零改动）。 */
+  onAutoDriveChange?: (next: boolean) => void;
   openImagePicker: () => void;
   onAddAttachmentFiles: (files: File[]) => void;
   attachedImages: File[];
@@ -498,6 +502,8 @@ export default function Composer({
   onInputFocusChange,
   onSubmit,
   onAbortSession,
+  autoDrive = false,
+  onAutoDriveChange,
   openImagePicker,
   onAddAttachmentFiles,
   attachedImages,
@@ -1259,6 +1265,42 @@ export default function Composer({
                   className="relative z-10 block max-h-[40vh] min-h-[48px] w-full resize-none bg-transparent px-2 pt-1.5 text-[14px] leading-6 text-neutral-900 placeholder-neutral-400 outline-none dark:text-neutral-100 dark:placeholder-neutral-500"
                 />
               </div>
+
+              {onAutoDriveChange ? (
+                <div className="pd-composer-autodrive-row flex justify-end px-1 pb-1 pt-0.5">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={autoDrive === true}
+                    onClick={() => onAutoDriveChange(!autoDrive)}
+                    title={t("input.autoDrive.description", {
+                      defaultValue: "每轮结束后检查是否达成最初目标，没达成就继续推进",
+                    }) as string}
+                    className={cn(
+                      "inline-flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium transition-colors",
+                      autoDrive
+                        ? "border-[var(--pd-accent-border,#c4b5fd)] bg-[var(--pd-accent-soft,#f0edff)] text-[var(--pd-accent-strong,#544dbd)] dark:border-violet-700 dark:bg-violet-950/60 dark:text-violet-200"
+                        : "border-neutral-200 bg-transparent text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "relative h-3.5 w-6 shrink-0 rounded-full transition-colors",
+                        autoDrive ? "bg-[var(--pd-accent,#7c6cf0)]" : "bg-neutral-300 dark:bg-neutral-600",
+                      )}
+                      aria-hidden="true"
+                    >
+                      <span
+                        className={cn(
+                          "absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white transition-[left]",
+                          autoDrive ? "left-3" : "left-0.5",
+                        )}
+                      />
+                    </span>
+                    {t("input.autoDrive.label", { defaultValue: "自动推进" }) as string}
+                  </button>
+                </div>
+              ) : null}
 
               <div className="pd-composer-control-row flex flex-wrap items-center gap-x-2 gap-y-1 px-1 pt-1">
                 <div className="pd-composer-toolbar-left flex min-w-0 flex-1 flex-wrap items-center gap-1.5">

@@ -91,6 +91,8 @@ function renderComposer(
     reviewRequestTarget?: { reviewerId: string; reviewerName: string } | null;
     onRequestReview?: () => void;
     isReviewPending?: boolean;
+    autoDrive?: boolean;
+    onAutoDriveChange?: (next: boolean) => void;
   } = {},
 ) {
   return render(
@@ -166,6 +168,8 @@ function renderComposer(
         reviewRequestTarget: overrides.reviewRequestTarget ?? null,
         onRequestReview: overrides.onRequestReview,
         isReviewPending: overrides.isReviewPending ?? false,
+        autoDrive: overrides.autoDrive ?? false,
+        onAutoDriveChange: overrides.onAutoDriveChange ?? vi.fn(),
       } as any)}
     />,
   );
@@ -343,4 +347,102 @@ describe('explicit review request', () => {
 
 afterEach(cleanup);
 
+describe('auto-drive switch', () => {
+  it('sits above the send button and starts off', () => {
+    renderComposer(AGENTS);
+    const toggle = screen.getByRole('switch', { name: /自动推进|Auto-drive/ });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(toggle.getAttribute('title')).toContain('每轮结束后检查');
+  });
 
+  it('reports the next state when clicked', () => {
+    const onAutoDriveChange = vi.fn();
+    renderComposer(AGENTS, { onAutoDriveChange });
+    fireEvent.click(screen.getByRole('switch', { name: /自动推进|Auto-drive/ }));
+    expect(onAutoDriveChange).toHaveBeenCalledWith(true);
+  });
+
+  it('reflects an enabled value', () => {
+    renderComposer(AGENTS, { autoDrive: true });
+    expect(screen.getByRole('switch', { name: /自动推进|Auto-drive/ }).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('does not render when the host does not pass a handler', () => {
+    render(
+      <ComposerV2
+        {...({
+          input: '',
+          placeholder: 'Ask something',
+          textareaRef: { current: null },
+          inputHighlightRef: { current: null },
+          renderInputWithMentions: () => null,
+          onInputChange: vi.fn(),
+          onTextareaClick: vi.fn(),
+          onTextareaKeyDown: vi.fn(),
+          onTextareaPaste: vi.fn(),
+          onTextareaScrollSync: vi.fn(),
+          onTextareaInput: vi.fn(),
+          onSubmit: vi.fn(),
+          onAbortSession: vi.fn(),
+          openImagePicker: vi.fn(),
+          onAddAttachmentFiles: vi.fn(),
+          attachedImages: [],
+          onRemoveImage: vi.fn(),
+          onRetryImage: vi.fn(),
+          documentReferences: [],
+          onRemoveDocumentReference: vi.fn(),
+          uploadingImages: new Map(),
+          imageErrors: new Map(),
+          showFileDropdown: false,
+          fileMentionQuery: '',
+          filteredFiles: [],
+          selectedFileIndex: 0,
+          isLoadingFiles: false,
+          fileListError: null,
+          hasMoreFiles: false,
+          onLoadMoreFiles: vi.fn(),
+          onSelectFile: vi.fn(),
+          selectedFileMentions: [],
+          onRemoveFileMention: vi.fn(),
+          selectedSkills: [],
+          onSelectSkill: vi.fn(),
+          onRemoveSkill: vi.fn(),
+          selectedCommands: [],
+          onRemoveCommand: vi.fn(),
+          filteredCommands: [],
+          commandQuery: '',
+          selectedCommandIndex: 0,
+          onCommandSelect: vi.fn(),
+          onCloseCommandMenu: vi.fn(),
+          isCommandMenuOpen: false,
+          frequentCommands: [],
+          onToggleCommandMenu: vi.fn(),
+          getRootProps: () => ({}),
+          getInputProps: () => ({}),
+          isDragActive: false,
+          isLoading: false,
+          canAbortSession: false,
+          tokenBudget: null,
+          modelCatalog: [],
+          modelSelection: { mode: 'auto', provider: 'pilotdeck', model: 'openai/gpt-test' },
+          onModelSelectionChange: vi.fn(),
+          pendingPermissionRequests: [],
+          handlePermissionDecision: vi.fn(),
+          handleGrantToolPermission: vi.fn(() => ({ success: true })),
+          permissionMode: 'default',
+          onPermissionModeChange: vi.fn(),
+          runMode: 'agent',
+          onRunModeChange: vi.fn(),
+          projectKey: '/workspace/demo',
+          agents: [],
+          selectedAgentId: null,
+          onAgentSelectionChange: vi.fn(),
+          onAgentModelChange: vi.fn(),
+          reviewRequestTarget: null,
+          isReviewPending: false,
+        } as any)}
+      />,
+    );
+    expect(screen.queryByRole('switch')).toBeNull();
+  });
+});

@@ -38,6 +38,9 @@ import {
   getNotificationSessionSummary,
   regenerateLastSessionCommand,
 } from '../utils/sessionLauncher';
+
+/** localStorage key for the composer's auto-drive switch. */
+const AUTO_DRIVE_STORAGE_KEY = 'pilotdeck.autoDrive';
 import {
   formatContentReferencePromptBlock,
   normalizeContentReference,
@@ -174,6 +177,17 @@ function ChatInterface({
   const pendingViewSessionRef = useRef<PendingViewSession | null>(null);
   const [isAbortPending, setIsAbortPending] = useState(false);
   const [runMode, setRunMode] = useState<ChatRunMode>('agent');
+  /**
+   * 自动推进开关：每轮结束后由指挥（没有指挥时由当前 Agent）检查最初目标，
+   * 未达成继续推进。跟着浏览器走，发消息时随 options.autoDrive 传给后端。
+   */
+  const [autoDrive, setAutoDriveState] = useState<boolean>(
+    () => safeLocalStorage.getItem(AUTO_DRIVE_STORAGE_KEY) === '1',
+  );
+  const setAutoDrive = useCallback((next: boolean) => {
+    setAutoDriveState(next);
+    safeLocalStorage.setItem(AUTO_DRIVE_STORAGE_KEY, next ? '1' : '0');
+  }, []);
   const [isForkPending, setIsForkPending] = useState(false);
   const regenerateRequestsRef = useRef(new Map<string, {
     resolve: () => void;
@@ -562,6 +576,7 @@ function ChatInterface({
     isModelSelectionReady: isModelSelectionReady && bindingReady && executionReady,
     isPermissionModeReady,
     runMode,
+    autoDrive,
     permissionMode: effectivePermissionMode,
     basePermissionMode: permissionMode,
     cycleRunMode,
@@ -885,6 +900,7 @@ function ChatInterface({
       agentId: activeAgentId,
       toolsSettings: getPilotDeckSettings(),
       runMode,
+      autoDrive,
       permissionMode: effectivePermissionMode,
       basePermissionMode: permissionMode,
       model,
@@ -914,6 +930,7 @@ function ChatInterface({
     model,
     permissionMode,
     runMode,
+    autoDrive,
     activeAgentId,
     selectedProject,
     selectedSession,
@@ -1088,6 +1105,8 @@ function ChatInterface({
       onPermissionModeChange={selectPermissionMode}
       runMode={runMode}
       onRunModeChange={setRunMode}
+      autoDrive={autoDrive}
+      onAutoDriveChange={setAutoDrive}
       onPlanExecutionApproved={handlePlanExecutionApproved}
       sendByCtrlEnter={sendByCtrlEnter}
       chromeless={isWelcomeMode && !compact}
