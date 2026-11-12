@@ -67,6 +67,11 @@ import {
   createGatewayPermissionHook,
 } from "../gateway/permission/createGatewayPermissionHook.js";
 import {
+  STOP_SELF_CHECK_HOOK_NAME,
+  createStopSelfCheckHookHandler,
+  isStopSelfCheckEnabled,
+} from "../agent/loop/stopSelfCheckHook.js";
+import {
   McpRuntime,
   createMcpToolDefinitionsFromRuntime,
   loadMcpServerConfig,
@@ -1663,19 +1668,37 @@ class ProjectRuntimeRegistry {
     // and the hook auto-denies — better than silently hanging.
     const gw = this.gateway;
     const liveRuleSet = this.getLiveRuleSet(context.sessionKey);
-    const hookSettings: typeof contributions.hooks = gw
-      ? {
-          ...contributions.hooks,
-          PermissionRequest: [
-            ...(contributions.hooks.PermissionRequest ?? []),
-            {
-              hooks: [
-                { type: "callback", name: GATEWAY_PERMISSION_CALLBACK_NAME },
-              ],
-            },
-          ],
-        }
-      : contributions.hooks;
+    const stopSelfCheckEnabled = isStopSelfCheckEnabled(process.env);
+    const hookSettings: typeof contributions.hooks = {
+      ...contributions.hooks,
+      ...(gw
+        ? {
+            PermissionRequest: [
+              ...(contributions.hooks.PermissionRequest ?? []),
+              {
+                hooks: [
+                  { type: "callback", name: GATEWAY_PERMISSION_CALLBACK_NAME },
+                ],
+              },
+            ],
+          }
+        : {}),
+      // P0 completeness gate: when a turn ends with a text-only reply that
+      // still has work outstanding, push a synthetic "keep going" message and
+      // let AgentLoop continue the same turn (see agent/loop/stopSelfCheck.ts).
+      ...(stopSelfCheckEnabled
+        ? {
+            Stop: [
+              ...(contributions.hooks.Stop ?? []),
+              {
+                hooks: [
+                  { type: "callback", name: STOP_SELF_CHECK_HOOK_NAME },
+                ],
+              },
+            ],
+          }
+        : {}),
+    };
     const hookRuntime = new HookRuntime(hookSettings);
     if (gw) {
       hookRuntime.getCallbackExecutor().register(
@@ -1686,6 +1709,12 @@ class ProjectRuntimeRegistry {
           emit: (event) => gw.emitForSession(context.sessionKey, event),
           permissionRules: liveRuleSet.allow,
         }),
+      );
+    }
+    if (stopSelfCheckEnabled) {
+      hookRuntime.getCallbackExecutor().register(
+        STOP_SELF_CHECK_HOOK_NAME,
+        createStopSelfCheckHookHandler(),
       );
     }
     const lifecycle = new LifecycleRuntime(hookRuntime);

@@ -61,6 +61,8 @@ import { prepareModelRequest, prepareModelRequestAttempt, type ModelRequestPrepa
 import type { RouterDecision } from "../../router/protocol/decision.js";
 import { collectToolCalls } from "./collectToolCalls.js";
 import { createMissingToolResult, ensureToolResultPairing } from "./ensureToolResultPairing.js";
+import { shouldContinueAfterStopHook } from "./stopHookContinuation.js";
+import { lastUserPromptText } from "./stopSelfCheck.js";
 import { LargeFileRepair, type LargeFileRepairDecision } from "./LargeFileRepair.js";
 import { resolveOutputTokenRetryBump } from "./outputTokenRetry.js";
 import { projectToolResults } from "./projectToolResults.js";
@@ -242,6 +244,12 @@ export class AgentLoop {
     const startedAt = this.now().toISOString();
     let messages = [...input.messages];
     let turnCount = 1;
+    /**
+     * Tool names executed in this turn. Fed to the `Stop` lifecycle payload so
+     * the self-check hook can tell "described a plan" from "actually worked"
+     * without re-reading the transcript.
+     */
+    const toolsUsedThisTurn: string[] = [];
     let usage: CanonicalUsage = {};
     let permissionDenials: AgentPermissionDenial[] = [];
     let structuredOutput: unknown;
@@ -325,6 +333,12 @@ export class AgentLoop {
     let consecutiveEmptyCount = 0;
     const MAX_JSON_SELF_CORRECT_RETRIES = 3;
     let jsonSelfCorrectCount = 0;
+    /**
+     * Stop-hook continuation guard (P0 "completeness gate"): see
+     * `shouldContinueAfterStopHook` below. Tracked per turn so a chatty
+     * hook cannot loop forever within a single `run()`.
+     */
+    let stopHookContinuationCount = 0;
     let hasAttemptedReasoningContentRetry = false;
     /** Prevent a provider that keeps rejecting text-only retries from looping forever. */
     let hasAttemptedImageStrip = false;
@@ -1698,8 +1712,14 @@ export class AgentLoop {
         }
 
         const stopHooks = await this.dispatchLifecycle(input, "Stop", {
-          stopHookActive: false,
+          stopHookActive: stopHookContinuationCount > 0,
           lastAssistantMessage: textFromMessage(assistantMessage),
+          // Context the self-check hook needs to judge "done" vs "stopped
+          // early": the task text (acceptance criteria live there) and the
+          // tools that actually ran this turn. Skipped synthetic hook
+          // context so the hook never re-reads its own nudge.
+          lastUserMessage: lastUserPromptText(messages),
+          toolsUsedThisTurn: [...toolsUsedThisTurn],
         });
         yield { type: "stop_requested", sessionId: input.sessionId, turnId: input.turnId };
         messages.push(...stopHooks.messages);
@@ -1725,6 +1745,28 @@ export class AgentLoop {
           yield { type: "turn_completed", sessionId: input.sessionId, turnId: input.turnId, result };
           return { result, messages };
         }
+        // P0 completeness gate: a Stop hook that produced messages (and did
+        // not block) is asking the model to continue within the same turn —
+        // "the stated done criteria are not met yet, keep working". Feed the
+        // hook messages back and start another model iteration instead of
+        // ending the turn. See stopHookContinuation.ts for the bounds.
+        if (shouldContinueAfterStopHook({
+          hookMessageCount: stopHooks.messages.length,
+          continuationCount: stopHookContinuationCount,
+          turnCount,
+          maxTurns: input.maxTurns,
+          aborted: input.abortSignal?.aborted ?? false,
+        })) {
+          stopHookContinuationCount++;
+          turnCount += 1;
+          yield {
+            type: "turn_continued",
+            sessionId: input.sessionId,
+            turnId: input.turnId,
+            reason: "stop_hook",
+          };
+          continue;
+        }
         const finishStatus = createFinishReasonStatus(assembled.finishReason, assistantText);
         if (finishStatus) {
           yield await emitStatus(finishStatus);
@@ -1746,6 +1788,10 @@ export class AgentLoop {
       }
 
       yield { type: "tool_calls_detected", sessionId: input.sessionId, turnId: input.turnId, calls: toolCalls };
+      // Evidence for the Stop self-check hook: which tools actually ran in
+      // this turn (not the whole session). Names only — the hook must stay
+      // cheap and must not receive tool payloads.
+      for (const call of toolCalls) toolsUsedThisTurn.push(call.name);
       if (input.abortSignal?.aborted) {
         const result = this.createTurnResult(input, {
           type: "aborted",
