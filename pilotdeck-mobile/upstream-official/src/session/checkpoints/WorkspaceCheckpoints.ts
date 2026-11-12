@@ -32,6 +32,29 @@ function mergeTrackedEdit(tracked: Map<string, TrackedEdit>, relative: string, e
     source: previous?.source === "file_tool" || edit.source === "file_tool" ? "file_tool" : edit.source });
 }
 
+/** Bounded-concurrency map: a large checkpoint journal must never open thousands of files at once (EMFILE on Windows).
+ *  `strict` surfaces the first failure instead of dropping the record: garbage collection must never treat an
+ *  unreadable record as absent, because the objects it still references would look unreferenced. */
+async function mapLimited<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>, options: { strict?: boolean } = {}): Promise<R[]> {
+  const results: (R | undefined)[] = new Array(items.length);
+  let cursor = 0, failed = false, failure: unknown;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    for (;;) {
+      if (failed) return;
+      const index = cursor++;
+      if (index >= items.length) return;
+      try { results[index] = await task(items[index]); }
+      catch (error) {
+        if (options.strict) { failed = true; failure = error; return; }
+        /* One unreadable or corrupt journal record must not abort the whole turn. */
+      }
+    }
+  });
+  await Promise.all(workers);
+  if (failed) throw failure;
+  return results.filter((value): value is R => value !== undefined);
+}
+
 export class CheckpointError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
 }
@@ -271,11 +294,15 @@ export class CheckpointStore {
   async list(sessionId: string): Promise<Checkpoint[]> {
     const directory = path.join(this.directory, "manifests");
     const names = await fs.readdir(directory).catch(error => { if (hasCode(error, "ENOENT")) return []; throw error; });
+    // Keep this loop serial: manifests can be ~1 MB each, and retaining every
+    // parsed record at once pushes the Node heap past its 4 GB limit.
     const records: Checkpoint[] = [];
     for (const name of names) {
       if (!name.endsWith(".json")) continue;
-      const checkpoint = JSON.parse(await fs.readFile(path.join(directory, name), "utf8")) as Checkpoint;
-      if (checkpoint.version === 1 && checkpoint.sessionId === sessionId && checkpoint.workspace === this.workspace) records.push(checkpoint);
+      try {
+        const checkpoint = JSON.parse(await fs.readFile(path.join(directory, name), "utf8")) as Checkpoint;
+        if (checkpoint.version === 1 && checkpoint.sessionId === sessionId && checkpoint.workspace === this.workspace) records.push(checkpoint);
+      } catch { /* Skip an unreadable or corrupt manifest instead of failing the turn. */ }
     }
     const aliases = await this.fileAliases(records.flatMap(record => (record.changes ?? []).map(change => change.path)));
     const superseded = new Set(records.flatMap(record => record.supersedesId ? [record.supersedesId] : []));
@@ -518,7 +545,8 @@ export class CheckpointStore {
     if (hasWorkspaceTurn(this.workspace, sessionId, orphan.turnId)) return;
     const names = await fs.readdir(path.join(this.directory, "edits")).catch(error => { if (hasCode(error, "ENOENT")) return []; throw error; });
     const tracked = new Map<string, TrackedEdit>();
-    const edits = await Promise.all(names.filter(value => value.endsWith(".json")).map(async name => JSON.parse(await fs.readFile(path.join(this.directory, "edits", name), "utf8")) as EditRecord));
+    const edits = await mapLimited(names.filter(value => value.endsWith(".json")), 8, async name =>
+      JSON.parse(await fs.readFile(path.join(this.directory, "edits", name), "utf8")) as EditRecord);
     const completedCommands = new Set(records.filter(record => record.phase === "command" && record.status === "complete").map(record => record.id));
     for (const edit of edits.sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""))) {
       if (edit.beforeId === orphan.id && !(edit.parentOperationId && completedCommands.has(edit.parentOperationId))) {
@@ -549,9 +577,15 @@ export class CheckpointStore {
   private async pruneUnpinned(retain: number): Promise<void> {
     const readRecords = async (kind: "manifests" | "plans" | "operations" | "edits") => {
       const names = await fs.readdir(path.join(this.directory, kind)).catch(error => { if (hasCode(error, "ENOENT")) return []; throw error; });
-      return Promise.all(names.filter(name => name.endsWith(".json")).map(async name => ({ name, record: JSON.parse(await fs.readFile(path.join(this.directory, kind, name), "utf8")) as Checkpoint & RestoreOperation })));
+      return mapLimited(names.filter(name => name.endsWith(".json")), 8, async name =>
+        ({ name, record: JSON.parse(await fs.readFile(path.join(this.directory, kind, name), "utf8")) as Checkpoint & RestoreOperation }), { strict: true });
     };
-    const [manifests, plans, operations, edits] = await Promise.all([readRecords("manifests"), readRecords("plans"), readRecords("operations"), readRecords("edits")]);
+    const loaded = await Promise.all([readRecords("manifests"), readRecords("plans"), readRecords("operations"), readRecords("edits")])
+      .then(([manifests, plans, operations, edits]) => ({ manifests, plans, operations, edits }))
+      .catch(() => null);
+    // A record that could not be read may still reference objects and other records, so keep everything this round.
+    if (!loaded) return;
+    const { manifests, plans, operations, edits } = loaded;
     const keep = new Set<string>(), retainedOperations = new Set<string>();
     const sessions = new Set(manifests.map(item => item.record.sessionId));
     for (const sessionId of sessions) {
