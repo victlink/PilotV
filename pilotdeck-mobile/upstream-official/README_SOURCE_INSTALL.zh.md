@@ -336,7 +336,7 @@ IP 来源沿用 `PILOTDECK_TRUST_PROXY` 配置（默认信任回环代理，`fal
 
 ## 常见问题
 
-- 出现 `Node.js >=22.13.0 and <23 is required`：切换到 Node.js 22.13.0 或更新的 Node.js 22 版本，并重新安装依赖。
+- 出现 `Node.js >=22.13.0 and <25 (Node.js 22 or 24 LTS) is required`：切换到 Node 22.13+ 或 Node 24 LTS，并重新安装原生依赖（`better-sqlite3` 预编译包与 Node ABI 绑定，必须换成对应版本）。Node 22.22.2 在长上下文并发下会触发 V8 `Check failed: marking_done_` 崩溃，建议直接用 24 LTS；详见 `docs/COMMANDER-LOOP.md` §12。
 - 原生包编译失败：确认已安装 Python 3、`make` 和 C/C++ 编译器，然后重新运行 `corepack pnpm install --frozen-lockfile --filter pilotdeck --filter pilotdeck-ui`。
 - Linux 上 `node-pty`、`better-sqlite3` 编译时下载 `node-v*-headers.tar.gz` 超时：先运行 `export npm_config_disturl=https://npmmirror.com/mirrors/node`，再重新安装依赖。
 - `pnpm install --frozen-lockfile` 下载 npm 包超时：运行 `pnpm config set registry https://registry.npmmirror.com` 后重试上面的过滤安装命令。

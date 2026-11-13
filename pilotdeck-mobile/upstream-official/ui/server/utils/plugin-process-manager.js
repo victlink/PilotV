@@ -26,8 +26,13 @@ export function startPluginServer(name, pluginDir, serverEntry) {
 
     const serverPath = path.join(pluginDir, serverEntry);
 
+    // Use the host's absolute node binary, not the bare `node` on PATH.
+    // On Windows the host PATH points at the WorkBuddy-bundled Node 22 while
+    // PilotV itself runs on Node 24 LTS; spawning 'node' here made plugins
+    // (gateway-keeper -> agent-supervisor -> gateway) silently fall back to 22,
+    // including after a gateway crash restart. See docs/COMMANDER-LOOP.md §12.6.
     // Restricted env — only essentials, no host secrets
-    const pluginProcess = spawn('node', [serverPath], {
+    const pluginProcess = spawn(process.execPath, [serverPath], {
       cwd: pluginDir,
       env: {
         PATH: process.env.PATH,

@@ -17,7 +17,8 @@ esac
 BIN_LINK="${PILOTDECK_BIN_LINK:-/usr/local/bin/pilotdeck}"
 MAX_PORT_TRIES="${PILOTDECK_MAX_PORT_TRIES:-20}"
 MIN_NODE_VERSION="22.13.0"
-MAX_NODE_MAJOR="22"
+MAX_NODE_MAJOR="22"  # legacy installer default; runtime gate uses SUPPORTED_NODE_MAJORS
+SUPPORTED_NODE_MAJORS="22 24"  # LTS lines accepted by scripts/check-node-runtime.mjs
 NODE_INSTALL_VERSION="${PILOTDECK_NODE_VERSION:-22}"
 NODE_FALLBACK_VERSION="${PILOTDECK_NODE_FALLBACK_VERSION:-22.13.0}"
 NODE_DIRECT_INSTALL_ROOT="$HOME/.local/share/pilotdeck-node"
@@ -336,6 +337,15 @@ node_major() {
   printf "%s" "${version%%.*}"
 }
 
+node_major_supported() {
+  local major
+  major="$(node_major "$1")"
+  case " ${SUPPORTED_NODE_MAJORS} " in
+    *" ${major} "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 expected_node_arch() {
   case "$(uname -m)" in
     x86_64|amd64) printf "x64" ;;
@@ -471,19 +481,19 @@ ensure_node_runtime() {
 
   if command -v node >/dev/null 2>&1; then
     node_version="$(node --version)"
-    if version_at_least "$node_version" "$MIN_NODE_VERSION" && [[ "$(node_major "$node_version")" == "$MAX_NODE_MAJOR" ]] && node_supports_sqlite && node_arch_matches_host; then
+    if version_at_least "$node_version" "$MIN_NODE_VERSION" && node_major_supported "$node_version" && node_supports_sqlite && node_arch_matches_host; then
       ok "$(L "Node.js ${node_version} found" "已找到 Node.js ${node_version}")"
       return
     fi
-    warn "$(L "Node.js ${node_version} is not the supported Node.js 22 runtime for this machine (need >=${MIN_NODE_VERSION}, <23, node:sqlite, and matching CPU architecture). Installing/using Node.js ${NODE_INSTALL_VERSION}..." "Node.js ${node_version} 不是当前机器支持的 Node.js 22 运行时(需要 >=${MIN_NODE_VERSION} 且 <23、支持 node:sqlite,并匹配 CPU 架构)。正在安装/使用 Node.js ${NODE_INSTALL_VERSION}...")"
+    warn "$(L "Node.js ${node_version} is not the supported Node.js 22 runtime for this machine (need >=${MIN_NODE_VERSION}, <25 (Node 22 or 24 LTS), node:sqlite, and matching CPU architecture). Installing/using Node.js ${NODE_INSTALL_VERSION}..." "Node.js ${node_version} 不是当前机器支持的 Node.js 22 运行时(需要 >=${MIN_NODE_VERSION} 且 <25 (Node 22/24 LTS)、支持 node:sqlite,并匹配 CPU 架构)。正在安装/使用 Node.js ${NODE_INSTALL_VERSION}...")"
   else
     warn "$(L "Node.js not found. Installing Node.js ${NODE_FALLBACK_VERSION}..." "未找到 Node.js,正在安装 Node.js ${NODE_FALLBACK_VERSION}...")"
   fi
 
   install_node_runtime
   node_version="$(node --version 2>/dev/null || true)"
-  if [[ -z "$node_version" ]] || ! version_at_least "$node_version" "$MIN_NODE_VERSION" || [[ "$(node_major "$node_version")" != "$MAX_NODE_MAJOR" ]] || ! node_supports_sqlite || ! node_arch_matches_host; then
-    fail "$(L "Node.js >=${MIN_NODE_VERSION} and <23 with node:sqlite and matching CPU architecture is required. Current: ${node_version:-not found}, arch $(node -p "process.arch" 2>/dev/null || printf unknown), host $(uname -m)." "需要带 node:sqlite、且匹配当前 CPU 架构的 Node.js >=${MIN_NODE_VERSION} 且 <23。当前:${node_version:-未找到}, 架构 $(node -p "process.arch" 2>/dev/null || printf unknown), 主机 $(uname -m)。")"
+  if [[ -z "$node_version" ]] || ! version_at_least "$node_version" "$MIN_NODE_VERSION" || ! node_major_supported "$node_version" || ! node_supports_sqlite || ! node_arch_matches_host; then
+    fail "$(L "Node.js >=${MIN_NODE_VERSION} and <25 (Node 22 or 24 LTS) with node:sqlite and matching CPU architecture is required. Current: ${node_version:-not found}, arch $(node -p "process.arch" 2>/dev/null || printf unknown), host $(uname -m)." "需要带 node:sqlite、且匹配当前 CPU 架构的 Node.js >=${MIN_NODE_VERSION} 且 <25 (Node 22/24 LTS)。当前:${node_version:-未找到}, 架构 $(node -p "process.arch" 2>/dev/null || printf unknown), 主机 $(uname -m)。")"
   fi
   ok "$(L "Node.js ${node_version} installed" "已安装 Node.js ${node_version}")"
 }
@@ -1215,7 +1225,8 @@ LAUNCH_DIR="$(pwd -P)"
 CONFIG_FILE="${PILOTDECK_CONFIG_PATH:-$HOME/.pilotdeck/pilotdeck.yaml}"
 MAX_PORT_TRIES="${PILOTDECK_MAX_PORT_TRIES:-20}"
 MIN_NODE_VERSION="22.13.0"
-MAX_NODE_MAJOR="22"
+MAX_NODE_MAJOR="22"  # legacy installer default; runtime gate uses SUPPORTED_NODE_MAJORS
+SUPPORTED_NODE_MAJORS="22 24"  # LTS lines accepted by scripts/check-node-runtime.mjs
 NODE_INSTALL_VERSION="${PILOTDECK_NODE_VERSION:-22}"
 NODE_FALLBACK_VERSION="${PILOTDECK_NODE_FALLBACK_VERSION:-22.13.0}"
 NODE_DIRECT_INSTALL_ROOT="$HOME/.local/share/pilotdeck-node"
@@ -1249,6 +1260,15 @@ version_at_least() {
 node_major() {
   local version="${1#v}"
   printf "%s" "${version%%.*}"
+}
+
+node_major_supported() {
+  local major
+  major="$(node_major "$1")"
+  case " ${SUPPORTED_NODE_MAJORS} " in
+    *" ${major} "*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 node_tarball_platform() {
@@ -1327,8 +1347,8 @@ ensure_node_runtime() {
   command -v node >/dev/null 2>&1 || fail "Node.js >=${MIN_NODE_VERSION} is required; re-run install.sh to install it."
   local node_version
   node_version="$(node --version)"
-  if ! version_at_least "$node_version" "$MIN_NODE_VERSION" || [[ "$(node_major "$node_version")" != "$MAX_NODE_MAJOR" ]]; then
-    fail "Node.js >=${MIN_NODE_VERSION} and <23 is required because PilotV uses node:sqlite and native packages are tested on Node.js 22. Current: ${node_version}. Re-run install.sh or switch Node with fnm/nvm."
+  if ! version_at_least "$node_version" "$MIN_NODE_VERSION" || ! node_major_supported "$node_version"; then
+    fail "Node.js >=${MIN_NODE_VERSION} and <25 (Node 22 or 24 LTS) is required because PilotV uses node:sqlite and ABI-bound native packages. Current: ${node_version}. Re-run install.sh or switch Node with fnm/nvm."
   fi
   if ! node -e "import('node:sqlite').then(() => {}, () => process.exit(1))" >/dev/null 2>&1; then
     fail "Current Node.js (${node_version}) does not provide node:sqlite. Re-run install.sh or switch to Node.js 22.13+."

@@ -79,6 +79,11 @@ if (-not $NodeExe -or -not (Test-Path -LiteralPath $NodeExe)) {
         Select-Object -First 1
 }
 if (-not $NodeExe) { $NodeExe = 'node' }
+# 子进程里凡是用裸 `node` 拉起的（插件、CLI、MCP 侧车）都必须落到同一运行时，
+# 否则 WorkBuddy 注入 PATH 的 22.22.2 会在网关崩溃重启时把整条链拉回旧版本。
+if (Test-Path -LiteralPath $NodeExe) {
+    $env:Path = (Split-Path -Parent $NodeExe) + ';' + $env:Path
+}
 Write-Host "PilotV node runtime: $NodeExe"
 
 # 清掉宿主 shell（WorkBuddy / Claude Code）注入的 bash 钩子与回合上下文。

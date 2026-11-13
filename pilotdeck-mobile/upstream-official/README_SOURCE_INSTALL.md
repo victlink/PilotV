@@ -317,7 +317,7 @@ IP selection follows the existing `PILOTDECK_TRUST_PROXY` setting (default: loop
 
 ## Troubleshooting
 
-- `Node.js >=22.13.0 and <23 is required`: switch to Node.js 22.13.0 or newer within the Node.js 22 line, then reinstall dependencies.
+- `Node.js >=22.13.0 and <25 (Node.js 22 or 24 LTS) is required`: use Node 22.13+ or Node 24 LTS, then reinstall native dependencies (`better-sqlite3` prebuilds are ABI-bound and must match the Node major). Node 22.22.2 is known to hit the V8 `Check failed: marking_done_` crash under concurrent long-context turns — prefer Node 24 LTS; see `docs/COMMANDER-LOOP.md` §12.
 - Native package build errors: make sure Python 3, `make`, and a C/C++ compiler are installed, then rerun `corepack pnpm install --frozen-lockfile --filter pilotdeck --filter pilotdeck-ui`.
 - Linux `node-pty` or `better-sqlite3` builds time out while downloading `node-v*-headers.tar.gz`: run `export npm_config_disturl=https://npmmirror.com/mirrors/node`, then reinstall dependencies.
 - `pnpm install --frozen-lockfile` times out while downloading npm packages: run `pnpm config set registry https://registry.npmmirror.com`, then retry the filtered install command above.

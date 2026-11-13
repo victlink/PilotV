@@ -524,4 +524,28 @@ findstr /c:"node=" .run\supervisor.log
 
 回滚：删除 / 清空 `PILOTDECK_NODE` 并把 `tools\node-v24*` 目录改名，三个 `.cmd`
 会自动回退到 WorkBuddy 自带的 22.22.2；账本与并发闸门不受影响，但会重新暴露在
-该 V8 断言下，不建议长期停在 22.22.2。
+该 V8 断言下，不建议长期停在 22.22.2。回滚时还要把 `better_sqlite3.node` 换回
+`*.abi127.original`，否则 22 会因 ABI 不匹配起不来。
+
+**运行时闸门必须一起放宽**，否则 3001 一启动就被自己拦下来：
+
+| 文件 | 改动 |
+| --- | --- |
+| `scripts/check-node-runtime.mjs` | 从「>=22.13.0 且 <23」改为「>=22.13.0 且 <25，允许 22 / 24 两条 LTS 线」；命中 22.22.2 只打 WARN 不拒绝 |
+| `install.sh` | `SUPPORTED_NODE_MAJORS="22 24"`，Linux 安装器同一口径；`bash -n` 通过 |
+| `scripts/check-node-runtime.test.mjs`（新） | `node --test` 10 个用例，覆盖 22.12/22.13/22.22.2/23/24/25 与 cppgc 告警 |
+| `README_SOURCE_INSTALL*.md` | 故障排查说明同步更新 |
+
+**ABI 绑定模块**：换主版本后 `better-sqlite3` 必须换 ABI（22 → 127，24 → 137）。
+本机下载官方 `better-sqlite3-v12.10.0-node-v137-win32-x64.tar.gz` 解压覆盖
+`build/Release/better_sqlite3.node`，旧二进制改名保留为 `*.abi127.original`
+和 `*.abi127.bak`。全仓只有这一个 ABI 绑定模块，其余 `.node` 都是 N-API。
+验证：`<node24> -e "const D=require('<pkg>'); console.log(new D(':memory:').prepare('select 1').get())"`。
+
+**插件进程回落**：`ui/server/utils/plugin-process-manager.js` 原来
+`spawn('node', ...)` 会从 PATH 找到 WorkBuddy 自带的 22，结果是
+`3001(24) → gateway-keeper(22) → supervisor(22) → gateway(22)`，
+网关一崩重启就退回旧运行时。已改为 `spawn(process.execPath, ...)`；
+两个启动器再把 node 所在目录前置到 `PATH` 作为兜底。核对：
+`supervisor.log` 的 `node=` 行为 `24.22.3`，且进程映像路径指向
+`tools\node-v24.22.3-win-x64\node.exe`。
