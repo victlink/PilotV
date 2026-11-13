@@ -19,8 +19,10 @@
           Agent 网关开在 3001 时，页面能渲染，但所有 /api/* 会落到 SPA 兜底 HTML，
           表现就是「添加模型失败 / 新建工作区失败」这类 JSON 解析错误。
 
-  前置：Node 22.13~22.x、Python 3.10+，且已完成依赖安装（.venv 里的 aiohttp、
-        upstream-official 下的 pnpm 依赖与 ui/dist 构建产物）。
+  前置：Node 24 LTS（22.22.2 的 V8 cppgc 断言会让网关在长上下文并发时崩溃，
+        见 docs/COMMANDER-LOOP.md §12）、Python 3.10+，且已完成依赖安装
+        （.venv 里的 aiohttp、upstream-official 下的 pnpm 依赖与 ui/dist 构建产物）。
+        换 node 主版本后 better-sqlite3 必须同步换成对应 ABI 的原生模块。
   说明：这里不用 Start-Process —— 本机环境同时存在 http_proxy / HTTP_PROXY，
         它构造环境字典时会抛「已添加项」而失败，所以统一走 .NET 进程 + cmd 重定向。
 #>
@@ -63,6 +65,21 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
         Write-Warning "未找到 node，请确认 $nodeRoot 下存在 node.exe"
     }
 }
+
+# PilotV 专用 Node 运行时：优先 PILOTDECK_NODE，其次 %USERPROFILE%\tools\node-v24*，
+# 最后才退回 PATH 里的 node。优先级与 .run\*.cmd 保持一致。
+# 22.22.2 触发过 V8 "Check failed: marking_done_"；升级主版本后 better-sqlite3
+# 要用 ABI 137 的预编译包（本机已换，旧 ABI 127 备份在同目录 *.abi127.original）。
+$NodeExe = $env:PILOTDECK_NODE
+if (-not $NodeExe -or -not (Test-Path -LiteralPath $NodeExe)) {
+    $NodeExe = Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE 'tools') -Directory -Filter 'node-v24*' -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending |
+        ForEach-Object { Join-Path $_.FullName 'node.exe' } |
+        Where-Object { Test-Path -LiteralPath $_ } |
+        Select-Object -First 1
+}
+if (-not $NodeExe) { $NodeExe = 'node' }
+Write-Host "PilotV node runtime: $NodeExe"
 
 # 清掉宿主 shell（WorkBuddy / Claude Code）注入的 bash 钩子与回合上下文。
 #
@@ -240,7 +257,7 @@ if (Test-Port $AgentPort) {
     # 启动器一退出控制台就跟着关，node 收到 CTRL_CLOSE 事件会「优雅」自杀——
     # 现象是刚报「已启动」、几秒后端口就没了，日志里连报错都没有。
     # 直接用 node + tsx 的 loader 跑，和 Web/API 服务同一条路，才活得下来。
-    $p = Start-Svc 'node' "--import tsx src/cli/pilotdeck.ts server --port $AgentPort" $Upstream 'agent.log'
+    $p = Start-Svc $NodeExe "--import tsx src/cli/pilotdeck.ts server --port $AgentPort" $Upstream 'agent.log'
     $pids.agent = $p.Id
     if (Wait-Port $AgentPort 90000) {
         # 端口通了不等于活下来：若启动器所在的控制台很快被回收，node 会收到控制台关闭
@@ -267,7 +284,7 @@ if (Test-Port $WebPort) {
     $env:HOST = '0.0.0.0'
     $env:PILOTDECK_DISABLE_LOCAL_AUTH = '0'
     $env:PILOTDECK_GATEWAY_URL = "ws://127.0.0.1:$AgentPort/ws"
-    $p = Start-Svc 'node' '--import tsx server/index.js' $UiDir 'web.log'
+    $p = Start-Svc $NodeExe '--import tsx server/index.js' $UiDir 'web.log'
     $pids.web = $p.Id
     if (Wait-Port $WebPort 90000) { Write-Host "Web/API 已启动  http://127.0.0.1:$WebPort/api/config" }
     else { Write-Warning "Web/API 启动超时，见 .run\web.log" }
