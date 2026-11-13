@@ -64,9 +64,14 @@ echo "  已同步 scripts/cad_to_glb.py"
 # 三维预览用的 model-viewer 是 vendored 进 static/vendor 的（这台机器没从 npm
 # 装它），成果台按 /artifacts-static/ 直接伺服静态目录。漏了这一步不会报错，
 # 只是三维区变成一块空白、控制台里一条 404 —— 所以宁可每次都同步一遍。
+#
+# 不能用 cp -a：同步源在 fnOS 的共享目录上，某些目录带着奇怪的 ACL（只有 rw
+# 没有 x），照抄过去就成了「读得到文件名、进不去目录」，服务端一律 404。
+# 所以只拷内容，拷完把 u+rwX 补回去。
 if [ -d "$REPO/static" ]; then
   mkdir -p "$DEPLOY/static"
-  cp -a "$REPO/static/." "$DEPLOY/static/"
+  cp -R "$REPO/static/." "$DEPLOY/static/" || true
+  chmod -R u+rwX "$DEPLOY/static" 2>/dev/null || true
   echo "  已同步 static/（三维渲染器 static/vendor/model-viewer.min.js）"
 fi
 
