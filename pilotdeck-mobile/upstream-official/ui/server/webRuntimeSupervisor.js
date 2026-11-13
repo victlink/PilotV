@@ -18,9 +18,11 @@ const UI_ROOT = path.resolve(__dirname, '..');
 
 // 就绪判定失败不会直接判死：端口被上一个进程占着时，第一次必然超时，自动再起一次
 // 通常就能拿到空闲端口，用户不必对着「正在启动 Gateway」等满 90 秒再手动点重启。
-const GATEWAY_READINESS_TIMEOUT_MS = 90_000;
+// 2026-11-13：主机在 tsx 冷启动 + 高负载下会超过 90s，被误判为「未就绪」而反复重启，
+// 表现为页面间歇性 502。首启放宽到 120s、重试到 80s，减少这种误判重启。
+const GATEWAY_READINESS_TIMEOUT_MS = 120_000;
 // 重试那次进程已经预热（tsx 已缓存转译结果），不需要再给整份超时时间。
-const GATEWAY_RETRY_TIMEOUT_MS = 45_000;
+const GATEWAY_RETRY_TIMEOUT_MS = 80_000;
 const GATEWAY_READINESS_MAX_ATTEMPTS = 2;
 const GATEWAY_RETRY_DELAY_MS = 1_000;
 
@@ -33,17 +35,27 @@ export function resolveSupervisorConfigPath(value, baseCwd = process.cwd()) {
   return configuredPath ? path.resolve(baseCwd, configuredPath) : undefined;
 }
 
-export function getRuntimeCommands(mode, uiRoot = UI_ROOT) {
+export function getRuntimeCommands(mode, uiRoot = UI_ROOT, env = process.env) {
   const normalizedMode = normalizeSupervisorMode(mode);
   const repoRoot = path.resolve(uiRoot, '..');
   const sourceGateway = path.join(repoRoot, 'src', 'cli', 'pilotdeck.ts');
   const builtGateway = path.join(repoRoot, 'dist', 'src', 'cli', 'pilotdeck.js');
-  const packagedRuntime = existsSync(builtGateway) && !existsSync(sourceGateway);
+  const hasBuiltGateway = existsSync(builtGateway);
+  const packagedRuntime = hasBuiltGateway && !existsSync(sourceGateway);
+  // 2026-11-13：源码仓库里 .ts 一定存在，packagedRuntime 恒为 false，于是生产环境
+  // 一直用 `--import tsx` 现场转译整个 src。tsx 冷启动既慢又吃 CPU，高负载下会被
+  // 就绪检查判成失败并反复重启（历史上 25 次）。这里允许显式选择预编译产物：
+  //   PILOTDECK_RUNTIME_MODE=built   → 网关走 dist/src/cli/pilotdeck.js（纯 JS，无需 tsx）
+  //   PILOTDECK_RUNTIME_MODE=source  → 强制源码（默认行为不变）
+  const runtimeMode = String(env.PILOTDECK_RUNTIME_MODE || '').toLowerCase();
+  const useBuiltGateway = packagedRuntime || (runtimeMode === 'built' && hasBuiltGateway);
   const serverEntry = path.join(uiRoot, 'server', existsSync(path.join(uiRoot, 'server/supervisedBootstrap.js')) ? 'supervisedBootstrap.js' : 'index.js');
   const commands = [
     {
       name: 'server',
       command: process.execPath,
+      // UI 服务端始终保留 tsx：ui/server 直接 import ../../src/*（含 .ts），
+      // 没有对应的 dist 映射，去掉 tsx 会 ERR_UNKNOWN_FILE_EXTENSION。
       args: [...(packagedRuntime ? [] : ['--import', 'tsx']), serverEntry],
       cwd: uiRoot,
       ipc: true,
@@ -63,7 +75,7 @@ export function getRuntimeCommands(mode, uiRoot = UI_ROOT) {
   commands.push({
     name: 'gateway',
     command: process.execPath,
-    args: packagedRuntime ? [builtGateway, 'server'] : ['--import', 'tsx', sourceGateway, 'server'],
+    args: useBuiltGateway ? [builtGateway, 'server'] : ['--import', 'tsx', sourceGateway, 'server'],
     cwd: repoRoot,
     ipc: true,
     critical: false,
@@ -109,7 +121,7 @@ export function createRuntimeSupervisor({
   processLike = process,
 } = {}) {
   const normalizedMode = normalizeSupervisorMode(mode);
-  const commandSpecs = getRuntimeCommands(normalizedMode, cwd);
+  const commandSpecs = getRuntimeCommands(normalizedMode, cwd, env);
   const specByName = new Map(commandSpecs.map((spec) => [spec.name, spec]));
   const children = new Map();
   const gatewayPort = Number.parseInt(env.PILOTDECK_GATEWAY_PORT || '18789', 10);

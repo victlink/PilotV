@@ -195,7 +195,27 @@ const WATCHER_IGNORED_PATTERNS = [
     '**/build/**',
     '**/*.tmp',
     '**/*.swp',
-    '**/.DS_Store'
+    '**/.DS_Store',
+    // 2026-11-13：这两类目录是高频写入的会话数据（chats 里 1.4GB 的 .jsonl、
+    // pending-inputs 的临时入参），递归监听只会制造 lstat 风暴，且与「项目列表变更」
+    // 无关——会话列表由网关 WS 事件推送。
+    '**/chats/**',
+    '**/pending-inputs/**',
+    // 2026-11-13：projects 是符号链接（-> /vol3/.../HomeOffload/...），chokidar 在
+    // followSymlinks:false 时会改为监听其父目录 ~/.pilotdeck。该目录下还有旧版整包
+    // app.bak-*（2.4GB / 16.8 万条目，含 node_modules）、checkpoints(1.6GB)、
+    // qdrant-export 等重目录，depth:10 会把它们全部递归 lstat 一遍 —— 实测这就是
+    // 每请求 ~8ms CPU、持续 lstat 风暴的来源。这里显式排除。
+    '**/app/**',
+    '**/app.bak*/**',
+    '**/checkpoints/**',
+    '**/qdrant-export/**',
+    '**/logs/**',
+    '**/memory/**',
+    '**/state/**',
+    '**/deliverables/**',
+    '**/pilotdeck-systemd.log*',
+    '**/pilotdeck-ui.log*',
 ];
 const WATCHER_DEBOUNCE_MS = 300;
 let projectsWatchers = [];
@@ -374,7 +394,11 @@ async function setupProjectsWatcher() {
                 persistent: true,
                 ignoreInitial: true, // Don't fire events for existing files on startup
                 followSymlinks: false,
-                depth: 10, // Reasonable depth limit
+                // 2026-11-13：原为 10。projects 是符号链接，chokidar 实际监听的是其父目录
+                // ~/.pilotdeck，depth:10 会把整个家目录（含 2.4GB 的 app.bak-*、1.6GB
+                // checkpoints）递归遍历，实测每请求多烧 ~8ms CPU 且持续 lstat。
+                // 这里只需要「项目目录增删」事件，2 层足够（projects/<id> 及其子目录名）。
+                depth: 2,
                 awaitWriteFinish: {
                     stabilityThreshold: 100, // Wait 100ms for file to stabilize
                     pollInterval: 50

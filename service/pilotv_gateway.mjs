@@ -415,6 +415,20 @@ const WS_TUNNEL_CONNECT_TIMEOUT_MS = 30_000;
  */
 const UPSTREAM_IDLE_MS = Number(process.env.PILOTV_UPSTREAM_IDLE_MS || 600_000);
 
+/**
+ * 转发普通 HTTP 请求时，等待「响应头（第一字节）」的硬上限。
+ *
+ * UPSTREAM_IDLE_MS 管的是「已连上、但 body 长时间没数据」（流式响应用），
+ * 它默认给到 10 分钟。但上游（3001）偶发**事件循环阻塞**时，连响应头都发不出来，
+ * 这时若只靠 10 分钟的静默超时，浏览器就要干等两分多钟甚至更久——用户看到的就是
+ * 「整个页面卡死、打不开」。
+ *
+ * 这里给「拿到响应头」单独设一个上限：超过就立刻返回 504，让前端快速重试，
+ * 而不是无限转圈。一旦收到响应头，此计时器即取消，流式 body 仍由 UPSTREAM_IDLE_MS 兜底。
+ * 用环境变量可调：PILOTV_UPSTREAM_FIRST_BYTE_MS。
+ */
+const UPSTREAM_FIRST_BYTE_MS = Number(process.env.PILOTV_UPSTREAM_FIRST_BYTE_MS || 60_000);
+
 /** 网关自己的小 JSON 响应。no-store：设备状态变了一秒都不能被缓存。 */
 function sendJson(response, status, body) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -451,6 +465,8 @@ function forward(request, response, targetOrigin, pathname, token, stripCallerAu
   // 按清单里的协议转发。 devices.json 允许写 https://<MagicDNS>:3001，
   // 而这里如果恒用 http.request，等于把明文 HTTP 打到一个 TLS 端口上 ——
   // 表现是「上游无响应」这种完全看不出根因的错误。
+  let gotHeaders = false;
+  let firstByteTimer = null;
   const upstream = (upstreamIsTls ? https : http).request({
     hostname: target.hostname,
     port: target.port || (upstreamIsTls ? 443 : 80),
@@ -462,12 +478,25 @@ function forward(request, response, targetOrigin, pathname, token, stripCallerAu
     // 拿 IP 连必然校验失败；要真正做证书校验得先解决「用什么名字连」。
     rejectUnauthorized: false,
   }, upstreamResponse => {
+    gotHeaders = true;
+    if (firstByteTimer) { clearTimeout(firstByteTimer); firstByteTimer = null; }
     response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);
     upstreamResponse.pipe(response);
   });
+  // 第一字节硬上限：拿到响应头之前最多等 UPSTREAM_FIRST_BYTE_MS。
+  // 上游卡在事件循环里（连响应头都发不出）时，这里快速返回 504，
+  // 前端可以立刻重试，而不是被一个悬着的请求拖到天荒地老。
+  firstByteTimer = setTimeout(() => {
+    if (gotHeaders || response.headersSent) return;
+    response.writeHead(504, { 'content-type': 'text/plain; charset=utf-8' });
+    response.end(`上游 ${target.host} 超过 ${Math.round(UPSTREAM_FIRST_BYTE_MS / 1000)} 秒未返回响应头（可能正在重启，请稍后重试）`);
+    upstream.destroy();
+  }, UPSTREAM_FIRST_BYTE_MS);
+  firstByteTimer.unref?.();
   // 上游静默超过上限就掐掉，给前端一个明确的 504，而不是让它无限期转圈。
   // 用的是「静默」而不是「总时长」：流式响应中间可以长时间没有输出。
   upstream.setTimeout(UPSTREAM_IDLE_MS, () => {
+    if (firstByteTimer) { clearTimeout(firstByteTimer); firstByteTimer = null; }
     if (!response.headersSent) {
       response.writeHead(504, { 'content-type': 'text/plain; charset=utf-8' });
     }
@@ -475,6 +504,7 @@ function forward(request, response, targetOrigin, pathname, token, stripCallerAu
     upstream.destroy();
   });
   upstream.on('error', error => {
+    if (firstByteTimer) { clearTimeout(firstByteTimer); firstByteTimer = null; }
     if (!response.headersSent) response.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
     response.end(`上游 ${target.host} 无响应：${error.code || error.message}`);
   });
