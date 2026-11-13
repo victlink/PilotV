@@ -61,6 +61,14 @@ cp -f "$REPO/service/serve_artifacts.py" "$DEPLOY/"
 # cad_to_glb.py 跑在隔离 venv 里，artifacts_cad 按自己的目录找它，位置不能变。
 cp -f "$REPO/scripts/cad_to_glb.py" "$DEPLOY/scripts/"
 echo "  已同步 scripts/cad_to_glb.py"
+# 三维预览用的 model-viewer 是 vendored 进 static/vendor 的（这台机器没从 npm
+# 装它），成果台按 /artifacts-static/ 直接伺服静态目录。漏了这一步不会报错，
+# 只是三维区变成一块空白、控制台里一条 404 —— 所以宁可每次都同步一遍。
+if [ -d "$REPO/static" ]; then
+  mkdir -p "$DEPLOY/static"
+  cp -a "$REPO/static/." "$DEPLOY/static/"
+  echo "  已同步 static/（三维渲染器 static/vendor/model-viewer.min.js）"
+fi
 
 ( cd "$DEPLOY" && python3 -c 'import serve_artifacts; print("  import 自检通过")' )
 # CAD 转换器缺了不是启动失败，是 /viewer 现场炸：这里提前问一句。
