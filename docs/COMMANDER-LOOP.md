@@ -451,8 +451,8 @@ PILOTV_COMMANDER_LOOP=0            # 关新循环（界面开关仍优先）
 或删掉对应账本文件。不要直接编辑 running 文件里的 `status`。
 
 **升级运行时**：`Check failed: marking_done_` 是 Node/V8 的运行时断言，应用层无法
-根除。本机当时只有 `22.22.2`，建议升级到 22.x 后续补丁或 24 LTS 后观察；升之前用
-并发闸门（`PILOTV_COMMANDER_MAX_CONCURRENT=1`，默认即 1）降低触发概率。
+根除。本机已于 2026-11-13 升到 **Node 24.22.3 LTS**（详见 §12.6），并发闸门
+（`PILOTV_COMMANDER_MAX_CONCURRENT=1`，默认即 1）仍保留为第二道防线。
 `PILOTDECK_GATEWAY_NODE_FLAGS="--max-old-space-size=4096"` 是可显式注入的缓解项，
 是否对本断言有效需按机型实测，默认不改任何 V8 行为。
 
@@ -470,7 +470,8 @@ npx vitest run --environment node \
 ```
 
 本机 `vite.config.js` 默认 `environment: 'jsdom'`，而这台机器没装 jsdom；
-跑纯 Node 侧用例时显式加 `--environment node`（46 个用例通过）。
+跑纯 Node 侧用例时显式加 `--environment node`。Node 22 与 Node 24 下均跑过全量
+相关回归（9 个文件 / 167 个用例全部通过）。
 
 端到端自检：给一个会话开自动推进 → 确认账本出现 → `taskkill` 掉 gateway 让
 supervisor 换 pid → 观察 `web.log` 出现 `commander loop interrupted` 与
@@ -482,3 +483,45 @@ supervisor 换 pid → 观察 `web.log` 出现 `commander loop interrupted` 与
 `PILOTV_COMMANDER_RECOVERY=0` 关恢复守护、`PILOTV_COMMANDER_LOOP=0` 关新循环，
 两者都是环境变量，无需改代码。已有账本不会被守护读取，可保留供人工查看。
 代码级回滚即回退本节的 5 个文件，账本为纯新增目录，删除不影响会话记录。
+
+### 12.6 Node 24 LTS 升级（2026-11-13，本机 Windows）
+
+运行时缺陷本身必须靠升级解决，账本只是兜底。本机做法是**给 PilotV 装一份独立
+运行时，不动宿主**：WorkBuddy 自带并注入 PATH 的 `22.22.2` 保持不变（宿主自身依赖），
+PilotV 全链路改用 `24.22.3 LTS`（V8 `13.6.233.17`）。
+
+```text
+安装位置   %USERPROFILE%\tools\node-v24.22.3-win-x64\node.exe
+安装方式   官方 win-x64 zip 解压（镜像下载 + SHASUMS256.txt 校验，未跑 msi、不改系统 PATH）
+持久变量   PILOTDECK_NODE = <上面的 node.exe>（用户级）
+```
+
+启动脚本 `.run/restart-3001.cmd`、`.run/web-3001.cmd`、`.run/agent-supervisor.cmd`
+统一按以下优先级解析 node，全部是纯 ASCII + CRLF。前两个是本机运行态文件
+（被 `.gitignore` 排除、不入库），只有 `agent-supervisor.cmd` 随仓库分发；
+Linux / NAS 由 systemd 直接指定运行时路径，不用 `.cmd`：
+
+```text
+PILOTDECK_NODE  >  %USERPROFILE%\tools\node-v24*  >  WorkBuddy 自带目录  >  PATH 里的 node
+```
+
+**整条链只需要改 3001 一处**：`index.js` 用哪个 node 启动，`gateway-keeper` 就
+用 `process.execPath` 拉起 `agent-supervisor.mjs`，supervisor 再用 `process.execPath`
+spawn gateway。所以 3001 换成 24 之后，keeper / supervisor / 18789 全是 24，
+`supervisor.log` 里每行的 `node=` 可直接核对。
+
+```bat
+:: 重启并确认版本
+.run\restart-3001.cmd
+findstr /c:"node=" .run\supervisor.log
+```
+
+验证：新 node 下对 `pilotdeck-bridge.js` / `index.js` / 两个新 service 做 `--check`
+全部通过；vitest 相关用例在 Node 24 下通过。注意 **PATH 上的 `node` 仍是 22.22.2**，
+手工敲 `node server/index.js` 会退回旧运行时；要么走上面的 `.cmd`，要么显式设
+`PILOTDECK_NODE`，要么直接用绝对路径。若确实要全局切换，把
+`%USERPROFILE%\tools\node-v24.22.3-win-x64` 前置到用户 PATH，并重启宿主应用。
+
+回滚：删除 / 清空 `PILOTDECK_NODE` 并把 `tools\node-v24*` 目录改名，三个 `.cmd`
+会自动回退到 WorkBuddy 自带的 22.22.2；账本与并发闸门不受影响，但会重新暴露在
+该 V8 断言下，不建议长期停在 22.22.2。
