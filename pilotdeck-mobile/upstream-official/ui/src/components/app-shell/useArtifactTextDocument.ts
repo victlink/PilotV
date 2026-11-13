@@ -18,6 +18,10 @@ export function useArtifactTextDocument(artifactId: string) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState(0);
+  // 只读预览：正文读得出来，但服务端说这份不能就地改（超过 2MB）。
+  // 与 loadError 是两件事 —— 一个「看不见」，一个「看得见但改不了」。
+  const [editable, setEditable] = useState(true);
+  const [editableReason, setEditableReason] = useState('');
   const [reloadToken, setReloadToken] = useState(0);
   // 保存成功的提示要自己收掉，不然「已保存」会一直挂在编辑区顶上，
   // 看着像刚保存过。定时器跟着换文档／卸载走，免得给下一份成果误报。
@@ -29,11 +33,16 @@ export function useArtifactTextDocument(artifactId: string) {
     setLoading(true);
     setLoadError(null);
     setSaveError(null);
+    // 换文档时先把只读状态清掉：上一份的「超过 2MB」不该跟着这一份走。
+    setEditable(true);
+    setEditableReason('');
     void fetchArtifactText(artifactId, controller.signal).then(text => {
       if (cancelled) return;
       setContent(text.text);
       setSavedContent(text.text);
       setDelta(text.delta);
+      setEditable(text.editable);
+      setEditableReason(text.editableReason);
     }).catch(cause => {
       if (cancelled || controller.signal.aborted) return;
       // 错误绝不进 content：这个缓冲区会被原样 PUT 回去。
@@ -58,6 +67,12 @@ export function useArtifactTextDocument(artifactId: string) {
       setSaveError('正文还没读出来，不能保存');
       return false;
     }
+    // 只读预览不给写回：后端也过不去，但在这里拦住能让人知道「不是没存上，
+    // 是这份本来就不让改」，而不是等一次失败再猜。
+    if (!editable) {
+      setSaveError(editableReason || '这份正文只能预览，不能就地编辑');
+      return false;
+    }
     setSaving(true);
     setSaveError(null);
     try {
@@ -74,7 +89,7 @@ export function useArtifactTextDocument(artifactId: string) {
     } finally {
       setSaving(false);
     }
-  }, [artifactId, content, loadError, loading]);
+  }, [artifactId, content, editable, editableReason, loadError, loading]);
 
   return {
     content,
@@ -86,6 +101,8 @@ export function useArtifactTextDocument(artifactId: string) {
     saveError,
     savedAt,
     delta,
+    editable,
+    editableReason,
     isDirty: !loading && !loadError && content !== savedContent,
     handleSave,
   };

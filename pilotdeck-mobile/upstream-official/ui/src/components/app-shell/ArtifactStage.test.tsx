@@ -199,6 +199,21 @@ it('zooms with ctrl + wheel and pans with a plain wheel once enlarged', async ()
     expect(screen.getByRole('button', { name: '全屏' })).toBeTruthy();
   });
 
+  it('opens an oversized HTML page as a page instead of pulling 3MB of text', () => {
+    render(<Harness override={{
+      kind: 'page',
+      mime: 'text/html',
+      file_name: 'assembly-viewer.html',
+      // 超过就地编辑上限（2MB）：这份永远改不了，编辑器只为拿一份用不上的正文
+      // 传两兆 JSON，页面本身在浏览器里就能渲染。
+      size: 3 * 1024 * 1024,
+    } as Partial<Artifact>} />);
+
+    // 走通用 iframe 分支：没有编辑器标题行，也没有按下去必然被拒的「编辑」。
+    expect(screen.queryByRole('button', { name: '编辑' })).toBeNull();
+    expect(screen.queryByText(/可直接编辑/)).toBeNull();
+  });
+
   it('pans one-to-one with the finger instead of running away on every frame', async () => {
     render(<Harness />);
     const frame = screen.getByTestId('artifact-frame');

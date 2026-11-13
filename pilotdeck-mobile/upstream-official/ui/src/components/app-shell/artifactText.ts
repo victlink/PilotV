@@ -18,6 +18,10 @@ export type ArtifactText = {
   artifactId: string;
   text: string;
   bytes: number;
+  /** 能不能就地编辑。读取与写入是两条门槛：大文件能看，但不给整份写回。 */
+  editable: boolean;
+  /** 不能编辑时服务端给的理由，直接显示给人看。 */
+  editableReason: string;
   delta: ArtifactTextDelta;
 };
 
@@ -35,14 +39,15 @@ export type ArtifactTextSave = {
  * 注意 400 不能在这里硬编：空正文和参数缺失都是 400，编死了会把「内容是空的」
  * 说成「参数错了」，所以 400 不预置。
  *
- * 415 一条要同时盖住两种情况：类型不在可编辑清单里，以及文件本身已经超过 2MB
- * —— 后端 editable_reason 把这两件事归成同一个结果（它问的是「这份文件能不能
- * 改」），所以前端也不拆。413 只出现在保存时正文太长这一条路上。
+ * 415 现在是「连读都读不了」（不是文本、或大到 16MB 以上）：能不能就地编辑
+ * 不再走 415，服务端会在 200 里带 editable=false 说明理由 —— 因为大文件
+ * 本来就该能打开看，拒掉读取只会逼人退回去看原文件。
+ * 413 只出现在保存时正文太长这一条路上。
  */
 const STATUS_HINTS: Record<number, string> = {
-  404: '这份成果没有可编辑的源文件（可能只有图纸，或者已经被清理过）',
+  404: '这份成果没有可读的源文件（可能只有图纸，或者已经被清理过）',
   413: '正文超过 2MB，成果台不代劳这么长的文档',
-  415: '这个格式（或这份文件的体积）不在成果台可编辑的范围里',
+  415: '这个格式（或这份文件的体积）不在成果台可读的范围里',
 };
 
 function readDelta(value: unknown): ArtifactTextDelta {
@@ -76,13 +81,19 @@ export async function fetchArtifactText(artifactId: string, signal?: AbortSignal
     signal ? { signal } : undefined,
   );
   if (!response.ok) throw await textError(response, '正文读取失败');
-  const data = await response.json() as { text?: unknown; bytes?: unknown; changed?: unknown };
+  const data = await response.json() as {
+    text?: unknown; bytes?: unknown; changed?: unknown;
+    editable?: unknown; editable_reason?: unknown;
+  };
   return {
     artifactId,
     // text 必须是字符串：接口出意外时宁可给空串让用户看见「没有正文」，
     // 也别把 undefined 交给编辑器，那会在保存时变成字符串 "undefined"。
     text: typeof data?.text === 'string' ? data.text : '',
     bytes: Number(data?.bytes) || 0,
+    // 老后端不带这两个字段：缺省当成可编辑，否则升级顺序一错就全是只读。
+    editable: data?.editable !== false,
+    editableReason: typeof data?.editable_reason === 'string' ? data.editable_reason : '',
     delta: readDelta(data?.changed),
   };
 }

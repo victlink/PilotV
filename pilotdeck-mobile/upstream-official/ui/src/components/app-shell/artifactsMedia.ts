@@ -18,6 +18,9 @@ export type Artifact = {
   kind?: string | null;
   mime?: string | null;
   status?: string | null;
+  // 体积：用来判断「能不能就地改」。不读接口也知道答案，就不必先把两兆正文
+  // 拉进浏览器再被拒一次。
+  size?: number | null;
   // ts / agent / entry.meta are what the「只留每轮最终结果」过滤要用的事实：
   // 什么时候发的、谁发的、有没有声明自己是多结果对比。
   ts?: string | null;
@@ -124,6 +127,19 @@ const EDITABLE_DOC_EXT = ['.html', '.htm', '.md', '.markdown', '.txt', '.svg', '
 export function isEditableDocument(artifact: Artifact): boolean {
   const type = mediaType(artifact);
   return (type === 'markdown' || type === 'iframe') && EDITABLE_DOC_EXT.includes(artifactExt(artifact));
+}
+
+/**
+ * 就地编辑的体积上限，必须和 `artifacts_deliver.MAX_EDIT_BYTES` 一致。
+ *
+ * 「读」和「写」在这个数上是分开的：超过它仍然能打开看（后端能读到 16MB），
+ * 只是不给整份写回。这里只用来决定两件事：编辑入口要不要摆、HTML 要不要
+ * 干脆交给 iframe 渲染。
+ */
+export const MAX_EDITABLE_DOC_BYTES = 2 * 1024 * 1024;
+
+export function isOversizedEditableDocument(artifact: Artifact): boolean {
+  return Number(artifact.size || 0) > MAX_EDITABLE_DOC_BYTES;
 }
 
 export function artifactTypeLabel(type: MediaType): string {

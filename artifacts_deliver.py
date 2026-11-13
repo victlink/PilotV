@@ -390,7 +390,12 @@ def part_file(aid: str, stored_name: str, files_dir: str) -> str | None:
 
 EDITABLE_EXT = {".html", ".htm", ".md", ".markdown", ".txt", ".svg",
                 ".json", ".css", ".js", ".jsx", ".ts", ".vue", ".yaml", ".yml"}
+# 「读」和「写」是两个不同的上限，别用一条线卡两件事。
+# 写回是整份正文原子落盘、还要算 diff，2MB 之外就不划算了；读进来只是显示，
+# 一份 2.5MB 的自包含 HTML 装配视图正是最该被打开的成果 —— 早先两者共用这条线，
+# 结果是人看到「文件超过 2MB，成果台不代劳，下面是原文件」。
 MAX_EDIT_BYTES = 2 * 1024 * 1024
+MAX_READ_BYTES = 16 * 1024 * 1024
 
 
 class EmptyText(ValueError):
@@ -398,16 +403,37 @@ class EmptyText(ValueError):
     路由层要回 400 并说人话，不能混进 413 让人以为是文件太大。"""
 
 
-def editable_reason(path: str) -> str:
-    """返回空串 = 可编辑；否则返回不可编辑的人话理由。"""
+def readable_reason(path: str) -> str:
+    """返回空串 = 能把正文读出来显示；否则返回不可读的人话理由。
+
+    只看两件事：是不是文本类型、体积有没有到「读进内存也不该」的程度。
+    能不能就地编辑是另一回事，见 editable_reason。
+    """
     if not path:
-        return "这份成果没有可编辑的源文件"
+        return "这份成果没有可读的源文件"
     ext = os.path.splitext(path)[1].lower()
     if ext not in EDITABLE_EXT:
-        return f"{ext or '无后缀'} 不在可直接编辑的文本类型里"
+        return f"{ext or '无后缀'} 不是能当正文读的文本类型"
+    try:
+        if os.path.getsize(path) > MAX_READ_BYTES:
+            return f"文件超过 {MAX_READ_BYTES // 1024 // 1024}MB，正文太大，只能走下载"
+    except OSError:
+        return "源文件读不出来"
+    return ""
+
+
+def editable_reason(path: str) -> str:
+    """返回空串 = 可编辑；否则返回不可编辑的人话理由。
+
+    先过 readable_reason：读不出来的东西谈不上改。剩下的差异只有体积 ——
+    大文件可以看，但不给就地改（保存要整份写回并与原件算 diff）。
+    """
+    why = readable_reason(path)
+    if why:
+        return why
     try:
         if os.path.getsize(path) > MAX_EDIT_BYTES:
-            return f"文件超过 {MAX_EDIT_BYTES // 1024 // 1024}MB，成果台不代劳"
+            return f"文件超过 {MAX_EDIT_BYTES // 1024 // 1024}MB，只能预览，不能就地编辑"
     except OSError:
         return "源文件读不出来"
     return ""

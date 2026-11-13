@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { artifactRawUrl, artifactViewerUrl, isCadArtifact, isEditableDocument, isUnconvertible3d, mediaType, type Artifact } from './artifactsMedia';
+import { artifactRawUrl, artifactViewerUrl, isCadArtifact, isEditableDocument, isOversizedEditableDocument, isUnconvertible3d, mediaType, type Artifact } from './artifactsMedia';
 import {
   annotationRect,
   annotationStrokes,
@@ -189,10 +189,16 @@ export default function ArtifactStage({
   // （那里 markdown 只会显示成源码）。
   // markdown 无条件走这边：万一后缀认不出来、只有 mime=text/markdown，
   // 落回通用分支的结果是一块什么都没有的白板。
-  const documentArtifact = artifact && (type === 'markdown' || isEditableDocument(artifact)) ? artifact : null;
+  // 超过就地编辑上限的 HTML 不走文档编辑器，直接交给沙箱 iframe：编辑器为了
+  // 拿一份用不上的正文要传两兆 JSON，而它本来就在浏览器里渲染，iframe 更像原件。
+  // markdown 反过来 —— 它没有 iframe 这条路可退，只能靠正文渲染。
+  const documentArtifact = artifact && (type === 'markdown'
+    || (isEditableDocument(artifact) && !(type === 'iframe' && isOversizedEditableDocument(artifact))))
+    ? artifact : null;
   // 「编辑」入口另算：后缀不在可编辑清单里的文档照样能看，只是别摆出一个
-  // 按下去必然吃 415 的按钮。
-  const documentEditable = Boolean(documentArtifact && isEditableDocument(documentArtifact));
+  // 按下去必然吃 415 的按钮；超过体积上限的也一样（后端只读预览）。
+  const documentEditable = Boolean(documentArtifact && isEditableDocument(documentArtifact)
+    && !isOversizedEditableDocument(documentArtifact));
   // 编辑时同样占满：编辑器要的是整块可用区域，不是按内容缩放的一张小图。
   const fill = !blank && (editing || type === 'markdown' || type === 'iframe' || type === 'model3d'
     || type === 'audio' || type === 'drawing' || type === 'unsupported');

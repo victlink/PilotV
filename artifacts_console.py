@@ -1899,21 +1899,32 @@ async def api_part_file(request):
 
 @_guard
 async def api_get_text(request):
-    """GET /api/artifacts/<id>/text —— 取成果台副本的文本，供就地编辑。"""
+    """GET /api/artifacts/<id>/text —— 取成果台副本的正文，供预览与就地编辑。
+
+    读和写的门槛不一样：一份 2.5MB 的自包含 HTML 成果该被打开看（读），
+    但不该被整份写回（写）。所以这里只问 readable_reason，另把「能不能改」
+    作为 editable 告诉前端，由它决定要不要摆「编辑」入口。
+    """
     import artifacts_deliver
     aid = request.match_info["aid"]
     path = _stored_path(aid)
     if not path or not os.path.isfile(path):
-        return _err("这份成果没有可编辑的文件", 404)
-    why = artifacts_deliver.editable_reason(path)
+        return _err("这份成果没有可读的文件", 404)
+    why = artifacts_deliver.readable_reason(path)
     if why:
         return _err(why, 415)
     try:
         text = artifacts_deliver._read_text(path)
     except OSError as exc:
         return _err(f"读不出来：{exc}", 500)
+    edit_why = artifacts_deliver.editable_reason(path)
+    # 超过就地编辑上限的文件不可能被改过（写入这条路本身也过不去），
+    # 所以不必为它读两遍全文再算 diff —— 那是这份接口最贵的一步。
+    changed = ({"edited": False, "added": 0, "removed": 0, "diff": "", "truncated": False}
+               if edit_why else artifacts_deliver.text_diff(path))
     return _json({"artifact_id": aid, "text": text, "bytes": len(text.encode("utf-8")),
-                  "changed": artifacts_deliver.text_diff(path)})
+                  "editable": not edit_why, "editable_reason": edit_why,
+                  "changed": changed})
 
 
 @_guard

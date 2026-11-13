@@ -32,7 +32,8 @@ type Props = {
  */
 export default function ArtifactDocumentEditor({ artifact, mode, onExit }: Props) {
   const { isDarkMode, wordWrap, showLineNumbers, fontSize } = useCodeEditorSettings();
-  const { content, setContent, loading, loadError, reload, saving, saveError, savedAt, delta, isDirty, handleSave } =
+  const { content, setContent, loading, loadError, reload, saving, saveError, savedAt, delta,
+    editable, editableReason, isDirty, handleSave } =
     useArtifactTextDocument(artifact.id);
   const [confirmExit, setConfirmExit] = useState(false);
 
@@ -77,6 +78,9 @@ export default function ArtifactDocumentEditor({ artifact, mode, onExit }: Props
   const status = (() => {
     if (loading) return '正在读取正文…';
     if (saveError) return saveError;
+    // 只读要先说：正文读出来了、也渲染了，但改不了 —— 不说清，人会在编辑区
+    // 里写半天才发现保存按钮是灰的。
+    if (!editable) return `${editableReason || '这份正文只能预览'}（只读）`;
     if (savedAt) return `已保存到成果台副本（原项目文件未改动）${changedNote ? `，${changedNote}` : ''}`;
     if (isDirty) return changedNote ? `有未保存的改动；副本已${changedNote}` : '有未保存的改动';
     if (changedNote) return `这份副本相对发布时${changedNote}`;
@@ -111,7 +115,9 @@ export default function ArtifactDocumentEditor({ artifact, mode, onExit }: Props
       {loadError && <button type="button" className="min-h-9 rounded border border-border px-2" onClick={reload}>重试</button>}
       {mode === 'edit' && <>
         <button type="button" className="min-h-9 rounded border border-border px-2 disabled:opacity-40"
-          disabled={saving || loading || Boolean(loadError)} onClick={() => { void handleSave(); }}>
+          disabled={saving || loading || Boolean(loadError) || !editable}
+          title={editable ? undefined : editableReason}
+          onClick={() => { void handleSave(); }}>
           {saving ? '保存中…' : '保存'}
         </button>
         <button type="button" className="min-h-9 rounded border border-border px-2" onClick={requestExit}>退出编辑</button>
