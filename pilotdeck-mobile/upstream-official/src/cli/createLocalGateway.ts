@@ -11,6 +11,7 @@ import { isOptionalFeatureEnabled } from "../pilot/config/optionalFeature.js";
 import { resolveWebSearchConfig } from "../pilot/config/webSearchConfig.js";
 import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync as mkdirSyncFs, renameSync, readFileSync, realpathSync, watchFile, unwatchFile } from "node:fs";
+import { rotateRouterLogIfNeeded } from "../router/stats/RouterLogRotation.js";
 import { dirname, resolve, join as joinPath } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -1130,10 +1131,18 @@ class ProjectRuntimeRegistry {
       }
     } catch { /* best-effort migration */ }
     const self = this;
+    let emitsSinceRotationCheck = 0;
     return {
       emit(event: RouterEvent) {
         try {
           appendFileSync(eventsPath, JSON.stringify(event) + "\n");
+          // events.jsonl is write-only telemetry; archive oversized shards so
+          // it cannot grow without bound over months of usage.
+          emitsSinceRotationCheck += 1;
+          if (emitsSinceRotationCheck >= 512) {
+            emitsSinceRotationCheck = 0;
+            rotateRouterLogIfNeeded(eventsPath);
+          }
         } catch { /* best-effort, never crash the agent loop */ }
         if (event.type === "pilotdeck_router_retry_progress") {
           try {

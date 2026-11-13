@@ -277,7 +277,12 @@ export function createRuntimeSupervisor({
       if (children.get('gateway') !== child) return;
       children.delete('gateway');
       if (stopping || reportedFailure) return;
-      const detail = `Gateway exited code=${code ?? 'null'} signal=${signal ?? 'null'}`;
+      // V8 heap exhaustion aborts the process with SIGABRT. Emit a
+      // machine-readable code so the UI says "out of memory" instead of the
+      // generic "stopped unexpectedly" message.
+      const detail = signal === 'SIGABRT'
+        ? `PD_RUNTIME_OUT_OF_MEMORY: Gateway exited code=${code ?? 'null'} signal=${signal ?? 'null'}`
+        : `Gateway exited code=${code ?? 'null'} signal=${signal ?? 'null'}`;
       error(`[runtime-supervisor] ${detail}`);
       sendGatewayState('error', detail);
     });
@@ -316,7 +321,18 @@ export function createRuntimeSupervisor({
       // 用户手动点「重新启动」时给一份完整的重试预算，不继承上一次的失败计数。
       gatewayReadinessAttempts = 0;
       clearGatewayRetry();
-      startGateway();
+      // startGateway() has a children.has('gateway') guard: if a stale child
+      // is still registered (e.g. stuck in "starting"), calling it directly
+      // silently returns and the Restart button appears to do nothing.
+      // Only take the async stop→start path when a stale child really exists;
+      // the common case stays synchronous.
+      if (children.has('gateway')) {
+        void stopGateway().then(() => {
+          if (!stopping) startGateway();
+        });
+      } else {
+        startGateway();
+      }
     }
   };
 

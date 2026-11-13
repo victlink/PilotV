@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import type { CanonicalUsage } from "../../model/index.js";
+import { listRouterLogShards, rotateRouterLogIfNeeded } from "./RouterLogRotation.js";
 import type { RouterStatsConfig } from "../config/schema.js";
 import { resolvePilotHome } from "../../pilot/paths.js";
 import type { RouterDecision } from "../protocol/decision.js";
@@ -53,6 +55,10 @@ type PersistedData = {
 
 const MAX_HOURLY_BUCKETS = 72;
 const MAX_SESSIONS = 200;
+/** Fixed-size streaming replay: memory use no longer scales with log size. */
+const REPLAY_CHUNK_BYTES = 64 * 1024;
+/** How many appends between size checks for automatic rotation. */
+const ROTATION_CHECK_INTERVAL = 512;
 
 export class TokenStatsCollector {
   private readonly enabled: boolean;
@@ -62,6 +68,7 @@ export class TokenStatsCollector {
   private data: PersistedData;
   private recentRecords: RouterStatsRecord[] = [];
   private fd: number | undefined;
+  private appendsSinceRotationCheck = 0;
 
   constructor(config: RouterStatsConfig | undefined) {
     this.enabled = config?.enabled ?? false;
@@ -78,6 +85,10 @@ export class TokenStatsCollector {
 
       // One-time migration: old JSON formats → JSONL
       migrateJsonToJsonl(routerDir, this.jsonlPath);
+
+      // Keep each shard small so replay stays fast and bounded even after
+      // months of usage. Archived shards are still replayed (see below).
+      rotateRouterLogIfNeeded(this.jsonlPath);
 
       this.data = this.rebuildFromJsonl();
 
@@ -135,6 +146,7 @@ export class TokenStatsCollector {
     // Append immediately — no batching needed; O_APPEND is atomic for
     // small writes on Linux/macOS so concurrent collectors are safe.
     this.appendRecord(record);
+    this.maybeRotateLog();
   }
 
   snapshot(): RouterStatsAggregate {
@@ -194,43 +206,25 @@ export class TokenStatsCollector {
     } catch { /* best-effort */ }
   }
 
+  /**
+   * Replay the append-only router log with bounded memory.
+   *
+   * The old implementation did readFileSync + split("\n") + one parsed object
+   * per line and retained every record until the final prune. With a
+   * long-lived log (hundreds of MB) and one collector per project runtime,
+   * that alone pushed the gateway past V8's ~4 GB heap limit (SIGABRT).
+   * Now we stream fixed-size chunks and trim while replaying.
+   */
   private rebuildFromJsonl(): PersistedData {
     const data = createPersistedData();
     if (!this.jsonlPath) return data;
-    let raw: string;
-    try {
-      raw = fs.readFileSync(this.jsonlPath, "utf-8");
-    } catch {
-      return data;
-    }
-    for (const line of raw.split("\n")) {
-      if (!line) continue;
-      try {
-        const record = JSON.parse(line) as RouterStatsRecord;
-        if (!record.sessionId || !record.startedAt) continue;
 
-        bumpAggregate(data.global, record);
-
-        const hour = record.startedAt.slice(0, 13);
-        if (!data.hourly[hour]) {
-          data.hourly[hour] = { ...createAggregate(), hour };
-        }
-        bumpAggregate(data.hourly[hour]!, record);
-
-        if (!data.sessions[record.sessionId]) {
-          data.sessions[record.sessionId] = {
-            sessionId: record.sessionId,
-            aggregate: createAggregate(),
-            requestLog: [],
-          };
-        }
-        const sess = data.sessions[record.sessionId]!;
-        bumpAggregate(sess.aggregate, record);
-        sess.requestLog.push(record);
-      } catch { /* skip malformed lines */ }
+    for (const shard of listRouterLogShards(this.jsonlPath)) {
+      this.replayShardInto(data, shard);
     }
 
-    // Prune after full replay
+    // Same final bounds as before; the replay itself never retained more
+    // than a bounded set of records.
     const hourKeys = Object.keys(data.hourly).sort();
     while (hourKeys.length > MAX_HOURLY_BUCKETS) {
       delete data.hourly[hourKeys.shift()!];
@@ -252,6 +246,92 @@ export class TokenStatsCollector {
       }
     }
     return data;
+  }
+
+  private replayShardInto(data: PersistedData, shardPath: string): void {
+    let fd: number;
+    try {
+      fd = fs.openSync(shardPath, "r");
+    } catch {
+      return;
+    }
+    try {
+      // StringDecoder keeps multi-byte UTF-8 characters intact when a chunk
+      // boundary lands in the middle of one.
+      const decoder = new StringDecoder("utf-8");
+      const chunk = Buffer.allocUnsafe(REPLAY_CHUNK_BYTES);
+      let carry = "";
+      for (;;) {
+        const bytes = fs.readSync(fd, chunk, 0, chunk.length, null);
+        if (bytes === 0) break;
+        const text = carry + decoder.write(chunk.subarray(0, bytes));
+        const lines = text.split("\n");
+        carry = lines.pop() ?? "";
+        for (const line of lines) this.applyRecordLine(data, line);
+      }
+      const tail = carry + decoder.end();
+      if (tail) this.applyRecordLine(data, tail);
+    } finally {
+      try { fs.closeSync(fd); } catch { /* ignore */ }
+    }
+  }
+
+  private applyRecordLine(data: PersistedData, line: string): void {
+    if (!line) return;
+    let record: RouterStatsRecord;
+    try {
+      record = JSON.parse(line) as RouterStatsRecord;
+    } catch {
+      return; // skip malformed lines
+    }
+    if (!record.sessionId || !record.startedAt) return;
+
+    bumpAggregate(data.global, record);
+
+    const hour = record.startedAt.slice(0, 13);
+    if (!data.hourly[hour]) {
+      data.hourly[hour] = { ...createAggregate(), hour };
+    }
+    bumpAggregate(data.hourly[hour]!, record);
+
+    let sess = data.sessions[record.sessionId];
+    if (!sess) {
+      sess = { sessionId: record.sessionId, aggregate: createAggregate(), requestLog: [] };
+      data.sessions[record.sessionId] = sess;
+      // Bound the session map during replay; use the same ordering as pruneSessions.
+      if (Object.keys(data.sessions).length > MAX_SESSIONS * 2) {
+        const entries = Object.entries(data.sessions);
+        entries.sort((a, b) => {
+          const aLast = a[1].requestLog[a[1].requestLog.length - 1]?.endedAt ?? "";
+          const bLast = b[1].requestLog[b[1].requestLog.length - 1]?.endedAt ?? "";
+          return aLast.localeCompare(bLast);
+        });
+        for (let i = 0; i < entries.length - MAX_SESSIONS; i++) {
+          delete data.sessions[entries[i]![0]];
+        }
+      }
+    }
+    bumpAggregate(sess.aggregate, record);
+    sess.requestLog.push(record);
+    // Trim while replaying instead of retaining the whole file's records.
+    if (sess.requestLog.length > 200) {
+      sess.requestLog = sess.requestLog.slice(-100);
+    }
+  }
+
+  private maybeRotateLog(): void {
+    if (!this.jsonlPath) return;
+    this.appendsSinceRotationCheck += 1;
+    if (this.appendsSinceRotationCheck < ROTATION_CHECK_INTERVAL) return;
+    this.appendsSinceRotationCheck = 0;
+    if (!rotateRouterLogIfNeeded(this.jsonlPath)) return;
+    // `fd` still points at the renamed inode. Reopen so new records land in
+    // the fresh shard; archived shards remain available for the next replay.
+    if (this.fd !== undefined) {
+      try { fs.closeSync(this.fd); } catch { /* ignore */ }
+      this.fd = undefined;
+    }
+    try { this.fd = fs.openSync(this.jsonlPath, "a"); } catch { /* best-effort */ }
   }
 
   private pruneHourly(): void {
