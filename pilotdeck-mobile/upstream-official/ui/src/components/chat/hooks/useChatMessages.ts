@@ -309,6 +309,23 @@ function convertSingleMessage(
         compactStageLabel: msg.compactStageLabel,
       };
 
+    case 'subagent_progress': {
+      const text = (msg.text || msg.content || '').trim();
+      if (!text) return null;
+      return {
+        id: msg.id,
+        // 进度旁白用 system 行渲染：它既不是主代理说的话，也不该被折叠进工具过程。
+        type: 'system',
+        content: text,
+        timestamp: msg.timestamp,
+        isSubagentProgress: true,
+        subagentId: msg.subagentId,
+        subagentType: msg.subagentType,
+        subagentProgressPhase: msg.phase === 'thinking' ? 'thinking' : msg.phase === 'text' ? 'text' : 'tool',
+        at: msg.at,
+      };
+    }
+
     case 'agent_activity':
       return {
         id: msg.id,

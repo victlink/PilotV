@@ -795,6 +795,13 @@ export function useChatRealtimeHandlers({
       return;
     }
 
+    // 子代理进度是主对话里的旁白，和详情弹窗是两条独立的帧流：
+    // 这里只写主时间线，详情仍由紧随其后的 isSubagentDetail 帧照常处理。
+    if (msg.kind === 'subagent_progress') {
+      if (msg.subagentId) sessionStore.appendSubagentProgress?.(sid, msg as NormalizedMessage);
+      return;
+    }
+
     const subagentId = typeof msg.subagentId === 'string' ? msg.subagentId : '';
     if (msg.isSubagentDetail && subagentId) {
       if (msg.kind === 'thinking') {

@@ -1,7 +1,7 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { Check, ChevronRight, Copy, CornerUpLeft, GitBranch, Loader2, Pencil } from 'lucide-react';
+import { Check, ChevronRight, Copy, CornerUpLeft, GitBranch, Loader2, Pencil, Bot } from 'lucide-react';
 import { copyTextToClipboard } from '../../../utils/clipboard';
 import { isImeEnterEvent } from '../../../utils/ime.js';
 import { cn } from '../../../lib/utils.js';
@@ -299,6 +299,46 @@ function MessageRow({
     Boolean(message.forkUnsupportedContent) ||
     visibleImages.length > 0 ||
     messageAttachments.length > 0;
+
+  // 子代理进度：主对话里的旁白行，靠左侧竖线 + 类型徽标和主代理的发言区分开。
+  if (message.isSubagentProgress) {
+    const phase = message.subagentProgressPhase || 'tool';
+    const subagentType = message.subagentType || 'agent';
+    const progressText = message.content || '';
+    const phaseLabel = phase === 'thinking'
+      ? String(t('subagent.progress.thinking', { defaultValue: '思考' }))
+      : phase === 'text'
+        ? String(t('subagent.progress.output', { defaultValue: '产出' }))
+        : '';
+    return (
+      <div className="flex w-full min-w-0 items-stretch gap-2 pl-0.5">
+        <div className="w-[2px] shrink-0 rounded-full bg-[var(--pd-accent-border,#d8b4fe)] dark:bg-[var(--pd-accent-border,#9333ea)]" />
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 py-0.5 text-[12px] leading-5">
+          <Bot
+            className="h-3 w-3 shrink-0 text-[var(--pd-accent,#a855f7)] dark:text-[var(--pd-accent-strong,#c084fc)]"
+            strokeWidth={1.8}
+          />
+          <span className="shrink-0 rounded bg-[var(--pd-accent-soft,#f3e8ff)] px-1 text-[10px] font-medium uppercase leading-4 text-[var(--pd-accent-strong,#9333ea)] dark:bg-[var(--pd-accent-soft,#581c87)] dark:text-[var(--pd-accent-strong,#d8b4fe)]">
+            {subagentType}
+          </span>
+          {phaseLabel ? (
+            <span className="shrink-0 text-neutral-400 dark:text-neutral-500">{phaseLabel}</span>
+          ) : null}
+          <span
+            className={cn(
+              'min-w-0 truncate',
+              phase === 'thinking'
+                ? 'text-neutral-400 dark:text-neutral-500'
+                : 'text-neutral-600 dark:text-neutral-300',
+            )}
+            title={progressText}
+          >
+            {progressText}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   if (message.isAgentActivitySummary) {
     return (

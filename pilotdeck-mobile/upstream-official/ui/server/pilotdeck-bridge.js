@@ -1442,6 +1442,11 @@ function createSubagentStatusFrames(event, base) {
     });
     if (isDone) {
         subagentActivityStarts.delete(activityKey);
+        // 子代理结束后它的节流记录就没用了，长跑进程里不能一直攒着。
+        const progressPrefix = `${base.sessionId || ''}:${subagentId}:`;
+        for (const key of [...subagentProgressEmittedAt.keys()]) {
+            if (key.startsWith(progressPrefix)) subagentProgressEmittedAt.delete(key);
+        }
     }
 
     const frames = [activity];
@@ -1477,13 +1482,126 @@ function createSubagentStatusFrames(event, base) {
     return frames;
 }
 
+/** 进度行是给人看的旁白，超过这个长度就截断，避免长文本撑爆主对话。 */
+const SUBAGENT_PROGRESS_TEXT_LIMIT = 240;
+/** 同一子代理、同一阶段最多每 300ms 回流一条进度，delta 洪峰不会刷爆对话流。 */
+const SUBAGENT_PROGRESS_INTERVAL_MS = 300;
+/** key = sessionId:subagentId:phase → 上次回流时间 */
+const subagentProgressEmittedAt = new Map();
+
+function truncateSubagentProgress(text, limit = SUBAGENT_PROGRESS_TEXT_LIMIT) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '';
+    return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized;
+}
+
+/** 从工具入参里挑一个最像「这次在动哪里」的字段，让进度行能一眼看出目标。 */
+function describeSubagentToolTarget(input) {
+    if (!input || typeof input !== 'object') return '';
+    const candidates = ['file_path', 'filePath', 'path', 'pattern', 'query', 'command', 'url', 'description', 'prompt'];
+    for (const key of candidates) {
+        const value = input[key];
+        if (typeof value === 'string' && value.trim()) return truncateSubagentProgress(value, 80);
+    }
+    return '';
+}
+
+/**
+ * 详情帧只服务子代理详情弹窗，主对话需要的是逐条「人话」进度。
+ * 两者各自产帧：弹窗关掉不影响对话流，对话流也不依赖弹窗。
+ */
+function createSubagentProgressFrame(event, base, detail) {
+    const subagentId = String(detail?.subagentId || '');
+    if (!subagentId) return null;
+    const subagentType = detail.subagentType || 'agent';
+    const toolName = normalizeToolDisplayName(detail.toolName || '');
+    let phase = '';
+    let text = '';
+    let toolCallId = '';
+    let isError = false;
+    let isFinal = false;
+
+    switch (event?.event) {
+        case 'subagent_tool_call_started': {
+            if (!toolName) return null;
+            const target = describeSubagentToolTarget(detail.input);
+            phase = 'tool';
+            text = target ? `正在调用 ${toolName}：${target}` : `正在调用 ${toolName}`;
+            toolCallId = String(detail.toolCallId || '');
+            break;
+        }
+        case 'subagent_tool_result': {
+            phase = 'tool';
+            const preview = truncateSubagentProgress(detail.preview || detail.content || '');
+            isError = detail.ok === false;
+            text = `${toolName || '工具'}${isError ? ' 执行失败' : ' 已返回'}${preview ? `：${preview}` : ''}`;
+            toolCallId = String(detail.toolCallId || '');
+            break;
+        }
+        case 'subagent_assistant_block': {
+            // 文本/思考块的最终内容：用它冻结前面积累出来的那一行，避免同一段话重复出现。
+            phase = detail.kind === 'thinking' ? 'thinking' : 'text';
+            text = truncateSubagentProgress(detail.text);
+            if (!text) return null;
+            isFinal = true;
+            break;
+        }
+        case 'subagent_text_delta':
+        case 'subagent_thinking_delta': {
+            phase = event.event === 'subagent_text_delta' ? 'text' : 'thinking';
+            text = String(detail.text || '');
+            if (!text.trim()) return null;
+            const key = `${base.sessionId || ''}:${subagentId}:${phase}`;
+            const nowMs = Date.now();
+            if (nowMs - (subagentProgressEmittedAt.get(key) || 0) < SUBAGENT_PROGRESS_INTERVAL_MS) return null;
+            subagentProgressEmittedAt.set(key, nowMs);
+            break;
+        }
+        default:
+            // compact / stream_end / model_error 不进主对话：它们要么是内部流程，要么有独立错误行。
+            return null;
+    }
+
+    const at = new Date().toISOString();
+    return createNormalizedMessage({
+        // 进度行刻意不带 timeline：它不是可重放的内容块，只是实时旁白。
+        sessionId: base.sessionId,
+        provider: base.provider,
+        ...(base.runId ? { runId: base.runId } : {}),
+        id: ['subagent_progress', sanitizeMessageId(base.sessionId), sanitizeMessageId(subagentId), phase,
+            toolCallId ? sanitizeMessageId(toolCallId) : ''].filter(Boolean).join('_'),
+        kind: 'subagent_progress',
+        subagentId,
+        subagentType,
+        phase,
+        text,
+        at,
+        timestamp: at,
+        ...(toolCallId ? { toolId: toolCallId } : {}),
+        ...(toolName ? { toolName } : {}),
+        ...(isError ? { isError: true } : {}),
+        ...(isFinal ? { isSubagentProgressFinal: true } : {}),
+    });
+}
+
 function toolPresentationFields(toolName, data) {
     return data && (isSearchToolName(toolName) || ['ask_user_question', 'AskUserQuestion', 'generate_image', 'edit_image', 'save_generated_image', 'generate_video', 'save_generated_video'].includes(toolName))
         ? { toolUseResult: data }
         : {};
 }
 
+/**
+ * 子代理事件同时服务两个表面：详情弹窗的原始帧，以及主对话的一条进度旁白。
+ * 这里把它们合并成一次返回，调用方不需要关心分流。
+ */
 function createSubagentDetailFrames(event, base, detail) {
+    const detailFrames = createSubagentDetailOnlyFrames(event, base, detail);
+    if (!detailFrames) return null;
+    const progressFrame = createSubagentProgressFrame(event, base, detail);
+    return progressFrame ? [...detailFrames, progressFrame] : detailFrames;
+}
+
+function createSubagentDetailOnlyFrames(event, base, detail) {
     const subagentId = String(detail.subagentId || '');
     if (!subagentId) return null;
     const detailSessionId = `${base.sessionId}::sub::${subagentId}`;

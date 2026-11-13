@@ -37,7 +37,9 @@ export type MessageKind =
   | 'compact_boundary'
   | 'agent_activity'
   | 'agent_activity_summary'
-  | 'file_artifacts';
+  | 'file_artifacts'
+  | 'subagent_link'
+  | 'subagent_progress';
 
 export interface CompactProgress {
   compaction_id?: string;
@@ -135,7 +137,15 @@ export interface NormalizedMessage {
   actualSessionId?: string;
   parentToolUseId?: string;
   subagentId?: string;
+  /** 子代理类型（explore / general-purpose …），用于在主对话里标出「是谁在干活」。 */
+  subagentType?: string;
   isSubagentDetail?: boolean;
+  /** 主对话里的子代理进度旁白（`kind: 'subagent_progress'`）。 */
+  isSubagentProgress?: boolean;
+  /** 该进度是这一段的最终内容，前端用它冻结已合并的进度行。 */
+  isSubagentProgressFinal?: boolean;
+  /** 进度产生时间，和 timestamp 同源，单独留字段方便展示「刚刚」。 */
+  at?: string;
   subagentTools?: unknown[];
   taskId?: string;
   outputFile?: string;
@@ -935,6 +945,10 @@ export function shouldKeepRealtimeAfterServerRefresh(
   if (realtimeMessage.id.startsWith('__streaming_')) {
     return true;
   }
+  // 子代理进度只活在实时流里（transcript 不持久化），刷新历史时仍要留给当前运行。
+  if (realtimeMessage.kind === 'subagent_progress') {
+    return true;
+  }
   if (!PERSISTED_RENDERABLE_KINDS.has(realtimeMessage.kind)) return false;
   if (isUnconfirmedUserMessage(realtimeMessage)) {
     return !isConfirmedUserMessageDuplicate(realtimeMessage, serverMessages);
@@ -1649,6 +1663,13 @@ const STALE_THRESHOLD_MS = 30_000;
 
 const MAX_REALTIME_MESSAGES = 500;
 
+/** 子代理进度行只在最近这么多字符里滚动，长输出不会把一行撑成整屏。 */
+const SUBAGENT_PROGRESS_TEXT_LIMIT = 480;
+
+function sanitizeProgressKey(value: string): string {
+  return String(value || '').replace(/[^\w.-]+/g, '_');
+}
+
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
 export function useSessionStore() {
@@ -2067,6 +2088,69 @@ export function useSessionStore() {
       }
     }
     syncSubagentTimeline(slot, subagentId, [msgToStore]);
+    notify(sessionId);
+  }, [getSlot, notify]);
+
+  /**
+   * 写入一条「子代理进度」旁白。
+   *
+   * 进度行不属于 transcript，只活在实时流里，所以直接落在 realtimeMessages。
+   * 合并规则：工具调用一次一条（开始与结果更新同一行），文本/思考按
+   * subagentId + phase 合并成一条持续更新的行；否则每个 delta 都会在主对话里
+   * 多出一条，几百个 delta 足以把对话刷爆。
+   */
+  const appendSubagentProgress = useCallback((sessionId: string, msg: NormalizedMessage) => {
+    const slot = getSlot(sessionId);
+    const subagentId = String(msg.subagentId || '');
+    if (!subagentId) return;
+    const phase = msg.phase === 'thinking' ? 'thinking' : msg.phase === 'text' ? 'text' : 'tool';
+    const text = String(msg.text || msg.content || '').trim();
+    if (!text) return;
+    const mergeKey = phase === 'tool'
+      ? `__subagent_progress_tool_${subagentId}_${msg.toolId || sanitizeProgressKey(msg.id)}`
+      : `__subagent_progress_${subagentId}_${phase}`;
+    const current = slot.realtimeMessages;
+    const existingIndex = current.findIndex((message) => message.id === mergeKey);
+    const existing = existingIndex >= 0 ? current[existingIndex] : undefined;
+    const baseRow: NormalizedMessage = {
+      ...(msg as NormalizedMessage),
+      id: mergeKey,
+      kind: 'subagent_progress',
+      isSubagentProgress: true,
+      subagentId,
+      phase,
+      text,
+      at: msg.at || msg.timestamp,
+    };
+
+    let next: NormalizedMessage[];
+    if (existing && msg.isSubagentProgressFinal) {
+      // 这一段说完了：把积累出来的行冻结成固定 id，下一段 delta 重新开一行。
+      // 最终块是这一段的完整文本（节流可能丢过中间 delta），直接以它为准。
+      next = [...current];
+      next[existingIndex] = {
+        ...baseRow,
+        id: `__subagent_progress_final_${subagentId}_${phase}_${Date.now()}`,
+        content: text,
+        text,
+      };
+    } else if (existing) {
+      const merged = phase === 'tool' ? text : `${existing.content || ''}${text}`;
+      next = [...current];
+      next[existingIndex] = {
+        ...baseRow,
+        content: merged.length > SUBAGENT_PROGRESS_TEXT_LIMIT
+          ? `…${merged.slice(-SUBAGENT_PROGRESS_TEXT_LIMIT)}`
+          : merged,
+      };
+    } else {
+      next = [...current, { ...baseRow, content: text }];
+    }
+
+    slot.realtimeMessages = next.length > MAX_REALTIME_MESSAGES
+      ? next.slice(-MAX_REALTIME_MESSAGES)
+      : next;
+    recomputeMergedIfNeeded(slot);
     notify(sessionId);
   }, [getSlot, notify]);
 
@@ -2629,6 +2713,7 @@ export function useSessionStore() {
     getSessionSlot,
     recordSubagentLink,
     appendSubagentDetailMessage,
+    appendSubagentProgress,
     updateSubagentDetailStreaming,
     finalizeSubagentDetailStreaming,
     updateSubagentDetailThinking,
@@ -2639,7 +2724,7 @@ export function useSessionStore() {
     setActiveSession, setStatus, isStale, updateStreaming, finalizeStreaming,
     updateStreamingThinking, finalizeStreamingThinking,
     clearRealtime, clearAssistantRealtime, getMessages, getActivityMessages, getSubagentDetailMessages, getSessionSlot,
-    recordSubagentLink, appendSubagentDetailMessage, updateSubagentDetailStreaming,
+    recordSubagentLink, appendSubagentDetailMessage, appendSubagentProgress, updateSubagentDetailStreaming,
     finalizeSubagentDetailStreaming, updateSubagentDetailThinking, finalizeSubagentDetailThinking,
   ]);
 }

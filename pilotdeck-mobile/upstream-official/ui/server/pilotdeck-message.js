@@ -10,6 +10,13 @@
  *   text | tool_use | tool_result | thinking | stream_delta | stream_end
  *   error | complete | status | permission_request | permission_cancelled
  *   session_created | interactive_prompt | task_notification | interrupted
+ *   compact_boundary | agent_activity | agent_activity_summary | file_artifacts
+ *   subagent_link | subagent_progress
+ *
+ * `subagent_progress` is the live narration of a child agent shown inside the
+ * main conversation; it never carries a timeline position (transcripts do not
+ * persist it), while the same child events also produce `isSubagentDetail`
+ * frames for the subagent detail dialog.
  */
 
 import crypto from 'node:crypto';

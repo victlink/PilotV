@@ -127,6 +127,52 @@ describe('model block identity', () => {
     });
 });
 
+describe('subagent progress narration', () => {
+    const childEvent = (event, detail = {}) => ({
+        type: 'agent_status', runId: 'parent', event,
+        detail: { subagentId: 'child', subagentType: 'explore', ...detail },
+    });
+
+    it('mirrors visible child events into a main-conversation progress frame', () => {
+        const started = gatewayEventToFrames(childEvent('subagent_tool_call_started', {
+            toolCallId: 'call-1', toolName: 'read_file', input: { file_path: 'src/app.ts' },
+        }), 'session', 'pilotdeck');
+        expect(started[0]).toMatchObject({ kind: 'tool_use', isSubagentDetail: true });
+        expect(started[1]).toMatchObject({
+            kind: 'subagent_progress', subagentId: 'child', subagentType: 'explore',
+            phase: 'tool', toolName: 'Read', toolId: 'call-1',
+        });
+        expect(started[1].text).toBe('正在调用 Read：src/app.ts');
+        // 进度行不是详情帧，也不参与 timeline 排序。
+        expect(started[1].isSubagentDetail).toBeUndefined();
+        expect(started[1].timeline).toBeUndefined();
+
+        const result = gatewayEventToFrames(childEvent('subagent_tool_result', {
+            toolCallId: 'call-1', toolName: 'read_file', ok: true, preview: 'export const a = 1;',
+        }), 'session', 'pilotdeck');
+        expect(result[1]).toMatchObject({ kind: 'subagent_progress', phase: 'tool', toolId: 'call-1' });
+        expect(result[1].text).toBe('Read 已返回：export const a = 1;');
+
+        const block = gatewayEventToFrames(childEvent('subagent_assistant_block', {
+            kind: 'text', text: '结构已经查清。',
+        }), 'session', 'pilotdeck');
+        expect(block[1]).toMatchObject({
+            kind: 'subagent_progress', phase: 'text', text: '结构已经查清。', isSubagentProgressFinal: true,
+        });
+    });
+
+    it('keeps internal child plumbing out of the main conversation', () => {
+        for (const [event, detail] of [
+            ['subagent_stream_end', {}],
+            ['subagent_compact_started', { compactionId: 'compact-1' }],
+            ['subagent_model_error', { message: 'boom', errorId: 'error-1' }],
+        ]) {
+            const frames = gatewayEventToFrames(childEvent(event, detail), 'session', 'pilotdeck');
+            expect(frames.some((frame) => frame.kind === 'subagent_progress')).toBe(false);
+        }
+    });
+});
+
 describe('per-turn permission precedence', () => {
     it('lets an explicit default selection turn off persisted full access for one turn', () => {
         expect(resolvePermissionMode(

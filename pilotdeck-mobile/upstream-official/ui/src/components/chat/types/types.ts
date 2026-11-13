@@ -119,6 +119,13 @@ export interface ChatMessage {
   taskResult?: string;
   isSubagentContainer?: boolean;
   subagentId?: string;
+  /** 子代理实时进度行：回流到主对话的旁白，不是详情弹窗内容。 */
+  isSubagentProgress?: boolean;
+  /** 子代理类型标签（explore / general-purpose …）。 */
+  subagentType?: string;
+  subagentProgressPhase?: 'thinking' | 'tool' | 'text';
+  /** 进度产生时间（与 timestamp 同源）。 */
+  at?: string;
   isTaskNotification?: boolean;
   isInterruptedNotice?: boolean;
   isAgentActivity?: boolean;
