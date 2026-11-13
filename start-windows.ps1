@@ -337,7 +337,7 @@ if (Test-Port $UiPort) {
         Write-Warning "未找到 TLS 证书（$TlsDir），网关将以 HTTP 启动；先运行 scripts\renew_gateway_tls.ps1 签发"
     }
 
-    $p = Start-Svc 'node' 'service/pilotv_gateway.mjs' $Root 'gateway.log'
+    $p = Start-Svc $NodeExe 'service/pilotv_gateway.mjs' $Root 'gateway.log'
     $pids.gateway = $p.Id
     if (Wait-Port $UiPort 20000) { Write-Host "前端已启动      $(Get-FrontendUrl)" }
     else { Write-Warning "前端启动超时，见 .run\gateway.log" }
@@ -353,7 +353,7 @@ if (Test-Port $McpPort) {
     $env:PILOTDECK_SRC = $Upstream
     $env:ARTIFACTS_API = "http://127.0.0.1:$ArtifactsPort"
     $env:ARTIFACTS_PORT = "$McpPort"
-    $p = Start-Svc 'node' 'artifacts-mcp.mjs' $Root 'mcp.log'
+    $p = Start-Svc $NodeExe 'artifacts-mcp.mjs' $Root 'mcp.log'
     $pids.mcp = $p.Id
     if (Wait-Port $McpPort 20000) { Write-Host "MCP 侧车已启动  http://127.0.0.1:$McpPort/api/artifacts-mcp" }
     else { Write-Warning "MCP 侧车启动超时，见 .run\mcp.log" }
