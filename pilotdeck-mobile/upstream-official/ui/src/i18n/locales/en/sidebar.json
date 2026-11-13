@@ -131,6 +131,7 @@
     "delete": "Delete",
     "rename": "Rename",
     "projectSettings": "Project settings",
+    "replay": "Replay task",
     "joinCommunity": "Join Community",
     "reportIssue": "Report Issue",
     "starOnGithub": "Star on GitHub"

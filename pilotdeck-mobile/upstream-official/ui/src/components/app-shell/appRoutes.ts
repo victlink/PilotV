@@ -13,6 +13,12 @@ export const PROJECT_CHAT_PATH = '/p/:projectName/c/:sessionId';
 export const PROJECT_PATH = '/p/:projectName';
 export const LEGACY_SESSION_PATH = '/session/:sessionId';
 
+// 任务复现视图：把一条对话（或整个项目的全部对话）从提需求到完成的过程
+// 重放出来，供用户用外部硬件录屏记录。整条壳只有一条通配路由，复现视图同样
+// 由 AppShell 用 useMatch 认出来，不新增 <Route>。
+export const REPLAY_SESSION_PATH = '/replay/s/:sessionId';
+export const REPLAY_PROJECT_PATH = '/replay/p/:projectName';
+
 // The auth gate and shell must agree on which URLs actually render Settings.
 // A prefix check would also admit nested URLs that the shell treats as chat.
 export function useSettingsRouteMatch() {

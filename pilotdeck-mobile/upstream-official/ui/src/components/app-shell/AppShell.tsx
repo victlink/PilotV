@@ -34,6 +34,7 @@ import { getSettingsPathFromTab } from '../settings/navigation';
 import { ConnectionBanner } from '../ui/ConnectionBanner';
 import Sidebar from './Sidebar';
 import MainArea from './MainArea';
+import ReplayView from './ReplayView';
 import GlobalSearchDialog from '../global-search/GlobalSearchDialog';
 import { GlobalSearchProvider, useGlobalSearch, type GlobalSearchResult } from '../global-search/GlobalSearchContext';
 import { useWorkspaceUpload } from '../file-tree/hooks/useWorkspaceUpload';
@@ -44,6 +45,8 @@ import {
   LEGACY_SESSION_PATH,
   PROJECT_CHAT_PATH,
   PROJECT_PATH,
+  REPLAY_PROJECT_PATH,
+  REPLAY_SESSION_PATH,
   resolveDedicatedTab,
   SCHEDULED_TASKS_PATH,
   SETTINGS_PATH,
@@ -83,6 +86,8 @@ function AppShellContent() {
   const matchSkills = useMatch(SKILLS_PATH);
   const matchApprovalSession = useMatch(APPROVAL_SESSION_PATH);
   const matchWindows = useMatch(WINDOWS_PATH);
+  const matchReplaySession = useMatch(REPLAY_SESSION_PATH);
+  const matchReplayProject = useMatch(REPLAY_PROJECT_PATH);
   const settingsRouteMatch = useSettingsRouteMatch();
   const isSettingsRoute = Boolean(settingsRouteMatch);
   const settingsSection = settingsRouteMatch?.params.section;
@@ -100,6 +105,9 @@ function AppShellContent() {
   const isDedicatedRoute = dedicatedTab !== null || isSettingsRoute;
   const projectNameParam = matchProjectChat?.params.projectName ?? matchProject?.params.projectName ?? undefined;
   const sessionId = matchProjectChat?.params.sessionId ?? matchLegacySession?.params.sessionId ?? undefined;
+  const replaySessionId = matchReplaySession?.params.sessionId;
+  const replayProjectName = matchReplayProject?.params.projectName;
+  const isReplayRoute = Boolean(matchReplaySession || matchReplayProject);
   const { t } = useTranslation('common');
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
@@ -536,6 +544,13 @@ function AppShellContent() {
             </div>
           )) : null}
           <main onClickCapture={acknowledge} onKeyDownCapture={acknowledge} onInputCapture={acknowledge} onWheelCapture={acknowledge} onTouchMoveCapture={acknowledge} className="app-main flex min-h-0 min-w-0 flex-1 flex-col bg-white dark:bg-neutral-950">
+            {isReplayRoute ? (
+              <ReplayView
+                sessionId={replaySessionId}
+                projectName={replayProjectName}
+                projects={sidebarSharedProps.projects}
+              />
+            ) : (
             <SkillConversationContext.Provider value={{ request: skillConversationRequest, consume: consumeSkillConversation }}>
               <MainArea
                 isEmbedded={isEmbedded}
@@ -596,6 +611,7 @@ function AppShellContent() {
                 onMisroutedFileUrlHandled={handleMisroutedFileUrlHandled}
               />
             </SkillConversationContext.Provider>
+            )}
           </main>
         </div>
         <GlobalSearchDialog projects={sidebarSharedProps.projects} onSelect={(result: GlobalSearchResult, query) => {

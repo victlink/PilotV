@@ -131,6 +131,7 @@
     "delete": "删除",
     "rename": "重命名",
     "projectSettings": "项目设置",
+    "replay": "任务复现",
     "joinCommunity": "加入社区",
     "reportIssue": "报告问题",
     "starOnGithub": "在GitHub上加星"

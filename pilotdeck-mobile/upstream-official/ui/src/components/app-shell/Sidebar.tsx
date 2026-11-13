@@ -41,6 +41,7 @@ import {
   ShieldCheck,
   Settings2,
   MessageSquarePlus,
+  History,
 } from 'lucide-react';
 import type { AppTab, Project, ProjectSession } from '../../types/app';
 import { cn } from '../../lib/utils.js';
@@ -735,6 +736,20 @@ export default function Sidebar({
       requestDeleteSession(contextMenu.project, contextMenu.session);
     }
   }, [contextMenu, requestDeleteProject, requestDeleteSession]);
+
+  // 任务复现：把这条对话（或整个项目的全部对话）从提需求到完成的过程重放出来，
+  // 跳到复现视图，由那里按可调速度逐项演。
+  const handleContextReplay = useCallback(() => {
+    if (!contextMenu) return;
+    setContextMenu(null);
+    const projectName = contextMenu.project?.name;
+    if (contextMenu.kind === 'session') {
+      const qs = projectName ? `?project=${encodeURIComponent(projectName)}` : '';
+      navigate(`/replay/s/${encodeURIComponent(contextMenu.session.id)}${qs}`);
+    } else {
+      navigate(`/replay/p/${encodeURIComponent(contextMenu.project.name)}`);
+    }
+  }, [contextMenu, navigate]);
 
   // 看板和资料要项目级的探索能力；记忆、常驻、改动、技能、定时任务在
   // General 这类项目下也得留着入口，否则它们就完全没有入口了。
@@ -1484,6 +1499,18 @@ export default function Sidebar({
               <span>{t('sidebar:actions.projectSettings', { defaultValue: 'Project settings' })}</span>
             </button>
           ) : null}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={handleContextReplay}
+            className={cn(
+              'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px]',
+              'text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-800',
+            )}
+          >
+            <History className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400" strokeWidth={1.75} />
+            <span>{t('sidebar:actions.replay', { defaultValue: 'Replay task' })}</span>
+          </button>
           {!contextMenuProjectIsGeneral ? <>
             <button
               type="button"
