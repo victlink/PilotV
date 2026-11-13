@@ -31,8 +31,12 @@ export type Artifact = {
 /**
  * model-viewer 只认 glTF，别的三维格式喂进去是一块空白。成果台在 /viewer 上
  * 现转成 glb（转不了时接口会明说原因），这里只管「哪些要走转换口」。
+ *
+ * `.fcstd` 是 FreeCAD 装配体：C01 的三维装配直接以它交付，用户最先想点开的
+ * 就是这一份。后端能转就转（转换器会调本机 FreeCAD 导 STEP 再转 glb），
+ * 转不了时 /viewer 会带人话原因回来，而不是让页面留一块灰。
  */
-const CONVERTIBLE_EXT = ['.step', '.stp', '.iges', '.igs', '.stl', '.obj', '.ply'];
+const CONVERTIBLE_EXT = ['.step', '.stp', '.iges', '.igs', '.stl', '.obj', '.ply', '.fcstd'];
 /** 本机没有转换器的三维格式：模型区得先说清楚，不能只留一块灰。 */
 const UNCONVERTIBLE_3D_EXT = ['.3ds', '.dae', '.3mf', '.blend'];
 

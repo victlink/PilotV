@@ -312,13 +312,13 @@ class Materializer:
                         "bytes": os.path.getsize(stored)}
                 if ext in (".dxf", ".dwg"):
                     meta["render_hint"] = "CAD 原生格式需要转换器；导出 PDF/SVG 再发布可直接显示"
-                elif ext in (".step", ".stp", ".iges", ".igs", ".stl", ".obj", ".ply"):
+                elif ext in (".step", ".stp", ".iges", ".igs", ".stl", ".obj", ".ply", ".fcstd"):
                     # 这几个能转：页面打 /viewer，现转成 glb 给 model-viewer。
                     # 转换器装没装上不影响登记，所以这里只说事实，不承诺一定能显示。
                     try:
                         import artifacts_cad
                         meta["cad"] = artifacts_cad.converter_status()
-                        meta["render_hint"] = "STEP/IGES/STL/OBJ/PLY 打开时转成 glb 预览"
+                        meta["render_hint"] = "STEP/IGES/STL/OBJ/PLY/FCStd 打开时转成 glb 预览"
                     except Exception as exc:
                         meta["render_hint"] = f"三维转换器不可用：{exc}"[:120]
                 elif ext in (".3ds", ".dae", ".3mf"):
@@ -538,6 +538,10 @@ KIND_BY_EXT = {
     ".html": "page", ".htm": "page",
     ".png": "image", ".jpg": "image", ".jpeg": "image", ".webp": "image", ".gif": "image",
     ".svg": "drawing", ".glb": "model3d", ".gltf": "model3d",
+    # 这些是成果台能现转成 glb 的三维格式。不写在这里，watcher 会把它们
+    # 当成 doc 登记，列表里连「三维」分类都不出现，用户只能看到一份附件。
+    ".step": "model3d", ".stp": "model3d", ".iges": "model3d", ".igs": "model3d",
+    ".stl": "model3d", ".obj": "model3d", ".ply": "model3d", ".fcstd": "model3d",
     ".mp4": "video", ".mov": "video", ".webm": "video",
     ".pdf": "doc", ".pptx": "doc", ".docx": "doc",
 }

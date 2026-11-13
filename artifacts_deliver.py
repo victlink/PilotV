@@ -224,7 +224,7 @@ def _safe_name(name: str) -> str:
 SPLITTABLE_EXT = {
     # 三维
     ".glb", ".gltf", ".obj", ".stl", ".ply", ".3ds", ".dae", ".3mf",
-    ".step", ".stp", ".iges", ".igs",
+    ".step", ".stp", ".iges", ".igs", ".fcstd",
     # 图纸
     ".pdf", ".svg", ".dxf", ".dwg",
 }
@@ -238,7 +238,7 @@ def _kind_by_ext(ext: str) -> str:
     return {".glb": "model3d", ".gltf": "model3d", ".obj": "model3d",
             ".stl": "model3d", ".ply": "model3d", ".3ds": "model3d",
             ".dae": "model3d", ".step": "model3d", ".stp": "model3d", ".iges": "model3d",
-            ".igs": "model3d", ".3mf": "model3d",
+            ".igs": "model3d", ".3mf": "model3d", ".fcstd": "model3d",
             ".png": "image", ".jpg": "image", ".jpeg": "image", ".webp": "image",
             ".svg": "drawing", ".pdf": "drawing", ".dxf": "drawing", ".dwg": "drawing",
             ".html": "page", ".htm": "page",

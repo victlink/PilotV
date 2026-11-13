@@ -129,6 +129,9 @@ export default function ArtifactStage({
   navigation, sketchOnly = false, sendLabel = '手绘发到对话',
 }: Props) {
   const stageRef = useRef<HTMLDivElement | null>(null);
+  // 全屏要铺满的是「整块成果区」，不只是画面本身：工具浮条、时间线、
+  // 标注条都得跟着进来，否则全屏后按钮留在全屏外面，人就只能 Esc 出来。
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const mediaRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -157,6 +160,11 @@ export default function ArtifactStage({
   const [viewport, setViewport] = useState<StageViewport>({ zoom: MIN_ZOOM, panX: 0, panY: 0 });
   const pinchRef = useRef<PinchStart | null>(null);
   const panTouchRef = useRef<{ x: number; y: number; zoom: number; panX: number; panY: number } | null>(null);
+  // 布局态全屏：浏览器拒绝 requestFullscreen（iframe 未授权、iOS Safari 没有
+  // 元素级全屏）时还要有一个「铺满窗口」的退路，否则按钮点下去毫无反应。
+  const [fullscreen, setFullscreen] = useState(false);
+  // 三维自动旋转：讲解一个装配体时手不动也能看清各面，比反复拖拽省事。
+  const [autoRotate, setAutoRotate] = useState(false);
 
   // A session with no artifact gets a sheet of paper instead of a media viewer.
   const blank = !artifact;
@@ -188,8 +196,17 @@ export default function ArtifactStage({
   // 编辑时同样占满：编辑器要的是整块可用区域，不是按内容缩放的一张小图。
   const fill = !blank && (editing || type === 'markdown' || type === 'iframe' || type === 'model3d'
     || type === 'audio' || type === 'drawing' || type === 'unsupported');
+  /**
+   * 占满型成果里，除了三维，其余（PDF/HTML/markdown/图纸）都没有自己的相机。
+   * 它们要「放大看细节」只能整体缩放：改媒体宽度只会让文档重排，页面并不会
+   * 变大，所以这类走 transform: scale（配上平移），和图片那条 width 缩放分开。
+   * 三维不在此列 —— model-viewer 的视场角才是它真正的缩放，拉伸画布只会糊。
+   */
+  const cssZoomable = fill && type !== 'model3d';
   // 双指捏合在所有工具下都该能用：要求先切到浏览才能放大太反直觉，而且
   // 用户看成果时的第一反应就是「放大看细节」。
+  // iframe 和三维不接管触摸：它们内部有自己的滚动与相机手势，父级抢走只会
+  // 两边都不灵。这两种改由浮条上的 ＋／− 控制（三维另有复位与自动旋转）。
   const pinchable = !fill;
   // 单指平移只在浏览工具下接管，否则会和框选、手绘抢同一块触屏。
   const pannable = !fill && tool === 'browse';
@@ -325,6 +342,9 @@ export default function ArtifactStage({
 
   /** 平移后要把画面拉回可视范围：放大之后总得留一条边能摸到。 */
   const settleViewport = useCallback((next: StageViewport): StageViewport => {
+    // 占满型成果（文档／三维）不做夹取：它们的内容尺寸由文档或相机决定，
+    // 拿媒体像素去算边界只会把画面锁死在中心，看起来像缩放没生效。
+    if (fill) return next;
     const frame = scrollerRef.current;
     // 量不到尺寸时不能夹取：那会把平移锁死在中心，画面看起来像卡住不动。
     if (!frame || !frame.clientWidth || !frame.clientHeight) return next;
@@ -339,7 +359,7 @@ export default function ArtifactStage({
         height: (mediaRef.current?.clientHeight ?? 0) * next.zoom,
       };
     return clampPan(next, content, { width: frame.clientWidth, height: frame.clientHeight });
-  }, []);
+  }, [fill]);
 
   const zoomBy = useCallback((factor: number, center?: { x: number; y: number }) => {
     setViewport(current => settleViewport(zoomAt(
@@ -357,6 +377,60 @@ export default function ArtifactStage({
     panTouchRef.current = null;
     setViewport({ zoom: MIN_ZOOM, panX: 0, panY: 0 });
   }, []);
+
+  /** 三维复位：相机回到默认轨道，顺带清掉整体放大与平移。 */
+  const resetModelView = useCallback(() => {
+    const el = modelRef.current as unknown as {
+      resetTurntableRotation?: () => void;
+      cameraOrbit?: string;
+    } | null;
+    try {
+      el?.resetTurntableRotation?.();
+      // 'auto auto auto' 让 model-viewer 按模型包围盒重新取景。
+      // 自己猜一个 orbit 角度只会对某一份装配体刚好，换一份就偏。
+      if (el) el.cameraOrbit = 'auto auto auto';
+    } catch { /* 自定义元素还没升级完，下一次点击再试 */ }
+    resetViewport();
+  }, [resetViewport]);
+
+  /**
+   * 全屏。先试元素级全屏；浏览器拒绝（沙箱 iframe、iOS Safari 不支持元素
+   * 全屏）时退回布局态全屏 —— 铺满窗口总比按钮点下去毫无反应强。
+   */
+  const toggleFullscreen = useCallback(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    if (document.fullscreenElement) { void document.exitFullscreen?.(); return; }
+    const request = shell.requestFullscreen?.bind(shell);
+    if (!request) { setFullscreen(current => !current); return; }
+    void request().catch(() => setFullscreen(current => !current));
+  }, []);
+
+  // 用户按 Esc 或浏览器自己退出全屏时，按钮文案要跟着回到「全屏」。
+  useEffect(() => {
+    const sync = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', sync);
+    return () => document.removeEventListener('fullscreenchange', sync);
+  }, []);
+
+  // 三维的缩放走视场角：30° 是 model-viewer 的默认值，倍率越大视场角越小，
+  // 画面就更靠近。10–45 是它自己接受的区间，超出会被静默忽略。
+  useEffect(() => {
+    if (type !== 'model3d') return;
+    const el = modelRef.current as unknown as { fieldOfView?: string } | null;
+    if (!el) return;
+    try { el.fieldOfView = `${Math.min(45, Math.max(10, 30 / viewport.zoom))}deg`; }
+    catch { /* 元素尚未升级，等下一次渲染 */ }
+  }, [type, viewport.zoom, artifact?.id]);
+
+  // 自动旋转也是元素属性，React 接不到它的事件，只能写回元素。
+  useEffect(() => {
+    if (type !== 'model3d') return;
+    const el = modelRef.current as unknown as { autoRotate?: boolean; rotationPerSecond?: string } | null;
+    if (!el) return;
+    try { el.autoRotate = autoRotate; el.rotationPerSecond = '24deg'; }
+    catch { /* 同上 */ }
+  }, [type, autoRotate, artifact?.id]);
 
   const onViewportTouchStart = useCallback((event: React.TouchEvent) => {
     if (!pinchable) return;
@@ -499,9 +573,11 @@ export default function ArtifactStage({
   const showDraftBar = Boolean(draft && ((draft.rect && !draft.strokes) || draft.strokes?.length));
   const draftIsInk = Boolean(draft?.strokes?.length);
 
-  return <div className="flex min-h-0 flex-1 flex-col gap-2">
+  return <div ref={shellRef} className={`flex min-h-0 flex-1 flex-col gap-2 ${fullscreen ? 'fixed inset-0 z-[9999] bg-background p-3' : ''}`}>
+    {/* 文档/图纸放大之后要能滚：溢出裁掉的话，放大后的正文有一半永远够不着。
+        其余类型保持 hidden —— 图片是拖拽平移，多一条滚动条只会打架。 */}
     <div ref={scrollerRef} data-testid="artifact-frame"
-      className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded border border-border bg-muted/30 p-1 ${fill || blank ? 'pt-12' : ''}`}
+      className={`relative flex min-h-0 flex-1 items-center justify-center rounded border border-border bg-muted/30 p-1 ${cssZoomable && viewport.zoom > MIN_ZOOM ? 'overflow-auto' : 'overflow-hidden'} ${fill || blank ? 'pt-12' : ''}`}
       // 容器不滚动时必须禁止浏览器接管手势，否则双指会被页面级缩放吃掉。
       style={pinchable ? { touchAction: 'none' } : undefined}
       onTouchStart={onViewportTouchStart}
@@ -545,24 +621,48 @@ export default function ArtifactStage({
                 style={{ backgroundColor: value }} />
             ))}
           </span>}
-          {!fill && <span role="group" aria-label="成果缩放" className="flex items-center gap-1 border-l border-border pl-1.5">
+          {/* 缩放对所有成果都可用：图片/视频改的是媒体尺寸，文档/图纸改整体变换，
+              三维改的是相机视场角。放在同一个组里、位置固定，用户不用按类型找。 */}
+          <span role="group" aria-label="成果缩放" className="flex items-center gap-1 border-l border-border pl-1.5">
             <button type="button" onClick={() => zoomBy(1 / 1.4)} disabled={viewport.zoom <= MIN_ZOOM}
               aria-label="缩小" className="min-h-9 rounded-full px-2 text-xs hover:bg-muted disabled:opacity-40">−</button>
-            <button type="button" onClick={resetViewport} disabled={viewport.zoom <= MIN_ZOOM}
+            <button type="button" onClick={type === 'model3d' ? resetModelView : resetViewport} disabled={viewport.zoom <= MIN_ZOOM}
               title="适应屏幕" className="min-h-9 rounded-full px-2 text-xs tabular-nums hover:bg-muted disabled:opacity-40">
               {formatZoom(viewport.zoom)}
             </button>
             <button type="button" onClick={() => zoomBy(1.4)} disabled={viewport.zoom >= MAX_ZOOM}
               aria-label="放大" className="min-h-9 rounded-full px-2 text-xs hover:bg-muted disabled:opacity-40">＋</button>
-          </span>}
+          </span>
+          {/* 三维的两个动作是别处没有的：转起来看各面，以及转乱了回默认视角。
+              复位单独摆一个，不塞进倍率按钮 —— 视角被转过之后倍率可能还是 1.0，
+              那个按钮是禁用的，人就退不回去了。 */}
+          {type === 'model3d' && <>
+            <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
+            <button type="button" aria-pressed={autoRotate} onClick={() => setAutoRotate(value => !value)}
+              className="min-h-9 rounded-full border border-transparent px-2.5 text-xs hover:bg-muted aria-pressed:border-primary aria-pressed:bg-primary/10">
+              {autoRotate ? '停止旋转' : '自动旋转'}
+            </button>
+            <button type="button" onClick={resetModelView} title="回到默认视角"
+              className="min-h-9 rounded-full px-2.5 text-xs hover:bg-muted">复位视角</button>
+          </>}
           {navigation}
+          <button type="button" onClick={toggleFullscreen} aria-pressed={fullscreen}
+            className="shrink-0 rounded-full border border-transparent px-2.5 py-2 text-xs hover:bg-muted aria-pressed:border-primary aria-pressed:bg-primary/10">
+            {fullscreen ? '退出全屏' : '全屏'}
+          </button>
           {artifact && <a className="shrink-0 rounded-full border border-transparent px-2.5 py-2 text-xs underline hover:bg-muted" href={rawUrl} target="_blank" rel="noopener noreferrer" download>下载</a>}
         </div>
       </div>
       {/* stage 必须正好贴合媒体本体。标注存的是 0–1 相对坐标，用滚动容器去归一化，
           图片比容器高时标注会整体错位（点 A 记到 B）。滚动与留白都放到 stage 外面。 */}
       <div ref={stageRef} className={`relative shrink-0 ${fill || blank ? 'h-full w-full' : ''}`}
-        style={canPan(viewport) ? { transform: `translate(${viewport.panX}px, ${viewport.panY}px)` } : undefined}>
+        style={cssZoomable
+          // 文档/图纸没有自己的相机：用 CSS zoom 整体放大。选 zoom 而不是
+          // transform:scale，是因为 zoom 会真实改变布局尺寸 —— 放大后外层才能
+          // 出现滚动条，人可以把放大后看不见的那一半滚出来；scale 不占布局，
+          // 放大出去的部分就永远够不着。
+          ? { zoom: viewport.zoom }
+          : canPan(viewport) ? { transform: `translate(${viewport.panX}px, ${viewport.panY}px)` } : undefined}>
         {blank && <div className="h-full w-full rounded bg-white" />}
         {/* 文档类成果（markdown / HTML / 纯文本）走自己的渲染与编辑路，
             预览和编辑共用同一个组件：切档时不卸载，正文和未保存的改动都留着。 */}

@@ -177,10 +177,26 @@ it('zooms with ctrl + wheel and pans with a plain wheel once enlarged', async ()
   it('leaves the embedded page and the 3D model their own gestures', () => {
     render(<Harness override={{ kind: 'iframe', mime: 'text/html', file_name: 'page.html' } as Partial<Artifact>} />);
 
-    // iframe 内部自己滚动，成果页不抢：没有缩放条，也不会接管触摸。
-    expect(screen.queryByRole('group', { name: '成果缩放' })).toBeNull();
+    // 缩放条对所有成果都在（嵌进去的页面也有正文要放大看），
+    // 但触摸手势仍归 iframe 自己：成果页不接管 touchAction。
+    expect(screen.queryByRole('group', { name: '成果缩放' })).not.toBeNull();
     const frame = screen.getByTestId('artifact-frame');
     expect((frame as HTMLElement).style.touchAction).toBe('');
+  });
+
+  it('gives a 3D artifact its own camera controls and a fullscreen button', () => {
+    render(<Harness override={{
+      kind: 'model3d',
+      mime: 'application/octet-stream',
+      file_name: 'assembly.FCStd',
+      preview_url: '/api/artifacts/a1/raw',
+    } as Partial<Artifact>} />);
+
+    // 三维没有「整体放大」这回事：倍率要落到相机上，所以另外给自动旋转与复位，
+    // 视角被转乱之后还能回来（倍率可能还是 1×，那个按钮是禁用的）。
+    expect(screen.getByRole('button', { name: '自动旋转' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '复位视角' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '全屏' })).toBeTruthy();
   });
 
   it('pans one-to-one with the finger instead of running away on every frame', async () => {

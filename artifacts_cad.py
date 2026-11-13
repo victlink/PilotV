@@ -14,22 +14,24 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
+import sys
 import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONVERTER = os.path.join(HERE, "scripts", "cad_to_glb.py")
 
-CAD_EXT = {".step", ".stp", ".iges", ".igs"}
+CAD_EXT = {".step", ".stp", ".iges", ".igs", ".fcstd"}
 # 网格格式：里面已经是三角面，但 model-viewer 同样不认，一样要转。
 MESH_EXT = {".stl", ".obj", ".ply"}
 CONVERTIBLE_EXT = CAD_EXT | MESH_EXT
 # 这些格式 model-viewer 自己能读，别多绕一圈转换。
 NATIVE_3D_EXT = {".glb", ".gltf"}
 
-# 转换要解 B-rep 再网格化，大装配体可能几十秒。超时就当这次没转成，
-# 让用户重试或调细一点，而不是把请求挂在那儿。
-TIMEOUT = float(os.environ.get("ARTIFACTS_CAD_TIMEOUT", "240"))
+# 转换要解 B-rep 再网格化，大装配体可能几十秒；FreeCAD 首次启动还要建用户
+# 配置。超时就当这次没转成，让用户重试，而不是把请求一直挂在那儿。
+TIMEOUT = float(os.environ.get("ARTIFACTS_CAD_TIMEOUT", "360"))
 
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
@@ -45,7 +47,8 @@ class CadUnavailable(RuntimeError):
 
 # 改了转换器（材质、网格精度、脚本结构、支持了哪种格式）就 +1：
 # 缓存文件名带它，用户的成果立刻换新渲染。
-CONVERTER_VERSION = 4
+# v5：支持 .FCStd（先让本机 FreeCAD 导 STEP，再走 OCCT）。
+CONVERTER_VERSION = 5
 
 
 def is_cad(path: str) -> bool:
@@ -60,6 +63,36 @@ def needs_conversion(path: str) -> bool:
     return is_convertible(path)
 
 
+def freecad_cmd() -> str:
+    """本机 freecadcmd 的路径，没有就返回空串。
+
+    Windows 安装器默认装在用户目录且不写 PATH，所以按常见位置找一遍；
+    FREECAD_CMD 可以覆盖。
+    """
+    explicit = os.environ.get("FREECAD_CMD", "").strip()
+    if explicit:
+        return explicit if os.path.isfile(explicit) else ""
+    found = shutil.which("freecadcmd") or shutil.which("FreeCADCmd")
+    if found:
+        return found
+    local = os.environ.get("LOCALAPPDATA", "")
+    candidates = [
+        r"C:\Program Files\FreeCAD 1.1\bin\freecadcmd.exe",
+        r"C:\Program Files\FreeCAD 1.0\bin\freecadcmd.exe",
+        "/usr/bin/freecadcmd",
+        "/usr/local/bin/freecadcmd",
+        "/opt/freecad/bin/freecadcmd",
+        "/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd",
+    ]
+    if local:
+        candidates += [os.path.join(local, "Programs", f"FreeCAD {v}", "bin", "freecadcmd.exe")
+                       for v in ("1.1", "1.0", "0.21")]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return ""
+
+
 def converter_python() -> str:
     """转换器解释器。可用 ARTIFACTS_CAD_PYTHON 覆盖（比如指到系统 python）。"""
     explicit = os.environ.get("ARTIFACTS_CAD_PYTHON", "").strip()
@@ -69,10 +102,23 @@ def converter_python() -> str:
         raise CadUnavailable(f"ARTIFACTS_CAD_PYTHON 指向的文件不可用：{explicit}")
     data_dir = os.environ.get("ARTIFACTS_DATA_DIR") or os.path.join(HERE, ".artifacts-data")
     venv = os.environ.get("ARTIFACTS_CAD_VENV", "").strip() or os.path.join(data_dir, "venvs", "cad")
-    for candidate in (os.path.join(venv, "bin", "python3"), os.path.join(venv, "bin", "python")):
+    for candidate in (
+        os.path.join(venv, "bin", "python3"),
+        os.path.join(venv, "bin", "python"),
+        # Windows 的 venv 在 Scripts/ 下，叫 python.exe：只按 bin/ 找会永远
+        # 认不出本机的隔离 venv，页面就一直说「没装转换器」。
+        os.path.join(venv, "Scripts", "python.exe"),
+    ):
         if os.path.isfile(candidate):
             return candidate
-    raise CadUnavailable("没找到三维转换器（隔离 venv 缺失）")
+    # 没有隔离 venv 也不一定转不了：只要本机装了 FreeCAD，转换脚本会走
+    # FreeCAD 那条路，不需要 OCP/VTK。这时候用当前解释器就能跑，不必逼用户
+    # 先装几百 MB 的二进制库。
+    if freecad_cmd():
+        return sys.executable
+    raise CadUnavailable(
+        "没找到三维转换器（隔离 venv 缺失，也没检测到 FreeCAD）；"
+        "装 FreeCAD 或设置 FREECAD_CMD 即可，不必额外装 OCP/VTK")
 
 
 def converter_status() -> dict:
@@ -80,9 +126,11 @@ def converter_status() -> dict:
     try:
         python = converter_python()
     except CadUnavailable as exc:
-        return {"ok": False, "error": str(exc), "converter": CONVERTER}
+        return {"ok": False, "error": str(exc), "converter": CONVERTER,
+                "freecad": freecad_cmd()}
     return {"ok": os.path.isfile(CONVERTER), "converter": CONVERTER,
-            "python": python, "ext": sorted(CONVERTIBLE_EXT)}
+            "python": python, "ext": sorted(CONVERTIBLE_EXT),
+            "freecad": freecad_cmd()}
 
 
 def _cache_dir() -> str:
