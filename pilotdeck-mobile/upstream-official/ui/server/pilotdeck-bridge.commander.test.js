@@ -105,7 +105,9 @@ it('drives a task to completion instead of stopping after the first reply', asyn
     });
     const writer = { send: (frame) => frames.push(frame) };
 
-    await runChatViaGateway('把登录页改成手机可用', { projectPath: projectRoot }, writer);
+    // 环境变量开关要求项目里真的解析出 team runtime；resolveProjectTeamRuntime
+    // 只在显式选了成员（agentId）时才返回 teamConfig，否则会退化成 self 模式。
+    await runChatViaGateway('把登录页改成手机可用', { projectPath: projectRoot, agentId: 'boss' }, writer);
 
     // 用户轮 + 判定 #1 + 派发给执行者 + 判定 #2
     expect(calls).toHaveLength(4);
@@ -143,7 +145,7 @@ it('stops at the iteration budget when the commander never says done', async () 
     });
     const writer = { send: (frame) => frames.push(frame) };
 
-    await runChatViaGateway('一个永远做不完的任务', { projectPath: projectRoot }, writer);
+    await runChatViaGateway('一个永远做不完的任务', { projectPath: projectRoot, agentId: 'boss' }, writer);
 
     // 用户轮 + 判定#1 + 派发#1 + 判定#2 + 派发#2 + 判定#3（第 3 次判定触到上限）
     expect(calls).toHaveLength(6);

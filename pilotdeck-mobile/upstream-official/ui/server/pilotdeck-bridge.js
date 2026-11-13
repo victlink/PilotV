@@ -90,6 +90,17 @@ import {
     settleCommanderState,
     summarizeEvidence,
 } from './services/commanderLoop.js';
+import {
+    archiveCommanderLoop,
+    buildResumeOptions,
+    commanderRecoveryConfig,
+    fromStoredLoop,
+    isIncompleteTurn,
+    isRecoverableNow,
+    readLoopRecords,
+    saveCommanderLoop,
+} from './services/commanderLoopStore.js';
+import { createCommanderSlotLimiter } from './services/commanderLoopSlots.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1794,6 +1805,15 @@ export function shouldRunCommanderLoop(projectRuntime, options = {}) {
     return config.agents.some((agent) => agent.enabled && agent.role === 'commander');
 }
 
+/**
+ * 恢复守护配置与全局并发闸门。默认全局串行：两个任务同时开自动推进时，
+ * 第二条排队而不是同时把长上下文压到 gateway 里（见 commanderLoopSlots.js）。
+ */
+const commanderRecovery = commanderRecoveryConfig();
+const commanderSlots = createCommanderSlotLimiter({
+    maxConcurrent: commanderRecovery.maxConcurrentLoops,
+});
+
 function commanderLimits() {
     const limits = {};
     const iterations = Number.parseInt(process.env.PILOTV_COMMANDER_MAX_ITERATIONS ?? '', 10);
@@ -1856,7 +1876,9 @@ async function readLastAssistantText(gateway, sessionKey, projectRoot) {
  *   - 每一轮判定都读真实会话记录和工作区状态，不读缓存。
  *   - 判定结果以明文状态行 + 指挥自己的回复出现在同一会话里，可审计。
  *   - 用户一插话就退出，绝不和人对抢同一个 session。
- *   - 循环状态只存内存：进程重启后不会自己续跑（人可能已经接管了）。
+ *   - 用户明确打开自动推进的循环逐轮落盘；gateway 崩溃 / UI 重启后由
+ *     `startCommanderLoopRecovery` 从账本恢复。人随时可以插话或关开关终止，
+ *     所以自动续跑不违背「人优先」，只是不再因为进程崩了而丢掉授权。
  */
 async function runCommanderLoop({
     goal,
@@ -1867,36 +1889,79 @@ async function runCommanderLoop({
     options,
     state,
     getGateway,
+    resumeRecord = null,
 }) {
     const config = projectRuntime?.teamConfig;
     const agents = Array.isArray(config?.agents) ? config.agents.filter((agent) => agent.enabled) : [];
     // 项目没配团队时 projectRuntime 为 null，根目录退回请求自带的项目路径，
     // 否则「没有指挥也要自检」这条路径会直接抛错。
-    const projectRoot = projectRuntime?.projectRoot || options.projectPath || options.cwd || null;
+    const projectRoot = projectRuntime?.projectRoot
+        || options.projectPath || options.cwd
+        || resumeRecord?.context?.projectPath || null;
     // 没有指挥角色时退回 self 模式：由刚跑完这一轮的 Agent 自己判定。
     // 界面开关是为单个任务开的，不能因为项目没配团队就静默失效。
-    const commander = agents.find((agent) => agent.role === 'commander')
+    let commander = agents.find((agent) => agent.role === 'commander')
         ?? { id: projectRuntime?.agentId ?? null, name: projectRuntime?.agent?.name || '当前 Agent' };
 
     // 有执行者就派发给他，没有就由指挥自己边判定边推进。
-    const worker = commander.id
+    let worker = commander.id
         ? agents.find((agent) => agent.role === 'executor'
             && (agent.reportsTo == null || agent.reportsTo === commander.id)) || null
         : null;
-    const mode = worker ? 'delegated' : 'self';
+    let mode = worker ? 'delegated' : 'self';
 
-    const loop = createCommanderState({
-        sessionKey,
-        goal,
-        acceptance: Array.isArray(options.acceptance) && options.acceptance.length > 0
-            ? options.acceptance
-            : extractAcceptance(goal),
-        mode,
-        commanderId: commander.id ?? null,
-        workerId: worker?.id ?? null,
-        limits: commanderLimits(),
-    });
+    const loop = resumeRecord
+        ? fromStoredLoop(resumeRecord)
+        : createCommanderState({
+            sessionKey,
+            goal,
+            acceptance: Array.isArray(options.acceptance) && options.acceptance.length > 0
+                ? options.acceptance
+                : extractAcceptance(goal),
+            mode,
+            commanderId: commander.id ?? null,
+            workerId: worker?.id ?? null,
+            limits: commanderLimits(),
+        });
+    if (resumeRecord) {
+        // 团队配置可能已经变了；以开跑时记下的角色与模式为准，避免恢复后
+        // 把判定轮派给一个不存在或换过身份的 agent。
+        mode = loop.mode;
+        commander = { id: loop.commanderId, name: commander?.name || '指挥' };
+        worker = loop.workerId ? { id: loop.workerId, name: worker?.name || '执行者' } : null;
+    }
+    const loopContext = resumeRecord
+        ? { ...resumeRecord.context, projectPath: projectRoot, provider }
+        : {
+            projectPath: projectRoot,
+            cwd: options.cwd,
+            workspaceCwd: options.workspaceCwd,
+            autoDrive: true,
+            acceptance: loop.acceptance,
+            agentId: options.agentId,
+            modelSelection: options.modelSelection,
+            modelOverride: options.modelOverride,
+            provider,
+            executionMode: options.executionMode,
+            permissionMode: options.permissionMode,
+            basePermissionMode: options.basePermissionMode,
+            runMode: options.runMode,
+        };
+    // 先占位再排队：恢复守护靠 state.commanderLoop 判断是否已经在跑。
+    // 若等并发闸门时才占位，排队的那几十分钟里会被重复恢复。
     state.commanderLoop = loop;
+    /** 账本写入失败不能杀掉循环：任务继续跑，最坏情况是这次崩溃后无法恢复。 */
+    const persist = (now = Date.now()) => {
+        try {
+            saveCommanderLoop(loop, loopContext, { now });
+        } catch (error) {
+            console.warn('[pilotdeck-bridge] commander ledger write failed:', error?.message || error);
+        }
+    };
+    // 排队等并发闸门之前就要落盘：第二条任务可能排几十分钟，期间进程若重启
+    // 不能因为它「还没轮到」就把用户开过的任务丢掉。
+    persist();
+    await commanderSlots.acquire();
 
     const resolveGateway = async () => (getGateway ? await getGateway() : await ensureGateway());
     const baseOptions = {
@@ -1918,19 +1983,45 @@ async function runCommanderLoop({
         || (Array.isArray(state.inputQueue) && state.inputQueue.length > 0),
     );
 
+    /** 终态：归档到 history.jsonl 并删掉 running 账本，恢复守护才会停手。 */
+    const settleAndArchive = (action, text, detail = {}) => {
+        settleCommanderState(loop, action);
+        try {
+            archiveCommanderLoop(loop, loopContext, {
+                status: loop.status,
+                reason: loop.stopReason,
+            });
+        } catch (error) {
+            console.warn('[pilotdeck-bridge] commander ledger archive failed:', error?.message || error);
+        }
+        if (text) {
+            sendCommanderStatus(writer, sessionKey, provider, text, {
+                status: action.type,
+                reason: action.reason ?? null,
+                iteration: loop.iteration,
+                ...detail,
+            });
+        }
+        return loop;
+    };
+
     sendCommanderStatus(
         writer,
         sessionKey,
         provider,
-        `自动推进启动：${mode === 'delegated' ? `执行者「${worker.name}」` : `${commander.name} 自检`}，每轮完成后检查目标，上限 ${loop.limits.maxIterations} 轮。`,
+        resumeRecord
+            ? `自动推进已从中断恢复（第 ${loop.recoveryCount} 次，已完成 ${loop.iteration} 轮判定），上限 ${loop.limits.maxIterations} 轮。`
+            : `自动推进启动：${mode === 'delegated' ? `执行者「${worker?.name || '执行者'}」` : `${commander.name} 自检`}，每轮完成后检查目标，上限 ${loop.limits.maxIterations} 轮。`,
+        resumeRecord ? { status: 'recovered', iteration: loop.iteration } : {},
     );
 
     try {
         for (;;) {
             if (tookOver()) {
-                settleCommanderState(loop, { type: 'stop', reason: 'user_took_over' });
-                sendCommanderStatus(writer, sessionKey, provider, '指挥循环退出：用户已接管本轮。');
-                return loop;
+                return settleAndArchive(
+                    { type: 'stop', reason: 'user_took_over' },
+                    '指挥循环退出：用户已接管本轮。',
+                );
             }
 
             const iteration = loop.iteration + 1;
@@ -1945,7 +2036,10 @@ async function runCommanderLoop({
 
             sendCommanderStatus(writer, sessionKey, provider, `指挥判定 #${iteration} 进行中…`);
 
-            await runChatViaGateway('', {
+            // runChatViaGateway 会把 gateway 断连吞在 catch 里**正常返回**。
+            // 不看返回值就继续读旧 transcript 判 verdict，是崩溃后循环空转、
+            // 最后悄悄停住的 root cause 之一。
+            const judgeTurn = await runChatViaGateway('', {
                 ...baseOptions,
                 ...(commander.id ? { agentId: commander.id } : {}),
                 commanderIteration: iteration,
@@ -1961,6 +2055,10 @@ async function runCommanderLoop({
                     purpose: 'commander_judgement',
                 }],
             }, writer, provider, innerHooks);
+            if (isIncompleteTurn(judgeTurn)) {
+                throw new Error(`commander_judgement_incomplete:${judgeTurn?.turnFinishReason ?? 'no_result'}`);
+            }
+            persist();
 
             const verdictText = await readLastAssistantText(
                 await resolveGateway(),
@@ -1978,30 +2076,29 @@ async function runCommanderLoop({
             });
 
             const action = decideNextAction(loop, verdict, { userTookOver: tookOver() });
-            sendCommanderStatus(writer, sessionKey, provider, describeAction(action, loop), {
-                status: action.type,
-                reason: action.reason ?? null,
-                iteration,
-                instruction: action.instruction ?? null,
-            });
-
             if (action.type !== 'dispatch') {
-                settleCommanderState(loop, action);
-                return loop;
+                return settleAndArchive(action, describeAction(action, loop), {
+                    reason: action.reason ?? null,
+                    iteration,
+                    instruction: action.instruction ?? null,
+                });
             }
 
             noteDispatch(loop, action);
+            persist();
 
             // self 模式下判定轮本身已经带着「继续执行」的指令在干活，
             // 不再额外开一轮；delegated 模式才把指令交给执行者。
             if (mode === 'delegated') {
                 if (tookOver()) {
-                    settleCommanderState(loop, { type: 'stop', reason: 'user_took_over' });
-                    return loop;
+                    return settleAndArchive(
+                        { type: 'stop', reason: 'user_took_over' },
+                        '指挥循环退出：用户已接管本轮。',
+                    );
                 }
-                await runChatViaGateway('', {
+                const workerTurn = await runChatViaGateway('', {
                     ...baseOptions,
-                    agentId: action.assignee || worker.id,
+                    agentId: action.assignee || worker?.id,
                     commanderIteration: iteration,
                     syntheticMessages: [{
                         text: buildWorkerDispatch({
@@ -2013,11 +2110,194 @@ async function runCommanderLoop({
                         purpose: 'commander_dispatch',
                     }],
                 }, writer, provider, innerHooks);
+                if (isIncompleteTurn(workerTurn)) {
+                    throw new Error(`commander_dispatch_incomplete:${workerTurn?.turnFinishReason ?? 'no_result'}`);
+                }
+                persist();
             }
         }
+    } catch (error) {
+        // 断连、异常、网关重启都走这里：**不清账本**，标记 interrupted 后
+        // 交给恢复守护。只有 settleAndArchive 才会删掉 running 文件。
+        const reason = error instanceof Error ? error.message : String(error);
+        const now = Date.now();
+        loop.status = 'interrupted';
+        loop.lastError = reason.slice(0, 500);
+        loop.interruptedAt = now;
+        persist(now);
+        console.warn(`[pilotdeck-bridge] commander loop interrupted (ledger kept, will resume): ${reason}`);
+        sendCommanderStatus(
+            writer,
+            sessionKey,
+            provider,
+            '自动推进被网关断连/异常中断，已记账；网关恢复后自动续跑。',
+            { status: 'interrupted', reason: loop.lastError, iteration: loop.iteration },
+        );
+        return loop;
     } finally {
         if (state.commanderLoop === loop) state.commanderLoop = undefined;
+        commanderSlots.release();
     }
+}
+
+/**
+ * 自动推进恢复守护（在 3001 进程里跑，不依赖 gateway 进程存活）。
+ *
+ * 覆盖三种此前会「停在一半」的情形：
+ *   1. gateway 崩了、supervisor 换了 pid：内部判定轮抛错 → 账本标 interrupted；
+ *   2. UI server 自己重启：内存里的循环全丢，账本还在；
+ *   3. 两个任务同时开自动推进：并发闸门让第二条排队，排队期间账本不会丢。
+ *
+ * 只要账本还是 running / interrupted、内存里没有对应循环、网关可用、且人没有
+ * 在会话里插话，就从下一轮判定继续（迭代数、墙钟预算、指令指纹都从账本带回，
+ * 不会因为恢复而重置 6 轮 / 45 分钟上限）。恢复次数与账龄都有上限。
+ *
+ * @param {{getWriter?: (sessionKey: string) => object, getGateway?: () => Promise<object>,
+ *          home?: string, config?: object}} deps
+ * @returns {() => void} stop()
+ */
+export function startCommanderLoopRecovery({
+    getWriter,
+    getGateway,
+    home,
+    config = commanderRecovery,
+} = {}) {
+    if (String(process.env.PILOTV_COMMANDER_RECOVERY ?? '').trim() === '0') {
+        console.log('[pilotdeck-bridge] commander recovery disabled (PILOTV_COMMANDER_RECOVERY=0)');
+        return () => {};
+    }
+
+    let stopped = false;
+    let scanning = false;
+    /** 已派出去的恢复任务；整条循环跑完才移除，避免 ensureGateway 慢时重复恢复。 */
+    const inFlight = new Set();
+    const resolveGateway = async () => (getGateway ? await getGateway() : await ensureGateway());
+
+    const activeSessionKeys = () => {
+        const keys = new Set(inFlight);
+        for (const [key, value] of sessionState.entries()) {
+            if (value?.commanderLoop) keys.add(key);
+        }
+        return keys;
+    };
+
+    const recoverOne = async (record) => {
+        const context = record.context ?? {};
+        const projectPath = context.projectPath || context.cwd || null;
+        const provider = context.provider || 'pilotdeck';
+        const writer = (typeof getWriter === 'function' ? getWriter(record.sessionKey) : null)
+            ?? { send() {} };
+        let gw;
+        try {
+            gw = await resolveGateway();
+        } catch (error) {
+            console.warn('[pilotdeck-bridge] commander recovery: gateway not ready:', error?.message || error);
+            return;
+        }
+        // 明文审计：恢复事件写进 transcript，而不是只在 UI 里闪一下。
+        await recordGatewayStatusMessage(gw, {
+            sessionKey: record.sessionKey,
+            turnId: `commander-recovery-${record.recoveryCount ?? 0}-${Date.now()}`,
+            projectKey: projectPath || GENERAL_HOME,
+            event: 'commander_loop_recovered',
+            text: `自动推进已从中断恢复（第 ${(record.recoveryCount ?? 0) + 1} 次，已判定 ${record.iteration ?? 0} 轮）：${String(record.goal ?? '').slice(0, 160)}`,
+            detail: {
+                schema: record.schema,
+                previousStatus: record.status,
+                interruptedAt: record.interruptedAt ?? null,
+                lastError: record.lastError ?? null,
+            },
+        });
+        const state = ensureSessionState(record.sessionKey, projectPath || GENERAL_HOME, 'web');
+        await runCommanderLoop({
+            goal: record.goal,
+            projectRuntime: { projectRoot: projectPath },
+            sessionKey: record.sessionKey,
+            writer,
+            provider,
+            options: buildResumeOptions(record),
+            state,
+            getGateway,
+            resumeRecord: record,
+        });
+    };
+
+    const scan = async () => {
+        if (stopped || scanning) return;
+        scanning = true;
+        try {
+            const now = Date.now();
+            const { recoverable, stale, corrupted } = readLoopRecords({ home, now, config });
+            if (corrupted.length > 0) {
+                console.warn(`[pilotdeck-bridge] commander ledger: ${corrupted.length} corrupted file(s) quarantined`);
+            }
+            for (const record of stale) {
+                const loop = fromStoredLoop(record);
+                loop.status = 'abandoned';
+                const reason = (record.recoveryCount ?? 0) >= config.maxRecoveryAttempts
+                    ? 'max_recoveries'
+                    : 'stale';
+                loop.stopReason = reason;
+                try {
+                    archiveCommanderLoop(loop, record.context, { home, now, status: 'abandoned', reason });
+                } catch (error) {
+                    console.warn('[pilotdeck-bridge] commander ledger archive failed:', error?.message || error);
+                }
+                console.warn(`[pilotdeck-bridge] commander loop abandoned (${reason}): ${record.sessionKey}`);
+            }
+
+            // 网关没起来时不要白耗恢复次数，下一轮再看。
+            try {
+                await resolveGateway();
+            } catch {
+                return;
+            }
+            const active = activeSessionKeys();
+            for (const record of recoverable) {
+                if (!isRecoverableNow(record, {
+                    now, activeSessionKeys: active, gatewayReady: true, config,
+                })) continue;
+                const existing = sessionState.get(record.sessionKey);
+                // 人已经接管（active turn / 排队消息）或会话被删：绝不抢。
+                if (existing?.deleted || existing?.deleting || existing?.active
+                    || (existing?.inputQueue?.length ?? 0) > 0) continue;
+                inFlight.add(record.sessionKey);
+                active.add(record.sessionKey);
+                // 不 await：一条循环可能跑几十分钟，扫描必须继续；
+                // 真正的同时跑由 commanderSlots 串行化。
+                void recoverOne(record)
+                    .catch((error) => console.warn(
+                        '[pilotdeck-bridge] commander recovery failed:', error?.message || error,
+                    ))
+                    .finally(() => inFlight.delete(record.sessionKey));
+            }
+        } finally {
+            scanning = false;
+        }
+    };
+
+    const timer = setInterval(() => {
+        void scan().catch((error) => console.warn(
+            '[pilotdeck-bridge] commander recovery scan failed:', error?.message || error,
+        ));
+    }, config.scanIntervalMs);
+    timer.unref?.();
+    // 启动时先扫一次，留一点时间给 gateway 和前端连上。
+    const initial = setTimeout(() => {
+        void scan().catch((error) => console.warn(
+            '[pilotdeck-bridge] commander recovery initial scan failed:', error?.message || error,
+        ));
+    }, Math.min(config.scanIntervalMs, 10_000));
+    initial.unref?.();
+    console.log(
+        `[pilotdeck-bridge] commander recovery watcher started (scan=${config.scanIntervalMs}ms, `
+        + `maxConcurrent=${config.maxConcurrentLoops}, maxRecoveries=${config.maxRecoveryAttempts})`,
+    );
+    return () => {
+        stopped = true;
+        clearInterval(timer);
+        clearTimeout(initial);
+    };
 }
 
 
@@ -2446,8 +2726,67 @@ export async function runChatViaGateway(
         } catch (error) {
             console.error('[pilotdeck-bridge] commander loop failed:', error);
         }
+    } else if (!options.internalReview && !options.commanderIteration && !hadQueuedInput
+        && !state.deleted && !state.deleting && state.inputQueue.length === 0
+        && shouldRunCommanderLoop(projectRuntime, options)
+        && (sawGatewayError || ['gateway_error', 'gateway_bridge_error', 'gateway_stream_ended']
+            .includes(turnFinishReason))) {
+        // 第一条指令就赶上网关崩溃：这里不要死等（supervisor 可能要几十秒才
+        // 把网关拉回来），只把目标记账，恢复守护会在网关可用后从判定轮续跑。
+        // 只对 gateway 类失败记账：用户主动停止 / 模型报错不该被自动重放。
+        const goal = String(command ?? '');
+        const now = Date.now();
+        const stub = createCommanderState({
+            sessionKey,
+            goal,
+            acceptance: Array.isArray(options.acceptance) && options.acceptance.length > 0
+                ? options.acceptance
+                : extractAcceptance(goal),
+            mode: 'self',
+            commanderId: projectRuntime?.agentId ?? null,
+            workerId: null,
+            limits: commanderLimits(),
+            now,
+        });
+        stub.status = 'interrupted';
+        stub.lastError = `initial_turn_${turnFinishReason ?? 'gateway_error'}`;
+        stub.interruptedAt = now;
+        try {
+            saveCommanderLoop(stub, {
+                projectPath: projectRuntime?.projectRoot || options.projectPath || options.cwd || projectKey,
+                cwd: options.cwd,
+                workspaceCwd: options.workspaceCwd,
+                autoDrive: true,
+                acceptance: stub.acceptance,
+                agentId: options.agentId,
+                modelSelection: options.modelSelection,
+                modelOverride: options.modelOverride,
+                provider,
+                executionMode: options.executionMode,
+                permissionMode: options.permissionMode,
+                basePermissionMode: options.basePermissionMode,
+                runMode: options.runMode,
+            }, { now });
+            sendCommanderStatus(
+                writer, sessionKey, provider,
+                '本轮因网关断连未完成；已记账，网关恢复后自动推进会接着跑。',
+                { status: 'interrupted', reason: stub.lastError },
+            );
+            console.warn('[pilotdeck-bridge] initial turn lost to gateway disconnect; ledger written for recovery');
+        } catch (error) {
+            console.warn('[pilotdeck-bridge] could not write initial-turn recovery ledger:', error?.message || error);
+        }
     }
-    return { sessionKey, runId, inputAccepted, sawTurnCompleted, sawGatewayError };
+    // turnFinishReason 必须回传：runChatViaGateway 把 gateway 断连吞在 catch 里
+    // 正常返回，内部判定轮只能靠这个字段分辨「真的跑完了」和「链路断了」。
+    return {
+        sessionKey,
+        runId,
+        inputAccepted,
+        sawTurnCompleted,
+        sawGatewayError,
+        turnFinishReason,
+    };
 }
 
 /**

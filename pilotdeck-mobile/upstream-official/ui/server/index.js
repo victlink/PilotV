@@ -103,6 +103,7 @@ import {
     pauseInputQueueViaGateway,
     resumeInputQueueViaGateway,
     steerQueuedInputViaGateway,
+    startCommanderLoopRecovery,
 } from './pilotdeck-bridge.js';
 import sessionManager from './sessionManager.js';
 import { createComputerUseService } from './services/computerUse.js';
@@ -3809,6 +3810,14 @@ async function startServer() {
                 // the right port after a fallback.
                 process.env.SERVER_PORT = String(boundPort);
                 runtimeCoordination.publishServerReady(boundPort);
+                // 自动推进账本恢复：gateway 崩了或 3001 重启之后，把用户明确
+                // 打开过的指挥循环从磁盘接回来。状态帧发给正在 watch 这个会话
+                // 的前端；没人 watch 也不影响任务本身（transcript 由 gateway 落盘）。
+                startCommanderLoopRecovery({
+                    getWriter: (sessionKey) => ({
+                        send: (frame) => broadcastToSessionWatchers(sessionKey, frame, undefined),
+                    }),
+                });
                 runtimeCoordination.publishConfigurationState();
                 {
                     const appInstallPath = path.join(__dirname, '..');

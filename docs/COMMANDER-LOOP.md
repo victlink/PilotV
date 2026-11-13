@@ -113,8 +113,12 @@ if (toolCalls.length === 0) { ... stopReason: "completed" ... return }
 - 没有 → `self`：判定轮本身带着"未完成就继续干"的指令，指挥自己推进。
 
 内部轮次都用 `internalReview: true` + `fromQueue: true`，所以不会触发审查、
-不会改会话绑定的 agent、不会二次进入指挥循环。循环状态只存内存（`state.commanderLoop`），
-进程重启不会自己续跑 —— 重启后人多半已经接管，自动续跑是危险动作。
+不会改会话绑定的 agent、不会二次进入指挥循环。
+
+**2026-11-13 起循环状态会落盘**（见 §12）。用户明确打开自动推进时，目标、完成条件、
+迭代数、预算、指令指纹逐轮写到 `~/.pilotdeck/commander-loops/`；进程重启或网关崩溃后
+由恢复守护接回。人插话或队列非空立刻退出并归档账本 ——「人优先」没有变，变的只是
+进程崩溃不再悄悄撤销用户给过的授权。
 
 ### 4.3 上限
 
@@ -123,9 +127,17 @@ if (toolCalls.length === 0) { ... stopReason: "completed" ... return }
 | `PILOTV_COMMANDER_LOOP` | 关 | 总开关 |
 | `PILOTV_COMMANDER_MAX_ITERATIONS` | 6 | 判定轮上限（delegated 一轮 ≈ 2 个 turn） |
 | `PILOTV_COMMANDER_MAX_MINUTES` | 45 | 墙钟预算 |
+| `PILOTV_COMMANDER_MAX_CONCURRENT` | 1 | 同时跑的自动推进循环数（全局串行，见 §12） |
+| `PILOTV_COMMANDER_RECOVERY` | 开 | 设 `0` 关闭崩溃恢复守护 |
+| `PILOTV_COMMANDER_RECOVERY_SCAN_MS` | 20000 | 恢复守护扫描账本的间隔 |
+| `PILOTV_COMMANDER_RECOVERY_GRACE_MS` | 90000 | 账本静默多久才允许恢复（防抢正在跑的循环） |
+| `PILOTV_COMMANDER_RECOVERY_INTERRUPTED_GRACE_MS` | 15000 | 明确标记中断后的重试等待 |
+| `PILOTV_COMMANDER_MAX_RECOVERIES` | 5 | 单个循环最多恢复次数，超过归档为 `abandoned` |
+| `PILOTV_COMMANDER_RECOVERY_STALE_MS` | 24h | 账龄上限，避免几个月前的任务突然开跑 |
 
 另外两条硬编码闸门：同一句下一步重复 2 次判 `no_progress`；判定读不出来连续 2 次
-转人工。两者都不静默吞掉，会在会话里留一行原因。
+转人工。两者都不静默吞掉，会在会话里留一行原因。恢复不会重置迭代数与墙钟起点，
+所以不会靠重启"刷"出新的 6 轮 / 45 分钟。
 
 ## 5. 怎么开
 
@@ -180,8 +192,10 @@ npx vitest run server/services/commanderLoop.test.js server/pilotdeck-bridge.com
 | token 变多（每轮多一次判定） | 默认关；迭代上限 6；超过就停 |
 | 指挥自评自过 | 判定输入固定带 git 事实与完成条件；有 `supervisor` 角色时可改由它判定（未实现，见下） |
 | 死循环 | 迭代 / 墙钟 / 指令重复三重闸门 |
-| 和人抢会话 | 队列非空或用户发言即退出 |
-| 行为不可预期 | `PILOTV_COMMANDER_LOOP=0` 立即恢复旧行为，无需改代码 |
+| 和人抢会话 | 队列非空或用户发言即退出；恢复守护同样跳过 `active` / 有排队消息的会话 |
+| 网关崩溃后任务停住 | 账本 + 恢复守护 + 内部轮结果判据，见 §12 |
+| 恢复后偷偷续跑人已放弃的任务 | 只对「用户明确开过自动推进」的账本恢复；插话即终止并归档；次数/账龄双上限 |
+| 行为不可预期 | `PILOTV_COMMANDER_LOOP=0` 关新循环，`PILOTV_COMMANDER_RECOVERY=0` 关恢复守护，无需改代码 |
 
 ## 8. 轮内续跑（P0，已实施）
 
@@ -368,3 +382,103 @@ node --import tsx --test --test-timeout 60000 \
 
 4. **项目室侧对齐（P2）**：`room_orchestrator.py` 的 20 次终身预算应按「连续无进展次数」
    而不是「总投递数」计费，否则正常的返工也会被刹车。
+
+## 12. 崩溃恢复与稳定性（2026-11-13 事故修复）
+
+### 12.1 现象与根因
+
+本机两个任务（便携咖啡机 / 新风机）都打开了界面上的「自动推进」，跑到一半停住，
+开关仍亮着、没有 `turn_completed`、没有「任务结束」，也没碰到 6 轮 / 45 分钟上限。
+当晚 gateway（127.0.0.1:18789）在 21:09、21:22、21:42 三次崩溃：
+
+```
+Fatal error ..., Check failed: marking_done_.     # V8 cppgc 并发标记断言
+exit code 2147483651 (0x80000003)                  # supervisor 随即换 pid 拉起
+```
+
+崩溃前两个会话并发、上下文 65k / 75k tokens、其中一个触发 89k full compaction，
+还伴随模型 `network_error` 重试。Web 侧对应 `runChatViaGateway threw: Gateway WebSocket closed`
+与一串 1006 断连。会话 transcript 都停在工具调用中间，产物和记录没丢。
+
+三个叠加的缺陷让任务**再也起不来**：
+
+1. 循环状态只在 `state.commanderLoop`（3001 进程内存）。gateway 崩溃 → WS 断连 →
+   `runChatViaGateway` 在 catch 里把异常**吞掉并正常返回** → 循环 `finally` 清空状态。
+   重启后没人记得任务没跑完，`pending-inputs` 也是空的。
+2. 循环内部调 `runChatViaGateway` 时**不检查返回值**，断连后继续拿旧 transcript 解析
+   verdict 甚至继续派发，等于空转。
+3. 两个长上下文循环同时跑，正好落在 V8 cppgc 断言的触发条件上。
+
+### 12.2 修复
+
+| 位置 | 改动 |
+| --- | --- |
+| `ui/server/services/commanderLoopStore.js`（新） | 磁盘账本：逐轮原子写 `~/.pilotdeck/commander-loops/<session>.json`；终态追加 `history.jsonl` 后删除 running 文件；坏文件隔离留证；纯函数负责恢复判据与 options 重建 |
+| `ui/server/services/commanderLoopSlots.js`（新） | 全局并发闸门，默认 1：两个任务同时开自动推进时第二条**排队**而不是一起压垮网关 |
+| `ui/server/pilotdeck-bridge.js` | 循环逐轮落盘；内部轮用 `isIncompleteTurn()` 检查 `turnFinishReason`，断连即标 `interrupted` 并保留账本；正常结束 / 用户接管 / 触顶才归档；支持 `resumeRecord` 从账本恢复（迭代数、墙钟起点、指令指纹都带回）；新增 `startCommanderLoopRecovery()` 守护；连「第一条指令就赶上崩溃」也记账 |
+| `ui/server/index.js` | 服务 listen 后启动恢复守护，状态帧发给正在 watch 该会话的前端 |
+| `.run/agent-supervisor.mjs` | 启动日志记 `node` 版本与实际 V8 flags；`PILOTDECK_GATEWAY_NODE_FLAGS` 显式注入；命中已知受影响构建时打 WARN |
+
+恢复链路（全在 3001 进程内，不依赖 gateway 存活）：
+
+```
+账本 running/interrupted
+  → 守护每 20s 扫描（跳过：内存已有循环 / 会话 active / 有排队消息 / 人已接管）
+  → 网关可用 → 从下一轮判定继续（不重发用户消息、不重置预算）
+  → transcript 写一条 commander_loop_recovered 明文事件
+  → 终态归档到 history.jsonl 并删 running 文件
+```
+
+### 12.3 配置与运维
+
+变量都加在跑 **3001（`ui/server/index.js`）** 的进程环境里；网关侧的
+`PILOTDECK_GATEWAY_NODE_FLAGS` 加在拉起 supervisor 的环境里。完整默认值见 §4.3。
+
+```bash
+# 看现在有哪些任务挂在账本上（明文 JSON，可直接读）
+ls -la ~/.pilotdeck/commander-loops/
+cat ~/.pilotdeck/commander-loops/*.json
+
+# 看恢复/归档历史
+tail -n 20 ~/.pilotdeck/commander-loops/history.jsonl
+
+# 只想停掉自动续跑，不动代码
+PILOTV_COMMANDER_RECOVERY=0        # 关恢复守护
+PILOTV_COMMANDER_LOOP=0            # 关新循环（界面开关仍优先）
+```
+
+**让某个人工任务彻底不再恢复**：在会话里发一条消息（用户接管会让循环终止并归档），
+或删掉对应账本文件。不要直接编辑 running 文件里的 `status`。
+
+**升级运行时**：`Check failed: marking_done_` 是 Node/V8 的运行时断言，应用层无法
+根除。本机当时只有 `22.22.2`，建议升级到 22.x 后续补丁或 24 LTS 后观察；升之前用
+并发闸门（`PILOTV_COMMANDER_MAX_CONCURRENT=1`，默认即 1）降低触发概率。
+`PILOTDECK_GATEWAY_NODE_FLAGS="--max-old-space-size=4096"` 是可显式注入的缓解项，
+是否对本断言有效需按机型实测，默认不改任何 V8 行为。
+
+即使再崩，业务上也不再"停住"：账本还在，网关回来后自动续跑；恢复 5 次仍失败或
+账龄超过 24h 会归档为 `abandoned`，并在日志与 transcript 里留原因。
+
+### 12.4 验证
+
+```bash
+cd pilotdeck-mobile/upstream-official/ui
+npx vitest run --environment node \
+  server/services/commanderLoopStore.test.js \
+  server/services/commanderLoopSlots.test.js \
+  server/services/commanderLoop.test.js
+```
+
+本机 `vite.config.js` 默认 `environment: 'jsdom'`，而这台机器没装 jsdom；
+跑纯 Node 侧用例时显式加 `--environment node`（46 个用例通过）。
+
+端到端自检：给一个会话开自动推进 → 确认账本出现 → `taskkill` 掉 gateway 让
+supervisor 换 pid → 观察 `web.log` 出现 `commander loop interrupted` 与
+`commander recovery watcher` 后续日志 → 会话 transcript 出现
+`commander_loop_recovered` → 任务从下一轮判定继续。
+
+### 12.5 回滚
+
+`PILOTV_COMMANDER_RECOVERY=0` 关恢复守护、`PILOTV_COMMANDER_LOOP=0` 关新循环，
+两者都是环境变量，无需改代码。已有账本不会被守护读取，可保留供人工查看。
+代码级回滚即回退本节的 5 个文件，账本为纯新增目录，删除不影响会话记录。

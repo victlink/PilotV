@@ -54,6 +54,20 @@ const LOCK_PORT = Number(process.env.PILOTDECK_AGENT_LOCK_PORT || 18790);
 const CHECK_MS = 3000;
 /** 探活本身的超时。比 CHECK_MS 短，否则一次探活就能把整个循环卡住。 */
 const HEALTH_PROBE_TIMEOUT_MS = 2000;
+/**
+ * 2026-11-13：Node 22.22.2 在两条长上下文自动推进并发时出现 V8 cppgc 断言
+ * `Check failed: marking_done_`（退出码 0x80000003），supervisor 一晚上拉起三次。
+ * 并发本身由 UI 侧的 commanderSlots 串行闸门解决；这里只留一个**显式**的
+ * V8 参数入口，不擅自给所有机器改 GC 行为：
+ *   PILOTDECK_GATEWAY_NODE_FLAGS="--max-old-space-size=4096"
+ * 启动时把 node 版本和实际 flags 打进 supervisor.log，方便对照崩溃时间线。
+ */
+function gatewayNodeFlags(env = process.env) {
+  const raw = String(env.PILOTDECK_GATEWAY_NODE_FLAGS ?? '').trim();
+  return raw ? raw.split(/\s+/).filter(Boolean) : [];
+}
+const NODE_VERSION = process.versions.node;
+const KNOWN_CPPGC_AFFECTED = /^22\.22\.2(?:[-+]|$)/.test(NODE_VERSION);
 /** healthz 里 at 字段允许的陈旧时间。网关自己每轮都会刷新它。 */
 const HEALTH_STALE_MS = 60000;
 
@@ -204,9 +218,10 @@ async function spawnGateway(reason) {
     try { fd = fs.openSync(GATEWAY_LOG, 'a'); } catch { fd = 'ignore'; }
     const attempt = tracker.snapshot().restarts + 1;
     log('port ' + GATEWAY_PORT + ' is down (' + reason + '); spawning detached gateway (attempt ' + attempt + ')');
+    const nodeFlags = gatewayNodeFlags();
     gateway = spawn(
       process.execPath,
-      ['--import', 'tsx', 'src/cli/pilotdeck.ts', 'server', '--port', String(GATEWAY_PORT)],
+      [...nodeFlags, '--import', 'tsx', 'src/cli/pilotdeck.ts', 'server', '--port', String(GATEWAY_PORT)],
       {
         cwd: UPSTREAM,
         env: process.env,
@@ -220,7 +235,13 @@ async function spawnGateway(reason) {
 
     const pid = gateway.pid;
     tracker.recordStart();
-    log('gateway spawned pid=' + pid + ' detached=true (survives this supervisor)');
+    log('gateway spawned pid=' + pid + ' detached=true (survives this supervisor)'
+      + ' node=' + NODE_VERSION
+      + ' nodeFlags=' + (nodeFlags.length ? nodeFlags.join(' ') : '(none)'));
+    if (KNOWN_CPPGC_AFFECTED) {
+      log('WARN node ' + NODE_VERSION + ' is the build that hit V8 "Check failed: marking_done_"'
+        + ' under concurrent long-context turns; see docs/COMMANDER-LOOP.md §12 for mitigation/upgrade');
+    }
     const onDown = (detail) => {
       log(detail);
       const outcome = tracker.recordFailure();
