@@ -613,13 +613,16 @@ findstr /c:"node=" .run\supervisor.log
 
 ### 13.4 配置
 
-| 环境变量 | 默认 | 说明 |
+| 环境变量 | 默认（§14 修正后） | 说明 |
 | --- | --- | --- |
 | `PILOTV_STALL_ENABLED` | `1` | `0/false/no/off` 整体关闭 |
-| `PILOTV_STALL_MAX_REPEATED_THINKING` | `3` | 连续相同 thinking 次数；`0` 关闭该检测 |
+| `PILOTV_STALL_MAX_REPEATED_THINKING` | `5` | 连续相同 thinking 次数；`0` 关闭该检测 |
 | `PILOTV_STALL_MAX_REPEATED_TOOL_FAILURE` | `4` | 连续相同工具失败次数；`0` 关闭 |
-| `PILOTV_STALL_MAX_TURN_MS` | `2700000`（45 min） | 单 turn 墙钟；`0` 关闭 |
+| `PILOTV_STALL_MAX_IDLE_MS` | `1800000`（30 min） | 无有效进展的最长静默；工具执行中不计时；`0` 关闭 |
+| `PILOTV_STALL_MAX_TURN_MS` | `14400000`（4 h） | 单 turn 绝对兜底墙钟；`0` 关闭 |
 | `PILOTV_STALL_MAX_TURN_TOKENS` | `8000000` | 单 turn 累计 token；`0` 关闭 |
+
+> ⚠️ 初版默认值（3 次复读 / 45 分钟绝对墙钟）会误杀正常长任务，已在 §14 修正。以本节表格为准。
 
 长任务可临时调大或关闭单项，不必改代码。
 
@@ -636,3 +639,105 @@ findstr /c:"node=" .run\supervisor.log
 - 回滚：`PILOTV_STALL_ENABLED=0` 即完全停用新护栏，无需回退代码。
 - 不要在原会话里续跑这类任务：64 MB 上下文 + 负压缩，续跑几乎必然继续复读。正确做法是**新开会话带精简 handoff**，只写"已完成 / 待办 / 验收条件"，并把指令优先级写清楚：**记忆只是参考，当前 turn 的明确指令优先；冲突时以当前 turn 为准并说明**，避免再出现"过时记忆压过任务指令"。
 - 人工介入后如要重开自动推进，确认 `history.jsonl` 里对应记录是 `waiting_user / no_progress_stall`，running 账本已删除；恢复守护不会碰它。
+
+## 14. 进展感知修正：护栏误杀正常长任务（2026-11-14 二次事故）
+
+### 14.1 现象
+
+§13 上线并用干净会话重启两个任务后，用户界面再次报「又停止了，没有完成」。这次
+**不是 gateway 崩溃，也不是推理死循环**——三个 turn 都是在实打实推进的途中被
+自己加的护栏主动 abort 掉：
+
+| 会话 | 时间（UTC） | 被砍时的状态 | 日志里的停止原因 |
+| --- | --- | --- | --- |
+| 咖啡机干净会话 `web-s_d8cb6580` | 03:53–04:39（45.5 min） | 72 turns、91 次工具调用（17 次 `edit_file`、11 次 `task_create`、4 个子 agent），最后停在 `task_wait` 等子 agent | `turn stall (turn_timeout)` `{elapsedMs: 2733151, limitMs: 2700000}` |
+| 新风机干净会话 `web-s_3b789a1f` | 03:55–04:40（45 min） | 54 turns、96 次工具调用（42 次 `bash`、34 次 `read_file`），最后 thinking 还列着 "Build C08 viewer / Independent C…" | `turn stall (turn_timeout)` `{elapsedMs: 2704307}` |
+| 界面重开 `web-s_2c62a57c` | 7 个 turn，前 5 个 `success/completed` | 第 6 个跑 47 min 被砍；第 7 个 10 min 因 "用户想看装配模型…" 复读 3 次被砍 | `turn_timeout` + `repeated_thinking` |
+
+三个 turn 的 `turn_result` 都是 `aborted / aborted_streaming`。账本按 §13 的设计归档为
+`waiting_user / no_progress_stall`，**永不自动续跑**，于是界面上就表现为「停了」。
+
+### 14.2 根因：把「时长」当成了「无进展」
+
+1. `turnStallGuard.js` 初版的 `maxTurnWallClockMs = 45 min` 是**绝对墙钟**，在
+   `observe()` 开头无条件判断，完全不看中间有没有成功工具调用。CAD 任务里
+   `task_wait` 一次就等 10 分钟、FreeCAD Python 构建十几分钟很常见，45 分钟必被砍。
+2. `maxRepeatedThinking = 3` 偏紧。模型在等待或重述待办时会重复同一段 thinking，
+   中间夹一次 `read_file` 又不清零（§13 只有写类工具清零），3 次就误判。
+3. `commanderLoop.js` 的 `COMMANDER_DEFAULT_LIMITS` 同样是 **6 轮 / 45 分钟**，
+   与单 turn 护栏叠加成双重截断：即使单 turn 不被砍，整条循环也会到点停。
+4. §13 规定熔断是终态、不自动恢复——这条本身正确，但放大了前三条的后果：
+   一次误杀就是一次彻底停止，没有自愈机会。
+
+### 14.3 修正方案
+
+护栏从「计时」改为「计进展」，仍放在 bridge 层，不动上游 `AgentLoop.ts`：
+
+- **进展心跳**：`lastProgressAtMs` 记录最后一次有效进展——任意**成功完成**的工具调用
+  （`tool_call_finished` 且 `ok === true`）、子 agent 工具结果
+  （`subagent_tool_result`）、文件产物（`file_artifacts`）。
+- **工具在飞不计时**：`tool_call_started` / `tool_call_finished` 维护
+  `inFlightTools`；只要还有工具没返回，`turn_idle` 就不触发。FreeCAD 构建、
+  `task_wait` 长跑属于正常等待，不再被当作静默。
+- **`turn_idle`（新）**：`inFlightTools === 0` 且距最后进展超过 30 分钟才熔断。
+  这才是「无进展」的正确定义。
+- **绝对兜底退居二线**：`maxTurnWallClockMs` 从 45 min 放宽到 **4 小时**，
+  只在极端失控时兜底；`maxRepeatedThinking` 3 → **5**。
+- **复读计数仍只认写类工具**：任意成功工具重置静默计时，但只有
+  `isProgressTool()` 的成功工具清空复读计数，保留对「读成功、写失败」死循环的敏感。
+- **token 语义修正**：`context_budget.used` 是「当前上下文占用」而非累计消耗，
+  压缩后会回落，因此只记进 `snapshot().observedContextUsed` 供排查，
+  不再据此熔断；`turn_token_budget` 仍由 `turn_completed.usage.totalTokens` 判断。
+- **commander 预算放宽**：默认 `maxIterations` 6 → **12**、
+  `maxWallClockMs` 45 min → **4 h**、`maxInvalidVerdicts` 2 → **3**
+  （`verdict_marker_missing` 连续 2 次就停也偏紧）。三者均可用环境变量覆盖：
+  `PILOTV_COMMANDER_MAX_ITERATIONS` / `PILOTV_COMMANDER_MAX_WALL_CLOCK_MS` /
+  `PILOTV_COMMANDER_MAX_INVALID_VERDICTS`。
+
+**为什么真正的死循环仍会被抓**：§12/§13 那次事故里，子 agent 1 小时只复读同一段
+thinking、没有任何工具产出 → 30 分钟 `turn_idle` 命中；主 agent 反复
+`edit_file` 失败 20 次 → `repeated_tool_failure`（4 次）与 `repeated_subagent_thinking`
+命中；累计 1900 万 token → `turn_token_budget` 命中。四条防线都在，只是不再对
+「持续有成功工具但跑了 1 小时」误开枪。
+
+### 14.4 配置
+
+见 §13.4 表格（已更新为修正后的默认值）。误判时可临时：
+
+```sh
+PILOTV_STALL_MAX_IDLE_MS=0          # 关掉无进展静默检测
+PILOTV_STALL_MAX_TURN_MS=0          # 关掉 4 小时绝对兜底
+PILOTV_STALL_MAX_REPEATED_THINKING=0
+```
+
+`PILOTV_STALL_ENABLED=0` 仍是整体回滚开关。
+
+### 14.5 验证
+
+- `turnStallGuard.test.js` 新增「进展感知：正常长任务不误杀」8 个回归用例：
+  持续有成功工具跨过 80 分钟不熔断、工具在飞 90 分钟不熔断、纯复读无产出
+  30 分钟后 `turn_idle`、子 agent / 文件产物算进展、工具失败不算进展、
+  `context_budget` 不误报、snapshot 暴露 `idleMs/inFlightTools/lastProgressAtMs`。
+- `pilotdeck-bridge.commander.test.js` 新增集成用例：判定轮两次相同 thinking
+  中间夹成功 `edit_file`，断言不调用 `abortTurn`、不发 `turn_stalled`、账本
+  `stopReason !== 'no_progress_stall'`。
+- `commanderLoop.test.js` 两条原用例显式固定 `maxInvalidVerdicts: 2` 保留原语义，
+  另加一条验证放宽后可多重试一次；`defaults` 断言同步放宽到 24 轮 / 8 小时上界。
+- Node 22.22.2 与 24.22.3 下各 5 文件 **85 用例全绿**；`node --check`、
+  `git diff --check` 通过。
+
+### 14.6 运维判读
+
+`history.jsonl` 里出现 `no_progress_stall` 时，先看 `web.log` 的
+`turn stall (<code>)`：
+
+| code | 含义 | 处置 |
+| --- | --- | --- |
+| `turn_idle` | 30 分钟无有效进展且没有工具在跑 | 多半是真卡住，看 transcript 尾部 |
+| `turn_timeout` | 单 turn 超过 4 小时绝对兜底 | 任务过大，拆分或调大 `PILOTV_STALL_MAX_TURN_MS` |
+| `repeated_thinking` / `repeated_subagent_thinking` | 连续 5 次相同 thinking 且中间无写类工具 | 真复读，新开会话带精简 handoff |
+| `repeated_tool_failure` | 连续 4 次相同工具失败 | 看工具参数 / 权限 |
+| `turn_token_budget` | 单 turn 累计超过 800 万 token | 上下文失控，新开会话 |
+
+若确认是误杀，调大对应阈值后**新开会话**重发；旧账本保持 `waiting_user`
+不会被恢复守护碰。不要手动把账本改回 `interrupted` 来"骗"它续跑。

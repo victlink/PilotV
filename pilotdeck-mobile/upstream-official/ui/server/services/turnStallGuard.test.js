@@ -13,11 +13,13 @@ import {
     toolFailureFingerprint,
 } from './turnStallGuard.js';
 
+// 单测里用较紧的阈值方便触发；生产默认值见 TURN_STALL_DEFAULTS。
 const cfg = (over = {}) => ({
     enabled: true,
     maxRepeatedThinking: 3,
     maxRepeatedToolFailure: 4,
-    maxTurnWallClockMs: 60_000,
+    maxIdleMs: 30 * 60_000,
+    maxTurnWallClockMs: 4 * 60 * 60_000,
     maxTurnTokens: 8_000_000,
     thinkingKeyChars: 120,
     ...over,
@@ -77,13 +79,16 @@ describe('无进展检测的纯函数', () => {
         const configured = readTurnStallConfig({
             PILOTV_STALL_ENABLED: '0',
             PILOTV_STALL_MAX_REPEATED_THINKING: '7',
+            PILOTV_STALL_MAX_IDLE_MS: '0',
             PILOTV_STALL_MAX_TURN_MS: '0',
             PILOTV_STALL_MAX_TURN_TOKENS: '999',
         });
         expect(configured.enabled).toBe(false);
         expect(configured.maxRepeatedThinking).toBe(7);
+        expect(configured.maxIdleMs).toBe(Number.POSITIVE_INFINITY);
         expect(configured.maxTurnWallClockMs).toBe(Number.POSITIVE_INFINITY);
         expect(configured.maxTurnTokens).toBe(999);
+        expect(readTurnStallConfig({ PILOTV_STALL_MAX_IDLE_MS: '600000' }).maxIdleMs).toBe(600000);
         expect(readTurnStallConfig({ PILOTV_STALL_ENABLED: 'false' }).enabled).toBe(false);
         expect(readTurnStallConfig({ PILOTV_STALL_MAX_REPEATED_THINKING: 'garbage' }).maxRepeatedThinking)
             .toBe(TURN_STALL_DEFAULTS.maxRepeatedThinking);
@@ -111,7 +116,7 @@ describe('单 turn 熔断', () => {
         expect(guard.stalled).toBeNull();
     });
 
-    it('read_file 成功不算进展；edit_file 成功才重置', () => {
+    it('read_file 成功不算「写类进展」，不清空复读计数；edit_file 成功才重置', () => {
         const guard = createTurnStallGuard({ config: cfg() });
         guard.observe(thinking('same thinking'));
         guard.observe(toolOk('read_file'));
@@ -205,10 +210,14 @@ describe('单 turn 熔断', () => {
         expect(guard.snapshot().enabled).toBe(false);
     });
 
-    it('可单独关闭时长与 token 上限', () => {
+    it('可单独关闭时长、静默与 token 上限', () => {
         let t = 0;
         const guard = createTurnStallGuard({
-            config: cfg({ maxTurnWallClockMs: Number.POSITIVE_INFINITY, maxTurnTokens: Number.POSITIVE_INFINITY }),
+            config: cfg({
+                maxIdleMs: Number.POSITIVE_INFINITY,
+                maxTurnWallClockMs: Number.POSITIVE_INFINITY,
+                maxTurnTokens: Number.POSITIVE_INFINITY,
+            }),
             now: () => t,
         });
         t = 10_000_000;
@@ -229,5 +238,124 @@ describe('单 turn 熔断', () => {
         guard.observe({ type: 'turn_completed', usage: { totalTokens: 42 } });
         expect(guard.snapshot().turnCompleted).toBe(true);
         expect(guard.snapshot().totalTokens).toBe(42);
+    });
+});
+
+describe('进展感知：正常长任务不误杀（2026-11-14 回归）', () => {
+    it('生产默认阈值已放宽：复读 5 次、静默 30 分钟、绝对兜底 4 小时', () => {
+        expect(TURN_STALL_DEFAULTS.maxRepeatedThinking).toBe(5);
+        expect(TURN_STALL_DEFAULTS.maxIdleMs).toBe(30 * 60_000);
+        expect(TURN_STALL_DEFAULTS.maxTurnWallClockMs).toBe(4 * 60 * 60_000);
+        const guard = createTurnStallGuard({});
+        for (let i = 0; i < 4; i += 1) expect(guard.observe(thinking('same'))).toBeNull();
+        expect(guard.observe(thinking('same'))?.code).toBe('repeated_thinking');
+    });
+
+    it('持续有成功工具的长 turn 跨过 45 分钟也不会被砍', () => {
+        let t = 0;
+        const guard = createTurnStallGuard({
+            config: cfg({ maxIdleMs: 30 * 60_000, maxTurnWallClockMs: 8 * 60 * 60_000 }),
+            now: () => t,
+        });
+        for (let i = 1; i <= 8; i += 1) {
+            t = i * 10 * 60_000;
+            expect(guard.observe({ type: 'tool_call_started', name: 'bash' })).toBeNull();
+            t += 60_000;
+            expect(guard.observe({ type: 'tool_call_finished', ok: true, toolName: 'bash' })).toBeNull();
+        }
+        expect(guard.snapshot().elapsedMs).toBe(8 * 10 * 60_000 + 60_000);
+        expect(guard.stalled).toBeNull();
+    });
+
+    it('工具在飞期间不按静默计时（FreeCAD / task_wait 长跑不误杀）', () => {
+        let t = 0;
+        const guard = createTurnStallGuard({
+            config: cfg({ maxIdleMs: 30 * 60_000, maxTurnWallClockMs: 4 * 60 * 60_000 }),
+            now: () => t,
+        });
+        guard.observe({ type: 'tool_call_started', name: 'task_wait' });
+        t = 90 * 60_000;
+        expect(guard.observe({ type: 'context_budget' })).toBeNull();
+        expect(guard.snapshot().inFlightTools).toBe(1);
+        guard.observe({ type: 'tool_call_finished', ok: true, toolName: 'task_wait' });
+        expect(guard.snapshot().inFlightTools).toBe(0);
+        expect(guard.stalled).toBeNull();
+    });
+
+    it('超过 30 分钟没有任何进展才判 turn_idle', () => {
+        let t = 0;
+        const guard = createTurnStallGuard({
+            config: cfg({ maxIdleMs: 30 * 60_000, maxTurnWallClockMs: 4 * 60 * 60_000 }),
+            now: () => t,
+        });
+        guard.observe({ type: 'tool_call_finished', ok: true, toolName: 'edit_file' });
+        t = 29 * 60_000;
+        expect(guard.observe({ type: 'context_budget' })).toBeNull();
+        t = 31 * 60_000;
+        const stall = guard.observe({ type: 'assistant_thinking_delta', text: 'still thinking' });
+        expect(stall?.code).toBe('turn_idle');
+        expect(stall?.detail.idleMs).toBe(31 * 60_000);
+    });
+
+    it('纯复读死循环仍会被抓（没有工具产出，静默超限）', () => {
+        let t = 0;
+        const guard = createTurnStallGuard({
+            config: cfg({ maxIdleMs: 30 * 60_000, maxRepeatedThinking: 999, maxTurnWallClockMs: 4 * 60 * 60_000 }),
+            now: () => t,
+        });
+        for (let i = 1; i <= 6; i += 1) {
+            t = i * 6 * 60_000;
+            guard.observe(thinking('The memory says read-only, no FreeCAD. '));
+        }
+        expect(guard.stalled?.code).toBe('turn_idle');
+    });
+
+    it('子 agent 工具结果与文件产物都算有效进展', () => {
+        let t = 0;
+        const guard = createTurnStallGuard({
+            config: cfg({ maxIdleMs: 30 * 60_000, maxTurnWallClockMs: 8 * 60 * 60_000 }),
+            now: () => t,
+        });
+        for (let i = 1; i <= 4; i += 1) {
+            t = i * 25 * 60_000;
+            const event = i % 2
+                ? { type: 'subagent_tool_result', toolName: 'edit_file' }
+                : { type: 'file_artifacts', artifacts: [] };
+            expect(guard.observe(event)).toBeNull();
+        }
+        expect(guard.stalled).toBeNull();
+        expect(guard.snapshot().lastProgressAtMs).toBe(100 * 60_000);
+    });
+
+    it('工具失败不算进展；连续相同失败仍按原逻辑抓死循环', () => {
+        let t = 0;
+        const guard = createTurnStallGuard({
+            config: cfg({ maxIdleMs: 30 * 60_000 }),
+            now: () => t,
+        });
+        for (let i = 0; i < 3; i += 1) {
+            t += 60_000;
+            expect(guard.observe(toolFail('edit_file', `old_string "v${i}" not found at line ${10 + i}`))).toBeNull();
+        }
+        t += 60_000;
+        expect(guard.observe(toolFail('edit_file', 'old_string "v3" not found at line 13'))?.code)
+            .toBe('repeated_tool_failure');
+    });
+
+    it('context_budget 只记录上下文用量，不误触发 token 上限', () => {
+        const guard = createTurnStallGuard({ config: cfg() });
+        expect(guard.observe({ type: 'context_budget', used: 9_999_999 })).toBeNull();
+        expect(guard.snapshot().observedContextUsed).toBe(9_999_999);
+        expect(guard.stalled).toBeNull();
+    });
+
+    it('snapshot 暴露静默与在飞工具，便于线上排查误杀', () => {
+        let t = 0;
+        const guard = createTurnStallGuard({ config: cfg(), now: () => t });
+        guard.observe({ type: 'tool_call_finished', ok: true, toolName: 'write_file' });
+        t = 5 * 60_000;
+        expect(guard.snapshot().idleMs).toBe(5 * 60_000);
+        expect(guard.snapshot().inFlightTools).toBe(0);
+        expect(guard.snapshot().lastProgressAtMs).toBe(0);
     });
 });

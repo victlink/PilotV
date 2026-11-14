@@ -16,9 +16,26 @@
  * circuit breaker 又要求「本轮所有工具调用都失败且 fingerprint 完全一致」，
  * 只要中间夹一次成功的 read_file 就清零，所以也没拦住。
  *
- * 这里在 bridge 的事件流上做检测：重复 thinking 前缀、重复工具失败、单 turn
- * 时长、单 turn token。命中后由 `runChatViaGateway` 主动 abort，并把
- * `turnFinishReason` 标成 `stalled_no_progress`。
+ * 这里在 bridge 的事件流上做检测：重复 thinking 前缀、重复工具失败、无进展
+ * 静默、单 turn 绝对时长与 token。命中后由 `runChatViaGateway` 主动 abort，
+ * 并把 `turnFinishReason` 标成 `stalled_no_progress`。
+ *
+ * 进展感知（2026-11-14 二次修正）
+ * ------------------------------
+ * 初版把 `maxTurnWallClockMs` 当成绝对 45 分钟上限，结果把两个**正在正常推进**
+ * 的长 CAD turn 砍了：一个 72 turns / 91 次工具调用、最后在 `task_wait` 等子
+ * agent；另一个 54 turns / 96 次工具调用、thinking 里还列着待办。二者都被
+ * abort 并归档 `waiting_user`，界面上表现为「又停止了，没完成」。
+ *
+ * 根因是「时长」不等于「无进展」：CAD 构建、`task_wait`、FreeCAD Python 都
+ * 可能让单个工具跑十几分钟。现在改为：
+ *   - 记录最后一次有效进展（任意成功完成的工具 / 子 agent 工具结果 / 文件产物）；
+ *   - 只有**没有工具在执行**且静默超过 `maxIdleMs` 才判 `turn_idle`；
+ *     工具在飞（`tool_call_started` 未 `finished`）期间不计时，属正常等待；
+ *   - `maxTurnWallClockMs` 退为 4 小时的绝对兜底，防线不再是 45 分钟；
+ *   - 重复 thinking / 重复工具失败仍按原逻辑抓真正的死循环。
+ * 这样「1 小时只复读同一段 thinking、没有任何工具产出」仍会被抓，而
+ * 「持续有成功工具但跑了 1 小时」不会被误杀。
  *
  * 关键语义：这是**终态，不是崩溃**。上层 commander loop 必须把它归档为
  * `waiting_user`，绝不能标 `interrupted` —— 否则恢复守护 20 秒后自动续跑，
@@ -41,12 +58,14 @@ export function isNoProgressStopReason(reason) {
 
 export const TURN_STALL_DEFAULTS = Object.freeze({
     enabled: true,
-    /** 连续多少轮相同 thinking 前缀算空转。 */
-    maxRepeatedThinking: 3,
+    /** 连续多少轮相同 thinking 前缀算空转。5 次避免把「重述待办」误判为死循环。 */
+    maxRepeatedThinking: 5,
     /** 连续多少次相同工具失败算空转。 */
     maxRepeatedToolFailure: 4,
-    /** 单个 turn 最长墙钟时间。 */
-    maxTurnWallClockMs: 45 * 60_000,
+    /** 没有任何有效进展的最长静默时间；工具执行中不计时。 */
+    maxIdleMs: 30 * 60_000,
+    /** 单个 turn 绝对兜底墙钟（有进展也停，防长任务彻底失控）。 */
+    maxTurnWallClockMs: 4 * 60 * 60_000,
     /** 单个 turn 累计 token 上限（含 cache read）。 */
     maxTurnTokens: 8_000_000,
     /** thinking 指纹取前多少字符。 */
@@ -115,7 +134,8 @@ function limitFromEnv(env, name, fallback) {
  *   PILOTV_STALL_ENABLED=0                      总开关
  *   PILOTV_STALL_MAX_REPEATED_THINKING=0       关掉重复思考检测
  *   PILOTV_STALL_MAX_REPEATED_TOOL_FAILURE=0   关掉重复失败检测
- *   PILOTV_STALL_MAX_TURN_MS=0                 关掉时长上限
+ *   PILOTV_STALL_MAX_IDLE_MS=0                 关掉无进展静默检测
+ *   PILOTV_STALL_MAX_TURN_MS=0                 关掉绝对时长兜底
  *   PILOTV_STALL_MAX_TURN_TOKENS=0             关掉 token 上限
  */
 export function readTurnStallConfig(env = process.env) {
@@ -127,6 +147,7 @@ export function readTurnStallConfig(env = process.env) {
         enabled,
         maxRepeatedThinking: limitFromEnv(env, 'PILOTV_STALL_MAX_REPEATED_THINKING', TURN_STALL_DEFAULTS.maxRepeatedThinking),
         maxRepeatedToolFailure: limitFromEnv(env, 'PILOTV_STALL_MAX_REPEATED_TOOL_FAILURE', TURN_STALL_DEFAULTS.maxRepeatedToolFailure),
+        maxIdleMs: limitFromEnv(env, 'PILOTV_STALL_MAX_IDLE_MS', TURN_STALL_DEFAULTS.maxIdleMs),
         maxTurnWallClockMs: limitFromEnv(env, 'PILOTV_STALL_MAX_TURN_MS', TURN_STALL_DEFAULTS.maxTurnWallClockMs),
         maxTurnTokens: limitFromEnv(env, 'PILOTV_STALL_MAX_TURN_TOKENS', TURN_STALL_DEFAULTS.maxTurnTokens),
         thinkingKeyChars: TURN_STALL_DEFAULTS.thinkingKeyChars,
@@ -145,6 +166,11 @@ export function createTurnStallGuard(input = {}) {
     const now = input.now ?? (() => Date.now());
     const startedAtMs = now();
     let stalled = null;
+    /** 最后一次观察到有效进展的时刻；工具执行中不计时。 */
+    let lastProgressAtMs = startedAtMs;
+    /** 已开始但尚未结束的工具调用数。 */
+    let inFlightTools = 0;
+    let observedContextUsed = 0;
     let thinkingBuffer = '';
     let subagentThinkingBuffer = '';
     let lastThinkingKey = '';
@@ -155,6 +181,8 @@ export function createTurnStallGuard(input = {}) {
     let repeatedFailure = 0;
     let totalTokens = 0;
     let turnCompleted = false;
+
+    const markProgress = () => { lastProgressAtMs = now(); };
 
     const trip = (code, detail) => {
         if (stalled) return stalled;
@@ -194,9 +222,17 @@ export function createTurnStallGuard(input = {}) {
         if (!config.enabled || stalled) return stalled;
         if (!event || typeof event !== 'object') return null;
 
-        const elapsedMs = now() - startedAtMs;
+        const currentMs = now();
+        const elapsedMs = currentMs - startedAtMs;
+        // 绝对兜底：无论有没有进展，单个 turn 都不允许无限跑。
         if (elapsedMs >= config.maxTurnWallClockMs) {
             return trip('turn_timeout', { elapsedMs, limitMs: config.maxTurnWallClockMs });
+        }
+        // 无进展静默才是主要停手条件。工具在飞时属于正常等待（FreeCAD 构建、
+        // task_wait 等子 agent），不能因为跑得久就误杀。
+        const idleMs = currentMs - lastProgressAtMs;
+        if (inFlightTools === 0 && idleMs >= config.maxIdleMs) {
+            return trip('turn_idle', { idleMs, limitMs: config.maxIdleMs, elapsedMs });
         }
 
         switch (event.type) {
@@ -236,7 +272,18 @@ export function createTurnStallGuard(input = {}) {
                 subagentThinkingBuffer = '';
                 return settleThinking(text, 'subagent');
             }
+            case 'tool_call_started': {
+                inFlightTools += 1;
+                return null;
+            }
+            case 'subagent_tool_result':
+            case 'file_artifacts': {
+                // 子 agent 有产出、或本轮生成了文件产物，都算有效进展。
+                markProgress();
+                return null;
+            }
             case 'tool_call_finished': {
+                inFlightTools = Math.max(0, inFlightTools - 1);
                 if (event.ok === false) {
                     const key = toolFailureFingerprint({
                         toolName: event.toolName ?? event.name,
@@ -251,9 +298,12 @@ export function createTurnStallGuard(input = {}) {
                     return null;
                 }
                 if (event.ok === true) {
+                    // 任意成功完成的工具都重置静默计时：它证明 agent 还在往前走。
+                    markProgress();
                     repeatedFailure = 0;
                     lastFailureKey = '';
-                    // 只有真正改动了工作区的成功工具才算「有进展」。
+                    // 但只有真正改动工作区的成功工具才清空「复读」计数，
+                    // 「读成功、写失败」的死循环才不会被 read_file 洗白。
                     if (isProgressTool(event.toolName ?? event.name)) {
                         repeatedThinking = 0;
                         lastThinkingKey = '';
@@ -261,6 +311,13 @@ export function createTurnStallGuard(input = {}) {
                         lastSubagentThinkingKey = '';
                     }
                 }
+                return null;
+            }
+            case 'context_budget': {
+                // 只记录上下文用量便于排查，不据此熔断：`used` 是「当前上下文
+                // 占用」而非累计消耗，压缩后还会回落，拿来当上限会误报。
+                const used = Number(event.used ?? event.displayUsed ?? 0);
+                if (Number.isFinite(used)) observedContextUsed = Math.max(observedContextUsed, used);
                 return null;
             }
             case 'turn_completed': {
@@ -289,6 +346,10 @@ export function createTurnStallGuard(input = {}) {
                 repeatedSubagentThinking,
                 repeatedFailure,
                 totalTokens,
+                observedContextUsed,
+                inFlightTools,
+                lastProgressAtMs,
+                idleMs: now() - lastProgressAtMs,
                 turnCompleted,
                 stalled,
                 config: { ...config },

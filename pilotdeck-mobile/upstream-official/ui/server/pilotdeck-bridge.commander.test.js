@@ -309,3 +309,58 @@ it('无进展熔断：判定轮复读时主动 abort，归档 waiting_user 而�
     expect(archived.status).toBe('waiting_user');
     expect(archived.stopReason).toBe('no_progress_stall');
 });
+
+it('进展感知回归：判定轮有成功工具产出时不会被误判为无进展', async () => {
+    const envKeys = [
+        'PILOTV_STALL_MAX_REPEATED_THINKING',
+        'PILOTV_STALL_MAX_TURN_MS',
+        'PILOTV_STALL_MAX_TURN_TOKENS',
+    ];
+    const saved = envKeys.map((key) => process.env[key]);
+    process.env.PILOTV_COMMANDER_LOOP = '1';
+    process.env.PILOTV_STALL_MAX_REPEATED_THINKING = '2';
+    process.env.PILOTV_STALL_MAX_TURN_MS = '0';
+    process.env.PILOTV_STALL_MAX_TURN_TOKENS = '0';
+
+    const projectRoot = await setupTeam();
+    const frames = [];
+    const aborts = [];
+    mock.gateway = {
+        getActiveTurnSnapshot: async () => ({ active: false, events: [] }),
+        async *submitTurn(input) {
+            yield { type: 'input_accepted', runId: input.runId };
+            const isJudgement = (input.syntheticMessages || [])
+                .some((message) => message.purpose === 'commander_judgement');
+            if (isJudgement) {
+                // 同一段 thinking 出现两次（旧阈值会误杀），但中间夹着成功的写工具。
+                yield { type: 'assistant_block', kind: 'thinking', text: '继续核对装配体尺寸。' };
+                yield { type: 'tool_call_started', name: 'edit_file', toolCallId: 'c1' };
+                yield { type: 'tool_call_finished', ok: true, toolName: 'edit_file', toolCallId: 'c1' };
+                yield { type: 'assistant_block', kind: 'thinking', text: '继续核对装配体尺寸。' };
+                yield { type: 'assistant_stream_end' };
+            }
+            yield { type: 'turn_completed', runId: input.runId, finishReason: 'completed', usage: {} };
+        },
+        readSessionMessages: async () => ({
+            messages: [{ role: 'assistant', content: verdict({ status: 'done', summary: '已完成' }) }],
+        }),
+        abortTurn: async (args) => { aborts.push(args); return true; },
+    };
+    const writer = { send: (frame) => frames.push(frame) };
+    try {
+        await runChatViaGateway('继续完成 CAD 交付', { projectPath: projectRoot, agentId: 'boss' }, writer);
+    } finally {
+        envKeys.forEach((key, index) => {
+            if (saved[index] === undefined) delete process.env[key];
+            else process.env[key] = saved[index];
+        });
+        delete process.env.PILOTV_COMMANDER_LOOP;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(aborts).toHaveLength(0);
+    expect(frames.some((frame) => frame.status === 'turn_stalled')).toBe(false);
+    const history = path.join(mock.home, 'commander-loops', 'history.jsonl');
+    const lines = (await readFile(history, 'utf8')).trim().split('\n').map(JSON.parse);
+    expect(lines[lines.length - 1].stopReason).not.toBe('no_progress_stall');
+});

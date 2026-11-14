@@ -43,14 +43,29 @@ export const COMMANDER_VERDICT_STATUSES = Object.freeze([
  * Defaults chosen so a stuck loop costs a bounded amount of money and time.
  * `maxIterations` counts judgement rounds, not single turns: in delegated
  * mode one iteration is (worker turn + commander judgement turn).
+ *
+ * 2026-11-14：原默认 6 轮 / 45 分钟与单 turn 护栏的 45 分钟叠加，导致长 CAD
+ * 任务必然在第一个 turn 里被双重截断。现在单 turn 护栏改为「无进展才停」，
+ * 这里同步放宽到 12 轮 / 4 小时；真正失控仍由 turnStallGuard 的 idle /
+ * token / 重复检测兜住。可用环境变量覆盖，无需改代码：
+ *   PILOTV_COMMANDER_MAX_ITERATIONS
+ *   PILOTV_COMMANDER_MAX_WALL_CLOCK_MS
+ *   PILOTV_COMMANDER_MAX_INVALID_VERDICTS
  */
+function positiveIntFromEnv(name, fallback) {
+    const raw = String(process.env?.[name] ?? '').trim();
+    if (!raw) return fallback;
+    const value = Number.parseInt(raw, 10);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 export const COMMANDER_DEFAULT_LIMITS = Object.freeze({
-    maxIterations: 6,
-    maxWallClockMs: 45 * 60 * 1000,
+    maxIterations: positiveIntFromEnv('PILOTV_COMMANDER_MAX_ITERATIONS', 12),
+    maxWallClockMs: positiveIntFromEnv('PILOTV_COMMANDER_MAX_WALL_CLOCK_MS', 4 * 60 * 60 * 1000),
     /** Same normalised instruction seen this many times means no progress. */
     maxInstructionRepeats: 2,
-    /** Unreadable verdicts tolerated before we ask the human. */
-    maxInvalidVerdicts: 2,
+    /** Unreadable verdicts tolerated before we ask the human. 原为 2，长任务里判定轮容易被误停。 */
+    maxInvalidVerdicts: positiveIntFromEnv('PILOTV_COMMANDER_MAX_INVALID_VERDICTS', 3),
 });
 
 /** Trim, collapse whitespace, drop trailing punctuation — progress fingerprint. */

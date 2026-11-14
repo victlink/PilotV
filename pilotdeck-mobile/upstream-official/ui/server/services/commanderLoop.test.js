@@ -167,6 +167,8 @@ describe('decideNextAction', () => {
 
     it('retries an unreadable verdict, then asks the human', () => {
         const state = delegatedState();
+        // 生产默认已放宽到 3 次；这里显式固定为 2，保留原语义回归。
+        state.limits = { ...state.limits, maxInvalidVerdicts: 2 };
         const bad = parseVerdict('我先看看情况');
         const first = decideNextAction(state, bad, { now: 2_000 });
         const second = decideNextAction(state, bad, { now: 3_000 });
@@ -175,8 +177,19 @@ describe('decideNextAction', () => {
         expect(second.reason).toBe('verdict_marker_missing');
     });
 
+    it('放宽后的默认阈值允许多一次判定重试', () => {
+        const state = delegatedState();
+        const bad = parseVerdict('我先看看情况');
+        expect(decideNextAction(state, bad, { now: 2_000 }).type).toBe('dispatch');
+        expect(decideNextAction(state, bad, { now: 3_000 }).type).toBe('dispatch');
+        const third = decideNextAction(state, bad, { now: 4_000 });
+        expect(third.type).toBe('wait_user');
+        expect(third.reason).toBe('verdict_marker_missing');
+    });
+
     it('treats a continue verdict without a next instruction as unreadable', () => {
         const state = delegatedState();
+        state.limits = { ...state.limits, maxInvalidVerdicts: 2 };
         const verdict = parseVerdict(verdictLine({ status: 'continue' }));
         const first = decideNextAction(state, verdict, { now: 2_000 });
         expect(first.type).toBe('dispatch');
@@ -284,7 +297,9 @@ describe('lastAssistantText', () => {
 describe('defaults', () => {
     it('keeps the loop bounded out of the box', () => {
         expect(COMMANDER_DEFAULT_LIMITS.maxIterations).toBeGreaterThan(0);
-        expect(COMMANDER_DEFAULT_LIMITS.maxIterations).toBeLessThanOrEqual(10);
-        expect(COMMANDER_DEFAULT_LIMITS.maxWallClockMs).toBeLessThanOrEqual(60 * 60 * 1000);
+        // 长 CAD 任务单个 turn 就可能超过 45 分钟；预算仍须有界，但放宽到
+        // 12 轮 / 4 小时，失控由 turnStallGuard 的无进展检测兜住。
+        expect(COMMANDER_DEFAULT_LIMITS.maxIterations).toBeLessThanOrEqual(24);
+        expect(COMMANDER_DEFAULT_LIMITS.maxWallClockMs).toBeLessThanOrEqual(8 * 60 * 60 * 1000);
     });
 });
