@@ -223,12 +223,56 @@ function Start-Services {
     Ok '启动命令已执行'
 }
 
+function Get-FrontendUrl {
+    # 与 start-windows.ps1 保持一致：有 TLS 证书时网关跑 HTTPS，证书只对 MagicDNS 域名有效。
+    $cert = Join-Path (Join-Path $env:USERPROFILE '.pilotdeck\tls') 'pilotv-fullchain.pem'
+    $key = Join-Path (Join-Path $env:USERPROFILE '.pilotdeck\tls') 'pilotv-key.pem'
+    if (-not ((Test-Path $cert) -and (Test-Path $key))) { return "http://127.0.0.1:$LanPort/" }
+    $frontHost = ''
+    try {
+        $tsExe = Join-Path ${env:ProgramFiles} 'Tailscale\tailscale.exe'
+        if (Test-Path $tsExe) {
+            $json = & $tsExe status --json 2>$null | ConvertFrom-Json
+            $frontHost = ($json.Self.DNSName -as [string]).TrimEnd('.')
+        }
+    } catch { $frontHost = '' }
+    if (-not $frontHost) { $frontHost = 'localhost' }
+    return "https://${frontHost}:${LanPort}/"
+}
+
+function Test-PairPage {
+    # 探测配对页。优先用系统自带的 curl.exe：网关有 TLS 证书时只听 HTTPS，
+    # 而 PowerShell 5.1 的 Invoke-WebRequest 在 .NET Framework 上发不出 SNI，
+    # 握手会被网关直接断开（2026-11-14 踩过），只有 curl 能稳定返回 200。
+    $front = Get-FrontendUrl
+    $urls = @()
+    if ($front -like 'https://*') {
+        $urls += ($front.TrimEnd('/') + '/pair')
+        $urls += "https://127.0.0.1:$LanPort/pair"
+    } else {
+        $urls += "http://127.0.0.1:$LanPort/pair"
+    }
+    $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+    $hasCurl = Test-Path $curl
+    foreach ($u in $urls) {
+        $code = ''
+        if ($hasCurl) {
+            $code = (& $curl -sk -o NUL -w '%{http_code}' $u 2>$null)
+        } else {
+            try {
+                $r = Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 3
+                $code = $r.StatusCode
+            } catch { $code = '' }
+        }
+        if ("$code" -eq '200') { return $u }
+    }
+    return ''
+}
+
 function Wait-Ready {
     for ($i = 0; $i -lt 30; $i++) {
-        try {
-            $r = Invoke-WebRequest -Uri "http://127.0.0.1:$LanPort/pair" -UseBasicParsing -TimeoutSec 3
-            if ($r.StatusCode -eq 200) { Ok "配对页就绪：http://127.0.0.1:$LanPort/pair"; return }
-        } catch { }
+        $hit = Test-PairPage
+        if ($hit) { Ok "配对页就绪：$hit"; return }
         Start-Sleep -Seconds 1
     }
     Warn '配对页 30 秒内未就绪，请查看 <安装目录>\repo\.run\*.log'
@@ -252,7 +296,12 @@ function Show-Summary {
     } catch { }
     Write-Host ''
     Step '安装完成。用电脑浏览器打开下面任一地址，登录后用安卓客户端「扫码连接」：'
-    if ($ip) { Write-Host "    http://$($ip):$LanPort/pair      <- 手机与电脑同一 Wi-Fi 时最快" }
+    $front = Get-FrontendUrl
+    if ($front -like 'https://*') {
+        Write-Host "    ${front}pair      <- 手机与电脑同一 Wi-Fi 时最快（自签证书需先信任）"
+    } elseif ($ip) {
+        Write-Host "    http://$($ip):$LanPort/pair      <- 手机与电脑同一 Wi-Fi 时最快"
+    }
     Write-Host "    http://127.0.0.1:$LanPort/pair        <- 只在本机看"
     if ($PublicOrigin) { Write-Host "    $PublicOrigin/pair                  <- 公网入口（无需 Tailscale）" }
     Write-Host ''

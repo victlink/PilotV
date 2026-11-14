@@ -139,15 +139,30 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 # ---- switch, build, restart, verify (with rollback) -------------------------
-SERVICES="${PILOTV_SERVICES:-pilotdeck.service pilotv-gateway.service pilotv-artifacts.service}"
+SERVICES="${PILOTV_SERVICES:-pilotdeck.service pilotv-gateway.service pilotv-artifacts.service artifacts-mcp.service}"
 restart_services() {
   if [ "$NO_RESTART" -eq 1 ]; then log "restart skipped (--no-restart)"; return 0; fi
   if [ -n "${PILOTV_RESTART_CMD:-}" ]; then
     log "restart: $PILOTV_RESTART_CMD"
     eval "$PILOTV_RESTART_CMD"
-  elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files 2>/dev/null | grep -q '^pilotdeck.service'; then
+  elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files 2>/dev/null | grep -c '^pilotdeck\.service' >/dev/null; then
+    # 注意：这里必须用 grep -c 而不是 grep -q。grep -q 命中即退出会给 systemctl
+    # 送来 SIGPIPE，在 set -o pipefail 下整条管道返回 141，于是「有 systemd」的判断
+    # 永远为假，升级只改了代码却不重启服务（线上踩过：2026-11-14）。
     log "restarting: $SERVICES"
-    sudo -n systemctl restart $SERVICES
+    existing=""
+    for u in $SERVICES; do
+      if sudo -n systemctl cat "$u" >/dev/null 2>&1; then
+        existing="$existing $u"
+      else
+        warn "unit not found, skipped: $u"
+      fi
+    done
+    if [ -z "$existing" ]; then
+      warn "no existing unit to restart; restart the processes manually"
+      return 0
+    fi
+    sudo -n systemctl restart $existing
   else
     warn "no systemd service found; restart the processes manually"
   fi
