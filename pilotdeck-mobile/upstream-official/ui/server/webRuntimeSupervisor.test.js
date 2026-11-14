@@ -159,19 +159,16 @@ describe('web runtime supervisor', () => {
     });
   });
 
-  it('does not treat an occupied port as readiness before its own Gateway starts', async () => {
+  it('treats a listening port as gateway readiness without requiring the IPC handshake', async () => {
+    // 2026-11-14: readiness is driven by the port actually listening (port-up), not by the
+    // gateway-ready IPC. The IPC is only a redundant confirmation. waitForPort resolves
+    // immediately in the harness, so the gateway must be considered ready on port-up alone.
     const { supervisor } = createHarness();
     const server = supervisor.children.get('server');
     server.emit('message', { type: 'pilotdeck:configuration-state', configuration: { state: 'ready' } });
-    await Promise.resolve();
-    expect(server.send).toHaveBeenLastCalledWith({ type: 'pilotdeck:gateway-state', state: 'starting' });
-    const gateway = supervisor.children.get('gateway');
-    gateway.emit('message', { type: 'pilotdeck:gateway-ready', port: 18790 });
-    expect(server.send).toHaveBeenLastCalledWith({ type: 'pilotdeck:gateway-state', state: 'starting' });
-    gateway.emit('close', 1, null);
-    gateway.emit('message', { type: 'pilotdeck:gateway-ready', port: 18789 });
-    expect(server.send).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'error' }));
-    expect(server.send.mock.calls.some(([message]) => message.state === 'ready')).toBe(false);
+    await vi.waitFor(() => {
+      expect(server.send).toHaveBeenLastCalledWith({ type: 'pilotdeck:gateway-state', state: 'ready' });
+    });
   });
 
   it('waits for the port check as well as the child readiness message', async () => {
@@ -185,26 +182,41 @@ describe('web runtime supervisor', () => {
     await vi.waitFor(() => expect(server.send).toHaveBeenLastCalledWith({ type: 'pilotdeck:gateway-state', state: 'ready' }));
   });
 
-  it('restarts the Gateway once when readiness times out, then reports the failure', async () => {
+  it('keeps retrying the Gateway across readiness timeouts instead of giving up after one retry', async () => {
     vi.useFakeTimers();
     try {
-      const { supervisor, spawnImpl } = createHarness();
+      const { supervisor, spawnImpl } = createHarness({
+        // Never resolves: simulates a Gateway that is slow to bind the port (e.g. high load
+        // while the UI server's tsx transpile competes for CPU). Readiness must time out.
+        waitForPortImpl: () => new Promise(() => {}),
+      });
       const server = supervisor.children.get('server');
       server.emit('message', { type: 'pilotdeck:configuration-state', configuration: { state: 'ready' } });
       const firstGateway = supervisor.children.get('gateway');
-      await vi.advanceTimersByTimeAsync(90_000);
+      await vi.advanceTimersByTimeAsync(120_000 + 1_000); // first attempt window
       expect(firstGateway.kill).toHaveBeenCalled();
-      // The retry must stay on the startup screen: no error is published until
-      // the second attempt has run out of its own (shorter) window.
-      expect(server.send.mock.calls.some(([message]) => message.state === 'error')).toBe(false);
-      await vi.advanceTimersByTimeAsync(46_000);
+      // 2026-11-14: a single failed attempt must NOT publish a permanent error; the supervisor
+      // keeps retrying (budget is 10) so a transient slow start recovers once load eases.
+      await vi.advanceTimersByTimeAsync(80_000 + 1_000 + 1_000); // second attempt window
       expect(spawnImpl).toHaveBeenCalledTimes(3);
-      expect(server.send).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'error', error: expect.stringContaining('Timed out') }));
+      expect(server.send.mock.calls.some(([message]) => message.state === 'error')).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
 
-      // A manual restart starts with a fresh budget instead of the exhausted one.
-      server.emit('message', { type: 'pilotdeck:retry-gateway' });
-      await vi.advanceTimersByTimeAsync(0);
-      expect(spawnImpl).toHaveBeenCalledTimes(4);
+  it('reports failure only after the full readiness retry budget is exhausted', async () => {
+    vi.useFakeTimers();
+    try {
+      const { supervisor, spawnImpl } = createHarness({
+        waitForPortImpl: () => new Promise(() => {}),
+      });
+      const server = supervisor.children.get('server');
+      server.emit('message', { type: 'pilotdeck:configuration-state', configuration: { state: 'ready' } });
+      for (let i = 0; i < 10; i++) {
+        const window = i === 0 ? 120_000 : 80_000;
+        await vi.advanceTimersByTimeAsync(window + 1_000 + 1_000);
+      }
+      expect(spawnImpl).toHaveBeenCalledTimes(11); // server + 10 gateway attempts
+      expect(server.send).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'error', error: expect.stringContaining('Timed out') }));
     } finally { vi.useRealTimers(); }
   });
 

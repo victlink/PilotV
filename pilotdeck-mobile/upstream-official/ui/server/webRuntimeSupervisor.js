@@ -23,7 +23,13 @@ const UI_ROOT = path.resolve(__dirname, '..');
 const GATEWAY_READINESS_TIMEOUT_MS = 120_000;
 // 重试那次进程已经预热（tsx 已缓存转译结果），不需要再给整份超时时间。
 const GATEWAY_RETRY_TIMEOUT_MS = 80_000;
-const GATEWAY_READINESS_MAX_ATTEMPTS = 2;
+// 2026-11-14 永久修复：原先 MAX_ATTEMPTS=2，一旦启动窗口内超时两次就「永久放弃」拉起
+// 网关，导致 pilotdeck.service 重启后 18789 永远空置、会话消息 503。主因是服务重启时
+// server（tsx 现场转译，极吃 CPU）与 gateway 并发初始化，高负载把 gateway 拖慢超过超时窗口。
+// 提到 10 次：server 稳定后 gateway 实测 10~20s 即可起来，前几次偶发超时后最终会成功，
+// 不再有「永久放弃」死局。端口真被残留进程占用的情况，由 pilotdeck-start.sh 的 pkill
+// 模式（现已含 dist/src/cli/pilotdeck.js）在重启时清理，不会无限重试。
+const GATEWAY_READINESS_MAX_ATTEMPTS = 10;
 const GATEWAY_RETRY_DELAY_MS = 1_000;
 
 export function normalizeSupervisorMode(value) {
@@ -236,12 +242,16 @@ export function createRuntimeSupervisor({
     let portReady = false;
     let processReady = false;
     let readinessPublished = false;
+    // 2026-11-14：就绪判定以「端口监听」为准，不再强依赖网关发来的 gateway-ready IPC。
+    // 端口 18789 上承载 WebSocket/API 服务，端口起来即代表网关可用；gateway-ready IPC
+    // 仅作冗余确认（同作用域的 child.on('message') 仍会收到并记录），不作为就绪必要条件，
+    // 以免任何 IPC 时序问题误杀一个实际已经起好的网关。
     const publishReady = () => {
-      if (!portReady || !processReady || readinessPublished || reportedFailure || children.get('gateway') !== child) return;
+      if (!portReady || readinessPublished || reportedFailure || children.get('gateway') !== child) return;
       readinessPublished = true;
       gatewayReadinessAttempts = 0;
       clearTimeout(readinessTimer);
-      log(`[runtime-supervisor] Gateway ready on 127.0.0.1:${gatewayPort}`);
+      log(`[runtime-supervisor] Gateway ready on 127.0.0.1:${gatewayPort}${processReady ? ' (gateway-ready IPC received)' : ' (port-up only)'}`);
       sendGatewayState('ready');
     };
     const failReadiness = waitError => {
