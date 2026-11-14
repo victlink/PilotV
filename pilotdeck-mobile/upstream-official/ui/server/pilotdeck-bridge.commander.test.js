@@ -13,7 +13,7 @@ vi.mock('./services/gatewayConnectionCache.js', () => ({
     createGatewayConnectionCache: () => ({ get: async () => mock.gateway, invalidate: () => {} }),
 }));
 
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { runChatViaGateway } from './pilotdeck-bridge.js';
@@ -244,4 +244,68 @@ it('self-checks with the current agent when the project has no team config', asy
         .filter((frame) => frame.kind === 'status' && frame.status === 'commander')
         .map((frame) => frame.text);
     expect(commanderTexts.some((text) => text.includes('自检'))).toBe(true);
+});
+
+it('无进展熔断：判定轮复读时主动 abort，归档 waiting_user 而不自动续跑', async () => {
+    const envKeys = [
+        'PILOTV_STALL_MAX_REPEATED_THINKING',
+        'PILOTV_STALL_MAX_TURN_MS',
+        'PILOTV_STALL_MAX_TURN_TOKENS',
+    ];
+    const saved = envKeys.map((key) => process.env[key]);
+    process.env.PILOTV_COMMANDER_LOOP = '1';
+    process.env.PILOTV_STALL_MAX_REPEATED_THINKING = '2';
+    process.env.PILOTV_STALL_MAX_TURN_MS = '0';
+    process.env.PILOTV_STALL_MAX_TURN_TOKENS = '0';
+
+    const projectRoot = await setupTeam();
+    const calls = [];
+    const frames = [];
+    const aborts = [];
+    const repeated = 'The memory says read-only, no FreeCAD. ';
+    mock.gateway = {
+        getActiveTurnSnapshot: async () => ({ active: false, events: [] }),
+        async *submitTurn(input) {
+            calls.push(input);
+            yield { type: 'input_accepted', runId: input.runId };
+            const isJudgement = (input.syntheticMessages || [])
+                .some((message) => message.purpose === 'commander_judgement');
+            if (isJudgement) {
+                yield { type: 'assistant_block', kind: 'thinking', text: repeated };
+                yield { type: 'assistant_block', kind: 'thinking', text: repeated };
+                yield { type: 'assistant_stream_end' };
+            }
+            yield { type: 'turn_completed', runId: input.runId, finishReason: 'completed', usage: {} };
+        },
+        readSessionMessages: async () => ({
+            messages: [{ role: 'assistant', content: verdict({ status: 'continue', summary: '还差一步', next: '继续' }) }],
+        }),
+        abortTurn: async (args) => { aborts.push(args); return true; },
+    };
+    const writer = { send: (frame) => frames.push(frame) };
+    try {
+        await runChatViaGateway('继续完成 CAD 交付', { projectPath: projectRoot, agentId: 'boss' }, writer);
+    } finally {
+        envKeys.forEach((key, index) => {
+            if (saved[index] === undefined) delete process.env[key];
+            else process.env[key] = saved[index];
+        });
+        delete process.env.PILOTV_COMMANDER_LOOP;
+    }
+    // abortTurn 是 fire-and-forget，让微任务跑完再断言。
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(aborts).not.toHaveLength(0);
+    expect(frames.some((frame) => frame.status === 'turn_stalled')).toBe(true);
+    const commanderTexts = frames
+        .filter((frame) => frame.kind === 'status' && frame.status === 'commander')
+        .map((frame) => frame.text);
+    expect(commanderTexts.some((text) => text.includes('连续无进展'))).toBe(true);
+    expect(commanderTexts.some((text) => text.includes('网关断连'))).toBe(false);
+
+    const history = path.join(mock.home, 'commander-loops', 'history.jsonl');
+    const lines = (await readFile(history, 'utf8')).trim().split('\n').map(JSON.parse);
+    const archived = lines[lines.length - 1];
+    expect(archived.status).toBe('waiting_user');
+    expect(archived.stopReason).toBe('no_progress_stall');
 });

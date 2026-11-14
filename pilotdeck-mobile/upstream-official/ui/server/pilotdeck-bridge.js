@@ -101,6 +101,13 @@ import {
     saveCommanderLoop,
 } from './services/commanderLoopStore.js';
 import { createCommanderSlotLimiter } from './services/commanderLoopSlots.js';
+import {
+    NO_PROGRESS_STOP_REASON,
+    STALL_FINISH_REASON,
+    createTurnStallGuard,
+    isStallFinishReason,
+    readTurnStallConfig,
+} from './services/turnStallGuard.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2055,6 +2062,9 @@ async function runCommanderLoop({
                     purpose: 'commander_judgement',
                 }],
             }, writer, provider, innerHooks);
+            if (isStallFinishReason(judgeTurn?.turnFinishReason) || judgeTurn?.stall) {
+                throw new Error(`commander_stalled:${judgeTurn?.stall?.code ?? judgeTurn?.turnFinishReason}`);
+            }
             if (isIncompleteTurn(judgeTurn)) {
                 throw new Error(`commander_judgement_incomplete:${judgeTurn?.turnFinishReason ?? 'no_result'}`);
             }
@@ -2110,6 +2120,9 @@ async function runCommanderLoop({
                         purpose: 'commander_dispatch',
                     }],
                 }, writer, provider, innerHooks);
+                if (isStallFinishReason(workerTurn?.turnFinishReason) || workerTurn?.stall) {
+                    throw new Error(`commander_stalled:${workerTurn?.stall?.code ?? workerTurn?.turnFinishReason}`);
+                }
                 if (isIncompleteTurn(workerTurn)) {
                     throw new Error(`commander_dispatch_incomplete:${workerTurn?.turnFinishReason ?? 'no_result'}`);
                 }
@@ -2120,6 +2133,18 @@ async function runCommanderLoop({
         // 断连、异常、网关重启都走这里：**不清账本**，标记 interrupted 后
         // 交给恢复守护。只有 settleAndArchive 才会删掉 running 文件。
         const reason = error instanceof Error ? error.message : String(error);
+        // 无进展是终态：归档为 waiting_user，绝不标 interrupted，否则恢复守护
+        // 会在 20 秒后把同一个死循环重新拉起来。
+        if (reason.startsWith('commander_stalled:')) {
+            const stallCode = reason.slice('commander_stalled:'.length);
+            settleAndArchive(
+                { type: 'wait_user', reason: NO_PROGRESS_STOP_REASON },
+                '自动推进检测到连续无进展，已停止并交还给你；不会自动续跑。请检查任务状态后人工介入或重新发起。',
+                { stall: stallCode },
+            );
+            console.warn(`[pilotdeck-bridge] commander loop stopped by stall guard (${stallCode}): ${sessionKey}`);
+            return loop;
+        }
         const now = Date.now();
         loop.status = 'interrupted';
         loop.lastError = reason.slice(0, 500);
@@ -2390,6 +2415,11 @@ export async function runChatViaGateway(
     let sawTurnCompleted = false;
     let sawGatewayError = false;
     let turnFinishReason = null;
+    // 单 turn 无进展熔断：重复 thinking / 重复工具失败 / 超时 / 超 token。
+    // 命中后主动 abort，并把 finishReason 标成终态——绝不能被恢复守护当崩溃续跑。
+    const stallGuard = createTurnStallGuard({ config: readTurnStallConfig() });
+    let stalled = null;
+    let stallAbortRequested = false;
     try {
         // Persist a draft's choice before yielding to I/O; an existing session
         // (including queued or regenerated input) always uses saved state.
@@ -2469,6 +2499,33 @@ export async function runChatViaGateway(
         });
 
         for await (const event of stream) {
+            if (!stalled) {
+                const detected = stallGuard.observe(event);
+                if (detected) {
+                    stalled = detected;
+                    turnFinishReason = STALL_FINISH_REASON;
+                    console.warn(`[pilotdeck-bridge] turn stall (${detected.code}) session=${sessionKey} run=${runId}`, detected.detail);
+                    const stallText = '检测到本轮连续无进展，已主动停止，避免继续消耗。请检查任务状态后人工介入；自动推进不会自动续跑。';
+                    writer.send(createNormalizedMessage({
+                        provider,
+                        sessionId: sessionKey,
+                        kind: 'status',
+                        role: 'system',
+                        status: 'turn_stalled',
+                        text: stallText,
+                        content: stallText,
+                        detail: { code: detected.code, ...(detected.detail || {}) },
+                    }));
+                    // 不 await：abortTurn 会让 gateway 结束当前 turn，在这个
+                    // for-await 里等待它可能与 stream 关闭互相阻塞。
+                    if (!stallAbortRequested) {
+                        stallAbortRequested = true;
+                        void Promise.resolve()
+                            .then(() => gw.abortTurn({ sessionKey, runId }))
+                            .catch((error) => console.warn('[pilotdeck-bridge] stall abortTurn failed:', error?.message || error));
+                    }
+                }
+            }
             if (event && event.type === 'input_accepted') {
                 inputAccepted = true;
                 recordProjectParticipant(state, projectRuntime);
@@ -2560,7 +2617,7 @@ export async function runChatViaGateway(
             // wait for the async generator to fully close.
             if (event && event.type === 'turn_completed') {
                 sawTurnCompleted = true;
-                turnFinishReason = event.finishReason || null;
+                turnFinishReason = stalled ? STALL_FINISH_REASON : (event.finishReason || null);
                 clearActiveRunIfCurrent(state, runId);
             }
             const suppressDuplicateError = eventForFrames?.type === 'error' && state.hasVisibleFailureStatus;
@@ -2571,9 +2628,13 @@ export async function runChatViaGateway(
             }
         }
 
-        if (!sawTurnCompleted && sawGatewayError) {
+        if (stalled) {
+            // 覆盖所有中间兜底值：无进展是终态，不是链路故障。
+            turnFinishReason = STALL_FINISH_REASON;
+        }
+        if (!stalled && !sawTurnCompleted && sawGatewayError) {
             turnFinishReason = 'gateway_error';
-        } else if (!sawTurnCompleted) {
+        } else if (!stalled && !sawTurnCompleted) {
             turnFinishReason = 'gateway_stream_ended';
             const message = 'Gateway stream ended before turn_completed; no final assistant response was received.';
             const userHint = 'The model stream ended before PilotV received a final turn result. Please retry this message; if it repeats, check the gateway/model provider logs.';
@@ -2595,7 +2656,7 @@ export async function runChatViaGateway(
             sendBridgeStatusEvent(writer, statusEvent, sessionKey, provider, runId);
         }
     } catch (error) {
-        turnFinishReason = 'gateway_bridge_error';
+        if (!stalled) turnFinishReason = 'gateway_bridge_error';
         const rawMessage = error instanceof Error ? error.message : String(error);
         const gatewayUnavailable = !gw || isGatewayUnavailableError(error);
         if (gatewayUnavailable && gw) {
@@ -2729,6 +2790,7 @@ export async function runChatViaGateway(
     } else if (!options.internalReview && !options.commanderIteration && !hadQueuedInput
         && !state.deleted && !state.deleting && state.inputQueue.length === 0
         && shouldRunCommanderLoop(projectRuntime, options)
+        && !stalled
         && (sawGatewayError || ['gateway_error', 'gateway_bridge_error', 'gateway_stream_ended']
             .includes(turnFinishReason))) {
         // 第一条指令就赶上网关崩溃：这里不要死等（supervisor 可能要几十秒才
@@ -2786,6 +2848,7 @@ export async function runChatViaGateway(
         sawTurnCompleted,
         sawGatewayError,
         turnFinishReason,
+        stall: stalled ?? null,
     };
 }
 

@@ -152,6 +152,13 @@ describe('恢复判据', () => {
         })).toBe(false);
     });
 
+    it('无进展熔断归档的账本永不自动恢复（包括归档删除失败时）', () => {
+        const now = 1_000 + COMMANDER_RECOVERY_DEFAULTS.runningGraceMs + 1;
+        const stalled = { ...base, stopReason: 'no_progress_stall' };
+        expect(isRecoverableNow(stalled, { now })).toBe(false);
+        expect(isRecoverableNow({ ...stalled, status: 'interrupted' }, { now })).toBe(false);
+    });
+
     it('环境变量可覆盖默认节奏', () => {
         const cfg = commanderRecoveryConfig({
             PILOTV_COMMANDER_RECOVERY_GRACE_MS: '500',
@@ -192,6 +199,16 @@ describe('账本落盘与归档', () => {
         expect(lines[0].status).toBe('done');
         expect(lines[0].archivedAt).toBeTruthy();
         expect(readLoopRecords({ home, now: 9_001 }).recoverable).toHaveLength(0);
+    });
+
+    it('无进展账本即使还留在目录里，也不会被列为可恢复', () => {
+        const home = tempHome();
+        const loop = makeLoop();
+        loop.stopReason = 'no_progress_stall';
+        saveCommanderLoop(loop, { projectPath: '/work/fan' }, { home, now: 1_000 });
+        const now = 1_000 + COMMANDER_RECOVERY_DEFAULTS.runningGraceMs + 1;
+        expect(readLoopRecords({ home, now }).recoverable).toHaveLength(0);
+        expect(readLoopRecords({ home, now }).stale).toHaveLength(0);
     });
 
     it('坏 JSON 被隔离留证，不影响其它账本；过期账本单独归到 stale', () => {

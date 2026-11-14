@@ -549,3 +549,90 @@ findstr /c:"node=" .run\supervisor.log
 两个启动器再把 node 所在目录前置到 `PATH` 作为兜底。核对：
 `supervisor.log` 的 `node=` 行为 `24.22.3`，且进程映像路径指向
 `tools\node-v24.22.3-win-x64\node.exe`。
+
+## 13. 单 turn 无进展熔断（2026-11-14 事故修复）
+
+### 13.1 事故
+
+11-14 上午咖啡机会话（便携咖啡杯 CAD）一直在界面上刷同一段 `AGENT 思考`：
+
+> "The memory says read-only, no FreeCAD. But the current turn's explicit user
+> instruction says to create scripts/audit_mech.py and out/mech_audit.json and
+> run FreeCAD Python…"
+
+这**不是** §12 修的 gateway 崩溃，而是另一种失败：**推理死循环**。
+
+| 时间（北京，11-14） | 事实 |
+| --- | --- |
+| 02:08 | 咖啡机 commander 账本按设计归档 `waiting_user / verdict_marker_missing`（连续 2 轮拿不到判定标记），自动推进停下 |
+| 06:05 | 又起了一个长 turn |
+| 07:47–08:47 | 派出的子 agent 被「记忆说只读、别跑 FreeCAD」与「当前指令要求写文件并跑 FreeCAD」的冲突卡住，反复输出同一段思考直到 **1 小时超时**；父 agent 自述 "The subagent timed out after 1 hour"，随后自己补写了 `scripts/audit_mech.py`（51 KB），但 `out/mech_audit.json` 始终没有产出 |
+| 09:17–11:18 | 主 agent 反复 `edit_file` 改 `parts_acc.py` 的 C18 锚点，每 5–6 分钟一轮，同一段 thinking 复读 11 次、变体 9 次，每次都是 `TOOL_ERROR[invalid_tool_input][edit_file]`；10:35 成功过 1 次后又在同一处反复失败 |
+| 11:19:25 | `turn_result`：`aborted / aborted_streaming`，**229 turns、总 token 18,974,293**（输入 7,284,189 / 输出 406,268），transcript 64 MB，任务未完成 |
+
+用户看到「每段文字重复两遍」，是模型同时输出 `thinking` 与 `text` 两个内容块、正文近乎思考的复述，UI 都渲染了；叠加多轮复读就成了一整坨。
+
+还有两个放大器：
+
+- **负压缩**：76 次自动 compact 全部报"成功"，但 `messagesSummarized` 多为 0，甚至 `preTokens 68,790 → postTokens 76,751`（压完反而更长）。上下文越塞越满，模型越容易复读。
+- **过时的记忆被当成硬规则**：项目目录里根本没有只读约束文件（`便携咖啡机/.pilotdeck/` 只有 `.gitignore`），那条"read-only / no FreeCAD"来自会话注入的记忆，却被模型当成不可违背的指令，压过了当前 turn 的明确任务。
+
+### 13.2 为什么现有护栏没拦住
+
+| 层 | 护栏 | 缺口 |
+| --- | --- | --- |
+| commander loop（§12） | 6 轮 / 45 分钟 / 重复指令 2 次 / 无效判定 2 次 | 只作用在**轮次**层。本例是**单个 turn 内部** 229 次空转，commander 还在等这一轮返回 |
+| 上游 `src/agent/loop/AgentLoop.ts` circuit breaker | 连续 3 次相同 `invalid_tool_input` fingerprint 后终止 | 要求「本轮**所有**工具调用都失败」且 fingerprint **完全一致**；本例每轮夹着成功的 `read_file`，且 old_string / 行号让 fingerprint 每次都变，计数反复归零 |
+| 上游超时 | 只有 subagent `timeoutMs` 与 provider 超时 | **没有单 turn 墙钟上限，也没有单 turn token 上限** |
+
+更危险的一点：如果只是把空转 abort 掉，`commanderLoopStore.isIncompleteTurn()` 会把任何非 `completed` 判为"不完整" → commander 标 `interrupted` → 恢复守护 20 秒后自动续跑 → 立刻重新卡进同一个循环。**「崩溃 → 自动恢复 → 再卡死」会成为新的死循环**。
+
+### 13.3 方案
+
+护栏放在 `ui/server/pilotdeck-bridge.js` 的事件流上（不改上游 4000 行 TS 主循环），纯逻辑抽到
+`ui/server/services/turnStallGuard.js`：
+
+| 检测 | 依据 | 默认阈值 |
+| --- | --- | --- |
+| 重复 thinking | `assistant_block` / `assistant_thinking_delta` 的前 120 字符指纹，折叠空白、统一大小写 | 连续 3 次 |
+| 重复工具失败 | `tool_call_finished` 且 `ok=false`；fingerprint 去掉引号内容与数字，避免 old_string / 行号变化导致漏检 | 连续 4 次 |
+| 子 agent 复读 | `subagent_*` thinking 独立计数 | 连续 3 次 |
+| 单 turn 超时 | 事件流墙钟 | 45 分钟 |
+| 单 turn 超 token | `turn_completed.usage.totalTokens`（含 cache read） | 8,000,000 |
+
+**只有会改动工作区的成功工具**（`edit_file` / `write_file` / `bash` …，见 `isProgressTool`）才重置 thinking 计数；`read_file` 成功不算进展——事故里正是"读成功、写失败"反复出现，若把读也算进展就永远抓不到。
+
+命中后：
+
+1. `runChatViaGateway` 发一条 `status: 'turn_stalled'` 提示，**主动 `gw.abortTurn()`**（fire-and-forget，避免在 `for await` 里与 stream 关闭互相阻塞）；
+2. `turnFinishReason` 统一标为 **`stalled_no_progress`**，覆盖所有中间兜底值（`gateway_error` / `gateway_stream_ended` / `gateway_bridge_error`），并随返回值带 `stall` 详情；
+3. `runCommanderLoop` 识别到 `commander_stalled:*` 后，走 `settleAndArchive({type:'wait_user', reason:'no_progress_stall'})` → 账本归档为 **`waiting_user`**、写 `history.jsonl`、删 running 文件；
+4. `commanderLoopStore.isRecoverableNow()` 与 `readLoopRecords()` 双保险：`stopReason === 'no_progress_stall'` 的账本**永不自动恢复**，即使归档删除失败也拦住。
+
+语义要点：**无进展是终态，不是崩溃**。它必须交还给人，不能触发自动恢复。
+
+### 13.4 配置
+
+| 环境变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `PILOTV_STALL_ENABLED` | `1` | `0/false/no/off` 整体关闭 |
+| `PILOTV_STALL_MAX_REPEATED_THINKING` | `3` | 连续相同 thinking 次数；`0` 关闭该检测 |
+| `PILOTV_STALL_MAX_REPEATED_TOOL_FAILURE` | `4` | 连续相同工具失败次数；`0` 关闭 |
+| `PILOTV_STALL_MAX_TURN_MS` | `2700000`（45 min） | 单 turn 墙钟；`0` 关闭 |
+| `PILOTV_STALL_MAX_TURN_TOKENS` | `8000000` | 单 turn 累计 token；`0` 关闭 |
+
+长任务可临时调大或关闭单项，不必改代码。
+
+### 13.5 验证
+
+- `turnStallGuard.test.js`：18 个用例，覆盖指纹归一化、进展判定、四种触发、单次触发、总开关与单项关闭、snapshot。
+- `pilotdeck-bridge.commander.test.js`：集成用例模拟判定轮复读，断言 `abortTurn` 被调用、`turn_stalled` 提示发出、commander 归档 `waiting_user / no_progress_stall`、不出现"网关断连"的自动续跑提示。
+- `commanderLoopStore.test.js`：新增"无进展账本永不恢复"用例（含归档删除失败仍留在目录的情形）。
+- Node 22.22.2 与 24.22.3 下各 5 文件 **74 用例全绿**；`node --check`、`git diff --check` 通过。
+- 运行：`cd pilotdeck-mobile/upstream-official/ui && <node> node_modules/vitest/vitest.mjs run --environment node server/services/turnStallGuard.test.js ...`
+
+### 13.6 回滚与运维
+
+- 回滚：`PILOTV_STALL_ENABLED=0` 即完全停用新护栏，无需回退代码。
+- 不要在原会话里续跑这类任务：64 MB 上下文 + 负压缩，续跑几乎必然继续复读。正确做法是**新开会话带精简 handoff**，只写"已完成 / 待办 / 验收条件"，并把指令优先级写清楚：**记忆只是参考，当前 turn 的明确指令优先；冲突时以当前 turn 为准并说明**，避免再出现"过时记忆压过任务指令"。
+- 人工介入后如要重开自动推进，确认 `history.jsonl` 里对应记录是 `waiting_user / no_progress_stall`，running 账本已删除；恢复守护不会碰它。

@@ -21,6 +21,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { COMMANDER_DEFAULT_LIMITS } from './commanderLoop.js';
+import { NO_PROGRESS_STOP_REASON } from './turnStallGuard.js';
 import { resolvePilotHome, sanitizeSessionIdForPath } from '../utils/pilotPaths.js';
 
 export const COMMANDER_LOOP_SCHEMA = 2;
@@ -192,6 +193,8 @@ export function isRecoverableNow(record, {
     config = COMMANDER_RECOVERY_DEFAULTS,
 } = {}) {
     if (!record || !record.sessionKey) return false;
+    // 无进展熔断归档的账本永不再自动恢复（即使归档删除失败也拦住）。
+    if (record.stopReason === NO_PROGRESS_STOP_REASON) return false;
     if (record.status !== 'running' && record.status !== 'interrupted') return false;
     if (!gatewayReady) return false;
     if (activeSessionKeys.has(record.sessionKey)) return false;
@@ -261,6 +264,7 @@ export function readLoopRecords({ home, now = Date.now(), config = COMMANDER_REC
             try { fs.renameSync(filePath, `${filePath}.bad-${now}`); } catch { /* ignore */ }
             continue;
         }
+        if (record.stopReason === NO_PROGRESS_STOP_REASON) continue;
         if (record.status !== 'running' && record.status !== 'interrupted') continue;
         if (now - (record.updatedAt ?? 0) > config.staleMs
             || (record.recoveryCount ?? 0) >= config.maxRecoveryAttempts) {
