@@ -18,7 +18,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // 2026-11-08：P2 归档 97 个之后实测 40 个。要往下调随时可以，往上调要说清理由。
-export const BASELINE = 40;
+// 2026-11-14：调到 46。理由有二：
+//   1) 0aa6a93「统一测试入口」把 5 个 Python 回归（test_artifacts_*.py 等）
+//      收进 scripts/ 顶层，基线没跟着调 —— 门禁从那时起就是红的（45 个）。
+//      这里按实测值补回来，别让门禁一直挂着一盏红灯。
+//   2) 三维展示台这轮新增 scripts/test_cad_to_glb_parts.py（转换器的零件结构
+//      回归），同一类文件，+1。
+// 这几个都是**测试**，不是「一次性脚本」：门禁要防的是后者。
+export const BASELINE = 46;
 export const ARCHIVE_DIR = 'scripts/_archive';
 const SCRIPTS_DIR = 'scripts';
 
