@@ -20,7 +20,29 @@
 
 set -Eeuo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# ---------------------------------------------------------------------------
+# 自执行副本
+# ---------------------------------------------------------------------------
+# 升级过程会把仓库 checkout 到新的 tag，也就是把 deploy/upgrade.sh 这个文件
+# 本身换掉。bash 是按字节偏移增量读脚本的：文件被换掉后，正在运行的这一次
+# 升级读到的仍然是旧内容，于是「刚修好的重启逻辑」要等下一版才会生效
+# （2026-11-14 实测：修完 pipefail 的探测，NAS 升级仍然不重启服务）。
+# 所以先把脚本复制到临时目录，再从副本执行；仓库里的文件怎么变都不影响本次运行。
+PILOTV_UPGRADE_HERE="${PILOTV_UPGRADE_HERE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)}"
+export PILOTV_UPGRADE_HERE
+if [ -z "${PILOTV_UPGRADE_REEXEC:-}" ]; then
+  export PILOTV_UPGRADE_REEXEC=1
+  export PILOTV_UPGRADE_SELF="$(mktemp "${TMPDIR:-/tmp}/pilotv-upgrade-XXXXXXXX.sh")"
+  cp "${BASH_SOURCE[0]}" "$PILOTV_UPGRADE_SELF"
+  chmod +x "$PILOTV_UPGRADE_SELF"
+  exec bash "$PILOTV_UPGRADE_SELF" "$@"
+fi
+# 副本进程负责清理临时文件（原进程已被 exec 替换，退出陷阱不会触发）。
+if [ -n "${PILOTV_UPGRADE_SELF:-}" ]; then
+  trap 'rm -f "$PILOTV_UPGRADE_SELF"' EXIT
+fi
+
+HERE="$PILOTV_UPGRADE_HERE"
 REPO="$(cd "$HERE/.." && pwd -P)"
 UPSTREAM="$REPO/pilotdeck-mobile/upstream-official"
 UI="$UPSTREAM/ui"
