@@ -94,18 +94,18 @@ function Ensure-Node {
     $sys = Get-Command node -ErrorAction SilentlyContinue
     if ($sys) {
         $v = (& node -v 2>$null)
-        if ($v -match '^v22\.') { Ok "复用系统 Node $v"; $script:NodeDir = $null; return }
+        if ($v -match '^v24\.') { Ok "复用系统 Node $v"; $script:NodeDir = $null; return }
     }
     $exe = Join-Path $NodeDir 'node.exe'
     if (Test-Path $exe) { Ok "复用便携 Node $(& $exe -v)"; return }
-    Step '下载 Node 22 LTS 便携版'
+    Step '下载 Node 24 LTS 便携版'
     New-Item -ItemType Directory -Force -Path $NodeDir | Out-Null
     $sums = Join-Path $ToolsDir 'SHASUMS256.txt'
-    Invoke-Download "$NodeMirror/latest-v22.x/SHASUMS256.txt" $sums
-    $fname = (Select-String -Path $sums -Pattern 'node-v22.*-win-x64.zip' | Select-Object -First 1).Line.Split(' ')[1]
-    if (-not $fname) { Fail '清单里找不到 win-x64 的 Node 22 包' }
+    Invoke-Download "$NodeMirror/latest-v24.x/SHASUMS256.txt" $sums
+    $fname = (Select-String -Path $sums -Pattern 'node-v24.*-win-x64.zip' | Select-Object -First 1).Line.Split(' ')[1]
+    if (-not $fname) { Fail '清单里找不到 win-x64 的 Node 24 包' }
     $zip = Join-Path $ToolsDir $fname
-    Invoke-Download "$NodeMirror/latest-v22.x/$fname" $zip
+    Invoke-Download "$NodeMirror/latest-v24.x/$fname" $zip
     $tmp = Join-Path $ToolsDir 'node-extract'
     if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
     Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
@@ -182,18 +182,6 @@ function Get-Repo {
     }
     if (-not (Test-Path (Join-Path $Upstream 'package.json'))) { Fail "仓库结构不对：缺 $Upstream\package.json" }
     Ok "仓库就位：$RepoDir"
-}
-
-function Write-EnvLocal {
-    # 单引号 here-string：不做变量插值，bash 的 ${VAR:-默认} 原样落盘。
-    $content = @'
-# 由 PilotV-Setup 生成；本机专属配置，不进版本库。
-PILOTV_PUBLIC_ORIGINS="${PILOTV_PUBLIC_ORIGINS:-__PUBLIC__}"
-PILOTV_LAN_PORT="${PILOTV_LAN_PORT:-__LAN__}"
-'@
-    $content = $content.Replace('__PUBLIC__', $PublicOrigin).Replace('__LAN__', "$LanPort")
-    [IO.File]::WriteAllText((Join-Path $RepoDir '.env.local'), $content, (New-Object Text.UTF8Encoding($false)))
-    Ok "已写入 .env.local（公网入口=$(if ($PublicOrigin) { $PublicOrigin } else { '未设置' })）"
 }
 
 function Install-Deps {
@@ -293,7 +281,6 @@ if ($Update) {
     Ensure-Python
     Ensure-Pnpm
     Install-Deps
-    Write-EnvLocal
     Ensure-Token
     New-Shortcuts
     if (-not $NoStart) { Start-Services; Wait-Ready }
@@ -305,7 +292,6 @@ Get-Repo
 Ensure-Python
 Ensure-Pnpm
 Install-Deps
-Write-EnvLocal
 Ensure-Token
 New-Shortcuts
 [IO.File]::WriteAllText($Marker, (Get-Date -Format o))
