@@ -41,6 +41,27 @@
  * `waiting_user`，绝不能标 `interrupted` —— 否则恢复守护 20 秒后自动续跑，
  * 会立刻重新卡进同一个循环，形成「崩溃 → 自动恢复 → 再卡死」的死循环。
  *
+ * 子 agent 事件包装（2026-11-14 三次修正）
+ * ------------------------------
+ * 网关协议里**没有**顶层 `type: 'subagent_*'` 事件：所有子 agent 事件都被包成
+ *   `{ type: 'agent_status', event: 'subagent_*', detail: {...} }`
+ * （`src/gateway/protocol/types.ts:313`、`InProcessGateway.ts` 的
+ * `mapSubagentModelEvent` / `subagent_tool_calls_detected` / `subagent_tool_result`
+ * 分支）。初版护栏却按顶层 type 写 `case 'subagent_thinking_delta'`、
+ * `case 'subagent_tool_result'` 等，**这些分支在生产环境里永远不命中**：
+ * 子 agent 的产出没计入进展心跳、子 agent 复读检测形同虚设。而长 CAD turn
+ * 主要靠子 agent 干活，于是「子 agent 跑了 1 小时、主 turn 看不到任何进展」
+ * 会被 `turn_idle` 误杀（web.log 里三条 `turn_idle` 的 idleMs 都约 60 分钟）。
+ *
+ * 现在在 `observe()` 入口用 `normalizeStallEvent()` 把包装摊平，并把子 agent
+ * 的工具在飞、工具结果、生命周期都纳入进展判定；子 agent 的工具失败也走
+ * 与主线程相同的「重复失败」检测，避免「读成功、写失败」被子 agent 洗白。
+ *
+ * 已知限制：护栏是纯事件驱动（无定时器），**完全静默**（一个事件都不来）时
+ * `turn_idle` 不会被触发，只能在下一个事件到达时补判。要覆盖这种情形需由
+ * bridge 定时调用 `guard.snapshot()` 并在 `idleMs` 超限时主动 abort，属于
+ * 后续改动，本次「只修代码不重启」不涉及。
+ *
  * 纯逻辑，不碰 fs / 网络 / 时钟之外的东西，方便直接单测。
  */
 
@@ -91,6 +112,51 @@ export function isProgressTool(name) {
     if (PROGRESS_TOOL_NAMES.has(normalized)) return true;
     // 兼容 `functions.edit_file` / `tools.write_file` 之类的带前缀名字。
     return [...PROGRESS_TOOL_NAMES].some((tool) => normalized.endsWith(`.${tool}`));
+}
+
+const SUBAGENT_STATUS_PREFIX = 'subagent_';
+
+/**
+ * 这些（摊平后的）事件本身就证明 agent 还在推进；即使它们「迟到」到达、
+ * 此刻距上次进展已超过 maxIdleMs，也不该反过来被 idle 误杀。
+ * 注意 `tool_call_finished` 不在此列：它有 ok=false 的情况，交给 switch 判定。
+ */
+const PROGRESS_EVENT_TYPES = new Set([
+    'file_artifacts',
+    'subagent_started',
+    'subagent_completed',
+    'subagent_tool_call_started',
+    'subagent_tool_result',
+]);
+
+/**
+ * 把网关事件摊平成护栏内部形状。
+ * - 顶层事件原样返回（保持与既有测试、调用方的兼容）；
+ * - `agent_status` + `event: 'subagent_*'` → 返回 `{ type: 'subagent_*', ...detail }`，
+ *   并统一 text / toolName / ok / errorCode / message 等字段别名；
+ * - 其它 `agent_status`（compact_started、file_input_progress 等）与护栏无关，
+ *   返回 null 表示忽略。
+ *
+ * 导出以便单测，也便于 bridge 以后直接复用。
+ */
+export function normalizeStallEvent(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    if (raw.type !== 'agent_status') return raw;
+    const kind = typeof raw.event === 'string' ? raw.event : '';
+    if (!kind.startsWith(SUBAGENT_STATUS_PREFIX)) return null;
+    const detail = (raw.detail && typeof raw.detail === 'object') ? raw.detail : {};
+    return {
+        ...raw,
+        ...detail,
+        type: kind,
+        subagentId: String(detail.subagentId ?? '') || '__unknown__',
+        toolCallId: detail.toolCallId == null ? '' : String(detail.toolCallId),
+        text: String(detail.text ?? detail.content ?? detail.preview ?? ''),
+        toolName: detail.toolName ?? detail.name ?? '',
+        ok: detail.ok,
+        errorCode: detail.errorCode ?? '',
+        message: detail.content ?? detail.preview ?? detail.message ?? '',
+    };
 }
 
 /** 折叠空白、统一大小写、只取前 N 字符；空文本返回空串（不参与计数）。 */
@@ -170,6 +236,21 @@ export function createTurnStallGuard(input = {}) {
     let lastProgressAtMs = startedAtMs;
     /** 已开始但尚未结束的工具调用数。 */
     let inFlightTools = 0;
+    /** 子 agent 在飞工具：subagentId -> Set<toolCallId>。与主 turn 分开计数，避免配对错乱。 */
+    const inFlightSubagentTools = new Map();
+    const subagentInFlightCount = () => {
+        let count = 0;
+        for (const ids of inFlightSubagentTools.values()) count += ids.size;
+        return count;
+    };
+    const releaseSubagentTool = (subagentId, toolCallId) => {
+        const ids = inFlightSubagentTools.get(subagentId);
+        if (!ids) return;
+        ids.delete(toolCallId);
+        if (ids.size === 0) inFlightSubagentTools.delete(subagentId);
+    };
+    let subagentToolResults = 0;
+    let subagentEventsSeen = 0;
     let observedContextUsed = 0;
     let thinkingBuffer = '';
     let subagentThinkingBuffer = '';
@@ -183,6 +264,21 @@ export function createTurnStallGuard(input = {}) {
     let turnCompleted = false;
 
     const markProgress = () => { lastProgressAtMs = now(); };
+
+    /** 主 turn 与子 agent 共用的「重复工具失败」判定。 */
+    const noteToolFailure = (event, scope) => {
+        const key = toolFailureFingerprint({
+            toolName: event.toolName ?? event.name,
+            errorCode: event.errorCode,
+            message: event.resultPreview ?? event.message,
+        });
+        if (key === lastFailureKey) repeatedFailure += 1;
+        else { repeatedFailure = 1; lastFailureKey = key; }
+        if (repeatedFailure >= config.maxRepeatedToolFailure) {
+            return trip('repeated_tool_failure', { repeated: repeatedFailure, fingerprint: key, scope });
+        }
+        return null;
+    };
 
     const trip = (code, detail) => {
         if (stalled) return stalled;
@@ -218,9 +314,14 @@ export function createTurnStallGuard(input = {}) {
         return null;
     };
 
-    const observe = (event) => {
+    const observe = (rawEvent) => {
         if (!config.enabled || stalled) return stalled;
-        if (!event || typeof event !== 'object') return null;
+        if (!rawEvent || typeof rawEvent !== 'object') return null;
+        // 网关把子 agent 事件包在 agent_status 里；不摊平的话下面的
+        // subagent_* 分支全是死代码（见文件头「三次修正」）。
+        const event = normalizeStallEvent(rawEvent);
+        if (!event) return null;
+        if (event.type.startsWith(SUBAGENT_STATUS_PREFIX)) subagentEventsSeen += 1;
 
         const currentMs = now();
         const elapsedMs = currentMs - startedAtMs;
@@ -228,10 +329,15 @@ export function createTurnStallGuard(input = {}) {
         if (elapsedMs >= config.maxTurnWallClockMs) {
             return trip('turn_timeout', { elapsedMs, limitMs: config.maxTurnWallClockMs });
         }
+        // 迟到的进展事件本身证明还在推进，先刷新心跳再判静默，避免
+        // 「事件稀疏但确实在干活」被上一次静默误杀。
+        const isProgressEvent = PROGRESS_EVENT_TYPES.has(event.type) && event.ok !== false;
+        if (isProgressEvent) markProgress();
         // 无进展静默才是主要停手条件。工具在飞时属于正常等待（FreeCAD 构建、
         // task_wait 等子 agent），不能因为跑得久就误杀。
         const idleMs = currentMs - lastProgressAtMs;
-        if (inFlightTools === 0 && idleMs >= config.maxIdleMs) {
+        const anyToolInFlight = inFlightTools > 0 || subagentInFlightCount() > 0;
+        if (!isProgressEvent && !anyToolInFlight && idleMs >= config.maxIdleMs) {
             return trip('turn_idle', { idleMs, limitMs: config.maxIdleMs, elapsedMs });
         }
 
@@ -276,27 +382,48 @@ export function createTurnStallGuard(input = {}) {
                 inFlightTools += 1;
                 return null;
             }
-            case 'subagent_tool_result':
             case 'file_artifacts': {
-                // 子 agent 有产出、或本轮生成了文件产物，都算有效进展。
                 markProgress();
+                return null;
+            }
+            case 'subagent_started':
+            case 'subagent_completed': {
+                // 子 agent 起来 / 收尾都说明这一轮派发在推进；收尾时清掉它
+                // 残留的在飞工具，否则计数会永久挂住、掩盖之后的死循环。
+                if (event.type === 'subagent_completed') inFlightSubagentTools.delete(event.subagentId);
+                markProgress();
+                return null;
+            }
+            case 'subagent_tool_call_started': {
+                // 只有能配对的 toolCallId 才计入在飞；缺失时宁可少计，
+                // 也不能让计数永久挂在 Map 里把 idle 检测关掉。
+                if (event.toolCallId) {
+                    let ids = inFlightSubagentTools.get(event.subagentId);
+                    if (!ids) { ids = new Set(); inFlightSubagentTools.set(event.subagentId, ids); }
+                    ids.add(event.toolCallId);
+                }
+                markProgress();
+                return null;
+            }
+            case 'subagent_tool_result': {
+                releaseSubagentTool(event.subagentId, event.toolCallId);
+                subagentToolResults += 1;
+                if (event.ok === false) return noteToolFailure(event, 'subagent');
+                markProgress();
+                repeatedFailure = 0;
+                lastFailureKey = '';
+                // 子 agent 真的写了文件，才清空「复读」计数；只读工具不算。
+                if (isProgressTool(event.toolName)) {
+                    repeatedThinking = 0;
+                    lastThinkingKey = '';
+                    repeatedSubagentThinking = 0;
+                    lastSubagentThinkingKey = '';
+                }
                 return null;
             }
             case 'tool_call_finished': {
                 inFlightTools = Math.max(0, inFlightTools - 1);
-                if (event.ok === false) {
-                    const key = toolFailureFingerprint({
-                        toolName: event.toolName ?? event.name,
-                        errorCode: event.errorCode,
-                        message: event.resultPreview ?? event.message,
-                    });
-                    if (key === lastFailureKey) repeatedFailure += 1;
-                    else { repeatedFailure = 1; lastFailureKey = key; }
-                    if (repeatedFailure >= config.maxRepeatedToolFailure) {
-                        return trip('repeated_tool_failure', { repeated: repeatedFailure, fingerprint: key });
-                    }
-                    return null;
-                }
+                if (event.ok === false) return noteToolFailure(event, 'main');
                 if (event.ok === true) {
                     // 任意成功完成的工具都重置静默计时：它证明 agent 还在往前走。
                     markProgress();
@@ -348,6 +475,9 @@ export function createTurnStallGuard(input = {}) {
                 totalTokens,
                 observedContextUsed,
                 inFlightTools,
+                inFlightSubagentTools: subagentInFlightCount(),
+                subagentEventsSeen,
+                subagentToolResults,
                 lastProgressAtMs,
                 idleMs: now() - lastProgressAtMs,
                 turnCompleted,

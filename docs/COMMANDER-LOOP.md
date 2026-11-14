@@ -741,3 +741,74 @@ PILOTV_STALL_MAX_REPEATED_THINKING=0
 
 若确认是误杀，调大对应阈值后**新开会话**重发；旧账本保持 `waiting_user`
 不会被恢复守护碰。不要手动把账本改回 `interrupted` 来"骗"它续跑。
+
+## 15. 子 agent 事件包装：护栏分支全是死代码（2026-11-14 三次修正）
+
+### 15.1 现象
+
+`web.log` 里出现过三条 `turn stall (turn_idle)`，`idleMs` 都约 60 分钟、
+`elapsedMs` 也约 60 分钟，但对应 transcript 里子 agent 明明在跑工具：
+
+```
+[pilotdeck-bridge] turn stall (turn_idle) session=web-s_f50f7a49-… {
+  idleMs: 3612912, limitMs: 1800000, elapsedMs: 3670606 }
+```
+
+即「最后一次有效进展」始终停在 turn 起点，一个小时内**一次都没被刷新**。
+
+### 15.2 根因：网关协议里没有顶层 `subagent_*` 事件
+
+网关把**所有**子 agent 事件统一包成 `agent_status`：
+
+```ts
+// src/gateway/protocol/types.ts:313
+| { type: "agent_status"; event: string; detail?: Record<string, unknown> }
+
+// src/gateway/client/InProcessGateway.ts (mapSubagentModelEvent 等)
+{ type: "agent_status", event: "subagent_thinking_delta", detail: { text, subagentId, … } }
+{ type: "agent_status", event: "subagent_tool_call_started", detail: { toolCallId, toolName, … } }
+{ type: "agent_status", event: "subagent_tool_result", detail: { ok, toolName, content, … } }
+{ type: "agent_status", event: "subagent_stream_end", detail: { subagentId, … } }
+```
+
+而初版 `turnStallGuard.js` 按**顶层** `event.type` 写 `case 'subagent_thinking_delta'`、
+`case 'subagent_tool_result'` 等。这些 case 在生产环境里**永远不命中**（bridge 的
+`createSubagentProgressFrame` 读的是 `event?.event`，那才是正确读法）。后果：
+
+- 子 agent 的工具产出不计入进展心跳 → 长 CAD turn（主要靠子 agent 干活）被 `turn_idle` 误杀；
+- 子 agent 复读检测形同虚设 → 真正卡在子 agent 里的死循环抓不到；
+- 子 agent 工具失败不进重复失败检测 → 「读成功、写失败」可以被子 agent 洗白。
+
+### 15.3 修法（全部在护栏模块内部，未改 bridge / 未重启服务）
+
+`observe()` 入口新增 `normalizeStallEvent(raw)`：把 `agent_status` + `event: 'subagent_*'`
+摊平成 `{ type: 'subagent_*', ...detail }`，并统一 `text` / `toolName` / `ok` /
+`errorCode` / `message` 字段别名；非子 agent 的 `agent_status`（compact_started、
+file_input_progress 等）返回 `null` 忽略；其它顶层事件原样返回以兼容旧调用方。
+
+配套调整：
+
+| 变化 | 说明 |
+| --- | --- |
+| 子 agent 工具在飞独立计数 | `inFlightSubagentTools: Map<subagentId, Set<toolCallId>>`，与主 turn 的 `inFlightTools` 分开，避免配对错乱；`subagent_completed` 清掉残留，防止计数永久挂住把 idle 检测关掉。缺 `toolCallId` 时宁可少计也不入 Map。 |
+| 进展事件迟到豁免 | `PROGRESS_EVENT_TYPES`（file_artifacts / subagent_started / completed / tool_call_started / tool_result）到达时先刷新心跳再判静默，避免「事件稀疏但确实在干活」被上一次静默误杀；`ok === false` 不豁免。 |
+| 重复失败共用 | 抽出 `noteToolFailure(event, scope)`，主 turn 与子 agent 走同一套指纹与计数，trip 里带 `scope` 便于排查。 |
+| 只读不清复读 | 子 agent 工具结果只有 `isProgressTool()` 为真才清空 thinking 计数；read_file 不算进展。 |
+| snapshot 增强 | 新增 `inFlightSubagentTools` / `subagentEventsSeen` / `subagentToolResults`，线上可据此判断包装是否被识别。 |
+
+**已知限制**：护栏仍是纯事件驱动（无定时器）。一个事件都不来的「完全静默」
+不会触发 `turn_idle`，只能在下一个事件到达时补判——这正是日志里 `idleMs` 约
+60 分钟才触发（阈值为 30 分钟）的原因。要覆盖这种情形，需由 bridge 定时调用
+`guard.snapshot()` 并在 `idleMs` 超限时主动 abort；属于后续改动，本次未涉及。
+
+### 15.4 验证与运维
+
+- 新增 10 个单元测试 + 1 个集成回归，全部用**真实 `agent_status` 包装格式**构造事件；
+  集成用例确认 `turn stall (repeated_subagent_thinking)` 能被触发并归档
+  `waiting_user / no_progress_stall`（旧实现下该用例必然失败）。
+- Node 22.22.2 / 24.22.3 下各 5 文件 **95 用例通过**，`git diff --check` 干净。
+- 排查时若怀疑事件没被识别，看 `web.log` 是否出现 `turn stall (repeated_subagent_thinking)`
+  或 `scope: 'subagent'` 的 `repeated_tool_failure`；都没有且长任务被 `turn_idle` 砍，
+  先确认运行中的 3001 是否已加载本次改动（本次按用户选择**未重启服务**）。
+- 本次修复只改代码、补测试、同步仓库；**不重启 3001、不动 commander 账本**，
+  新逻辑在 3001 下次自然重启时生效。

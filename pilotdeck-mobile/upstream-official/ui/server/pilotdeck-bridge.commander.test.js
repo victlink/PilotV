@@ -364,3 +364,64 @@ it('进展感知回归：判定轮有成功工具产出时不会被误判为无�
     const lines = (await readFile(history, 'utf8')).trim().split('\n').map(JSON.parse);
     expect(lines[lines.length - 1].stopReason).not.toBe('no_progress_stall');
 });
+
+it('子 agent 事件包装回归：网关 agent_status 格式的子 agent 复读能被识别并熔断', async () => {
+    const envKeys = [
+        'PILOTV_STALL_MAX_REPEATED_THINKING',
+        'PILOTV_STALL_MAX_TURN_MS',
+        'PILOTV_STALL_MAX_TURN_TOKENS',
+    ];
+    const saved = envKeys.map((key) => process.env[key]);
+    process.env.PILOTV_COMMANDER_LOOP = '1';
+    process.env.PILOTV_STALL_MAX_REPEATED_THINKING = '3';
+    process.env.PILOTV_STALL_MAX_TURN_MS = '0';
+    process.env.PILOTV_STALL_MAX_TURN_TOKENS = '0';
+
+    const projectRoot = await setupTeam();
+    const frames = [];
+    const aborts = [];
+    // 真实网关格式：子 agent 事件被包在 agent_status 里，而不是顶层 subagent_*。
+    const wrapped = (event, detail = {}) => ({ type: 'agent_status', event, detail });
+    const repeated = 'The memory says read-only, no FreeCAD. ';
+    mock.gateway = {
+        getActiveTurnSnapshot: async () => ({ active: false, events: [] }),
+        async *submitTurn(input) {
+            yield { type: 'input_accepted', runId: input.runId };
+            const isJudgement = (input.syntheticMessages || [])
+                .some((message) => message.purpose === 'commander_judgement');
+            if (isJudgement) {
+                for (let i = 0; i < 3; i += 1) {
+                    yield wrapped('subagent_thinking_delta', {
+                        subagentId: 'sa-integration', subagentType: 'agent', text: repeated,
+                    });
+                    yield wrapped('subagent_stream_end', { subagentId: 'sa-integration' });
+                }
+            }
+            yield { type: 'turn_completed', runId: input.runId, finishReason: 'completed', usage: {} };
+        },
+        readSessionMessages: async () => ({
+            messages: [{ role: 'assistant', content: verdict({ status: 'done', summary: '已完成' }) }],
+        }),
+        abortTurn: async (args) => { aborts.push(args); return true; },
+    };
+    const writer = { send: (frame) => frames.push(frame) };
+    try {
+        await runChatViaGateway('继续完成 CAD 交付', { projectPath: projectRoot, agentId: 'boss' }, writer);
+    } finally {
+        envKeys.forEach((key, index) => {
+            if (saved[index] === undefined) delete process.env[key];
+            else process.env[key] = saved[index];
+        });
+        delete process.env.PILOTV_COMMANDER_LOOP;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // 旧实现里 subagent_* case 是死代码，这里不会有任何 stall；修好后必须命中。
+    expect(aborts).not.toHaveLength(0);
+    expect(frames.some((frame) => frame.status === 'turn_stalled')).toBe(true);
+    const history = path.join(mock.home, 'commander-loops', 'history.jsonl');
+    const lines = (await readFile(history, 'utf8')).trim().split('\n').map(JSON.parse);
+    const archived = lines[lines.length - 1];
+    expect(archived.status).toBe('waiting_user');
+    expect(archived.stopReason).toBe('no_progress_stall');
+});

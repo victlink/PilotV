@@ -8,6 +8,7 @@ import {
     isNoProgressStopReason,
     isProgressTool,
     isStallFinishReason,
+    normalizeStallEvent,
     readTurnStallConfig,
     thinkingFingerprint,
     toolFailureFingerprint,
@@ -357,5 +358,155 @@ describe('进展感知：正常长任务不误杀（2026-11-14 回归）', () =>
         expect(guard.snapshot().idleMs).toBe(5 * 60_000);
         expect(guard.snapshot().inFlightTools).toBe(0);
         expect(guard.snapshot().lastProgressAtMs).toBe(0);
+    });
+});
+
+/**
+ * 回归：网关协议里子 agent 事件不是顶层 type，而是
+ *   { type: 'agent_status', event: 'subagent_*', detail: {...} }
+ * 初版护栏按顶层 type 写 case，这些分支在生产里全是死代码，导致长 CAD turn
+ * （主要靠子 agent 干活）被 turn_idle 误杀。下面全部用真实包装格式构造事件。
+ */
+const wrapped = (event, detail = {}) => ({ type: 'agent_status', event, detail });
+const subagentThinking = (text) => wrapped('subagent_thinking_delta', {
+    subagentId: 'sa-1', subagentType: 'agent', text,
+});
+const subagentStreamEnd = () => wrapped('subagent_stream_end', { subagentId: 'sa-1', subagentType: 'agent' });
+const subagentToolCall = (id, name) => wrapped('subagent_tool_call_started', {
+    subagentId: 'sa-1', subagentType: 'agent', toolCallId: id, toolName: name, input: { path: 'x' },
+});
+const subagentToolOk = (id, name = 'edit_file') => wrapped('subagent_tool_result', {
+    subagentId: 'sa-1', subagentType: 'agent', toolCallId: id, toolName: name,
+    ok: true, content: 'done', preview: 'done',
+});
+const subagentToolFail = (id) => wrapped('subagent_tool_result', {
+    subagentId: 'sa-1', subagentType: 'agent', toolCallId: id, toolName: 'edit_file',
+    ok: false, errorCode: 'invalid_tool_input', content: 'old_string "v" not found at line 12',
+});
+
+describe('子 agent 事件包装（agent_status）：三次修正回归', () => {
+    it('normalizeStallEvent 把 agent_status 摊平成内部事件并统一字段别名', () => {
+        const normalized = normalizeStallEvent(subagentToolOk('t1', 'write_file'));
+        expect(normalized.type).toBe('subagent_tool_result');
+        expect(normalized.subagentId).toBe('sa-1');
+        expect(normalized.toolCallId).toBe('t1');
+        expect(normalized.toolName).toBe('write_file');
+        expect(normalized.ok).toBe(true);
+        // 顶层事件原样返回，保持兼容。
+        const plain = { type: 'tool_call_finished', ok: true };
+        expect(normalizeStallEvent(plain)).toBe(plain);
+    });
+
+    it('非子 agent 的 agent_status 被忽略；缺 detail 与非法输入不崩', () => {
+        expect(normalizeStallEvent(wrapped('compact_started', { stage: 'compacting' }))).toBeNull();
+        expect(normalizeStallEvent({ type: 'agent_status' })).toBeNull();
+        expect(normalizeStallEvent(null)).toBeNull();
+        expect(normalizeStallEvent(wrapped('subagent_completed', { subagentId: 'sa-1' })).subagentId).toBe('sa-1');
+        const guard = createTurnStallGuard({ config: cfg() });
+        expect(guard.observe(wrapped('compact_started'))).toBeNull();
+        expect(guard.observe(wrapped('file_input_progress'))).toBeNull();
+        expect(guard.stalled).toBeNull();
+    });
+
+    it('真实包装格式的子 agent 复读能触发 repeated_subagent_thinking', () => {
+        const guard = createTurnStallGuard({ config: cfg() });
+        for (let i = 0; i < 3; i += 1) {
+            guard.observe(subagentThinking('The memory says read-only, no FreeCAD. '));
+            guard.observe(subagentStreamEnd());
+        }
+        expect(guard.stalled?.code).toBe('repeated_subagent_thinking');
+        expect(guard.snapshot().subagentEventsSeen).toBeGreaterThan(0);
+    });
+
+    it('真实包装格式的子 agent 工具结果刷新进展心跳，长 turn 不再被 idle 误杀', () => {
+        let t = 0;
+        const guard = createTurnStallGuard({
+            config: cfg({ maxIdleMs: 30 * 60_000, maxTurnWallClockMs: 8 * 60 * 60_000 }),
+            now: () => t,
+        });
+        for (let i = 1; i <= 8; i += 1) {
+            t = i * 10 * 60_000;
+            expect(guard.observe(subagentToolCall(`t${i}`, 'edit_file'))).toBeNull();
+            t += 60_000;
+            expect(guard.observe(subagentToolOk(`t${i}`))).toBeNull();
+        }
+        expect(guard.stalled).toBeNull();
+        expect(guard.snapshot().subagentToolResults).toBe(8);
+        expect(guard.snapshot().lastProgressAtMs).toBe(8 * 10 * 60_000 + 60_000);
+        expect(guard.snapshot().inFlightSubagentTools).toBe(0);
+    });
+
+    it('子 agent 工具在飞期间不按静默计时；completed 清掉残留计数', () => {
+        let t = 0;
+        const guard = createTurnStallGuard({
+            config: cfg({ maxIdleMs: 30 * 60_000, maxTurnWallClockMs: 4 * 60 * 60_000 }),
+            now: () => t,
+        });
+        guard.observe(subagentToolCall('long-freecad', 'run_freecad'));
+        expect(guard.snapshot().inFlightSubagentTools).toBe(1);
+        t = 90 * 60_000;
+        expect(guard.observe({ type: 'context_budget' })).toBeNull();
+        expect(guard.stalled).toBeNull();
+        // 子 agent 收尾会清掉它残留的在飞工具，避免计数永久挂住掩盖死循环。
+        guard.observe(wrapped('subagent_completed', { subagentId: 'sa-1', success: true }));
+        expect(guard.snapshot().inFlightSubagentTools).toBe(0);
+    });
+
+    it('子 agent 工具失败走同一套重复失败检测（不能被子 agent 洗白）', () => {
+        const guard = createTurnStallGuard({ config: cfg() });
+        for (let i = 0; i < 3; i += 1) expect(guard.observe(subagentToolFail(`f${i}`))).toBeNull();
+        const stall = guard.observe(subagentToolFail('f3'));
+        expect(stall?.code).toBe('repeated_tool_failure');
+        expect(stall?.detail.scope).toBe('subagent');
+    });
+
+    it('子 agent 成功的写工具清空复读计数；只读工具不清', () => {
+        const readOnly = wrapped('subagent_tool_result', {
+            subagentId: 'sa-1', toolCallId: 'r1', toolName: 'read_file', ok: true,
+        });
+        const guardRead = createTurnStallGuard({ config: cfg() });
+        guardRead.observe(thinking('same'));
+        guardRead.observe(thinking('same'));
+        guardRead.observe(readOnly);
+        expect(guardRead.observe(thinking('same'))?.code).toBe('repeated_thinking');
+
+        const guardWrite = createTurnStallGuard({ config: cfg() });
+        guardWrite.observe(thinking('same'));
+        guardWrite.observe(thinking('same'));
+        guardWrite.observe(subagentToolOk('w1', 'write_file'));
+        expect(guardWrite.observe(thinking('same'))).toBeNull();
+    });
+
+    it('迟到的进展事件不被上一次静默误杀', () => {
+        let t = 0;
+        const guard = createTurnStallGuard({
+            config: cfg({ maxIdleMs: 30 * 60_000, maxTurnWallClockMs: 4 * 60 * 60_000 }),
+            now: () => t,
+        });
+        guard.observe(toolOk('edit_file'));
+        t = 61 * 60_000;
+        // 事件稀疏但确实在干活：本身是进展事件，先刷新心跳再判静默。
+        expect(guard.observe(subagentToolOk('late-1'))).toBeNull();
+        expect(guard.stalled).toBeNull();
+        expect(guard.snapshot().lastProgressAtMs).toBe(61 * 60_000);
+        // 而纯 thinking 在同样长的静默后仍会被抓（用独立时钟，避免复用上面已推进的 t）。
+        let t2 = 0;
+        const idleGuard = createTurnStallGuard({
+            config: cfg({ maxIdleMs: 30 * 60_000, maxTurnWallClockMs: 4 * 60 * 60_000 }),
+            now: () => t2,
+        });
+        idleGuard.observe(toolOk('edit_file'));
+        t2 = 61 * 60_000;
+        expect(idleGuard.observe(thinking('still stuck'))?.code).toBe('turn_idle');
+    });
+
+    it('顶层 subagent_* 事件仍兼容（旧调用方 / 测试不受影响）', () => {
+        const guard = createTurnStallGuard({ config: cfg() });
+        guard.observe({ type: 'subagent_thinking_delta', text: 'repeat' });
+        guard.observe({ type: 'subagent_stream_end' });
+        expect(guard.observe({ type: 'subagent_thinking_delta', text: 'repeat' })).toBeNull();
+        expect(guard.observe({ type: 'subagent_stream_end' })).toBeNull();
+        expect(guard.observe({ type: 'subagent_thinking_delta', text: 'repeat' })).toBeNull();
+        expect(guard.observe({ type: 'subagent_stream_end' })?.code).toBe('repeated_subagent_thinking');
     });
 });
