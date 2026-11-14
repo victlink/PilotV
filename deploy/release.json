@@ -2,8 +2,8 @@
   "schema": 1,
   "project": "PilotV",
   "repository": "git@github.com:victlink/PilotV.git",
-  "releaseTag": "v20261111.1-rc1",
-  "status": "pending-review",
+  "releaseTag": "v20261114.1",
+  "status": "released",
   "note": [
     "This descriptor is committed BEFORE the tag exists, so it deliberately does not",
     "contain its own commit SHA. upgrade.sh resolves the authoritative commit with",
@@ -13,7 +13,7 @@
     "floating branch; they always pin to a tag via deploy/upgrade.sh."
   ],
   "policy": {
-    "singleSourceOfTruth": "GitHub victlink/PilotV main + release tag",
+    "singleSourceOfTruth": "NAS bare hub /vol3/1000/Work/00/pilotv-hub.git (main + release tag), mirrored to GitHub victlink/PilotV for offsite backup",
     "deviceReposAreReadOnlyMirrors": true,
     "backendMustRunFromRepo": true,
     "upstreamDependencyUpgradesMustBeVendoredPRs": true,
