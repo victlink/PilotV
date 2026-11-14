@@ -69,14 +69,19 @@ def _read_lite(path: str):
         with open(path, "rb") as fh:
             head = fh.read(HEAD_READ_BYTES)
             tail = b""
-            if size > TAIL_READ_BYTES:
-                fh.seek(max(0, size - TAIL_READ_BYTES))
-                tail = fh.read()
+            tail_offset = 0
+            if size > HEAD_READ_BYTES:
+                tail_offset = max(0, size - TAIL_READ_BYTES)
+                fh.seek(tail_offset)
+                tail = fh.read(TAIL_READ_BYTES)
     except OSError:
         return "", ""
-    # 头尾都可能从半行开始，落不到完整 JSON 的行直接丢掉
-    head_txt = head.decode("utf-8", "replace").split("\n", 1)[-1]
-    tail_txt = tail.decode("utf-8", "replace").split("\n", 1)[-1] if tail else ""
+    # The head starts at byte zero: its first record is complete, not a fragment.
+    # Only a tail starting inside the file may begin with a partial JSON record.
+    head_txt = head.decode("utf-8", "replace")
+    tail_txt = tail.decode("utf-8", "replace")
+    if tail_offset:
+        tail_txt = tail_txt.split("\n", 1)[-1]
     return head_txt, tail_txt
 
 
@@ -88,9 +93,11 @@ def _scan_meta(text: str, out: dict) -> None:
             rec = json.loads(line)
         except Exception:
             continue
-        if rec.get("type") != "session_metadata":
+        if not isinstance(rec, dict) or rec.get("type") != "session_metadata":
             continue
         meta = rec.get("metadata") or {}
+        if not isinstance(meta, dict):
+            continue
         for key in _META_KEYS:
             val = meta.get(key)
             if isinstance(val, str) and val.strip():
@@ -106,14 +113,22 @@ def _first_prompt(text: str) -> str | None:
             rec = json.loads(line)
         except Exception:
             continue
-        for msg in rec.get("messages") or []:
-            if msg.get("role") != "user":
+        if not isinstance(rec, dict) or rec.get("type") != "accepted_input":
+            continue
+        messages = rec.get("messages")
+        if not isinstance(messages, list):
+            continue
+        for msg in messages:
+            if not isinstance(msg, dict) or msg.get("role") != "user":
                 continue
-            for part in msg.get("content") or []:
+            content = msg.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
                 if isinstance(part, dict) and part.get("type") == "text":
-                    text_ = (part.get("text") or "").strip()
-                    if text_:
-                        return text_
+                    text_ = part.get("text")
+                    if isinstance(text_, str) and text_.strip():
+                        return text_.strip()
     return None
 
 

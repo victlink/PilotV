@@ -2175,7 +2175,9 @@ def _text_of(art):
     try:
         if os.path.getsize(path) > 400_000:
             return ""
-        return open(path, encoding="utf-8", errors="replace").read()
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            text = handle.read(400_001)
+        return text if len(text) <= 400_000 else ""
     except OSError:
         return ""
 
@@ -2530,8 +2532,8 @@ async def api_events(request):
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
     })
-    await resp.prepare(request)
     try:
+        await resp.prepare(request)
         await resp.write(b": artifacts stream connected\n\n")
         while True:
             try:
@@ -2539,11 +2541,7 @@ async def api_events(request):
             except asyncio.TimeoutError:
                 await resp.write(b": ping\n\n")
                 continue
-            # 只推这个房间的事件。早先只过滤了 room.message，
-            # 结果别的房间的 room.delivery（成员 id、失败原因）会流进来，
-            # 也把完全无关的 artifact 事件灌给了房间页面。
-            if (data or {}).get("room_id") != rid:
-                continue
+            # Global artifacts stream has no room scope; room streams filter separately.
             payload = json.dumps(data, ensure_ascii=False)
 
             await resp.write(f"id: {eid}\nevent: {event}\ndata: {payload}\n\n".encode("utf-8"))
@@ -2779,8 +2777,8 @@ async def api_room_events(request):
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
     })
-    await resp.prepare(request)
     try:
+        await resp.prepare(request)
         await resp.write(b": room stream connected\n\n")
         while True:
             try:

@@ -1,0 +1,15 @@
+{
+  "name": "pilotv",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PilotV monorepo root — unified local test entry. Sub-project suites: gateway (pilotdeck-mobile/upstream-official, node:test on src), UI (pilotdeck-mobile/upstream-official/ui, vitest), Python regression (scripts/). CI gates live in scripts/ci/ and are invoked by .github/workflows/ci.yml.",
+  "scripts": {
+    "test": "npm run test:node && npm run test:python",
+    "test:node": "node --test --test-timeout 60000 cli/*.test.mjs scripts/ci/*.test.mjs plugins-src/*/*.test.mjs",
+    "test:python": "PYTHONPATH=. python -m unittest scripts.test_artifacts_events scripts.test_artifacts_part_paths scripts.test_artifacts_text scripts.test_gateway_lifecycle scripts.test_workspace_lite",
+    "test:gateway": "cd pilotdeck-mobile/upstream-official && npm run test:src",
+    "test:ui": "cd pilotdeck-mobile/upstream-official/ui && pnpm run test",
+    "test:full": "npm test && npm run test:gateway && npm run test:ui",
+    "ci:gates": "node scripts/ci/check-repo-hygiene.mjs && node scripts/ci/check-error-observability.mjs && node scripts/ci/check-script-sprawl.mjs && node scripts/ci/check-upstream-patches.mjs && bash scripts/check_deploy_script_escaping.sh scripts/deploy_pilotv_device.sh"
+  }
+}

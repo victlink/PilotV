@@ -339,7 +339,11 @@ def _resolve_part(rel: str, base_dir: str) -> tuple[str, str]:
         return "", "部件没写文件路径"
     base = os.path.realpath(base_dir or ".")
     src = os.path.realpath(rel if os.path.isabs(rel) else os.path.join(base, rel))
-    if os.path.commonpath([base, src]) != base:
+    try:
+        contained = os.path.commonpath([base, src]) == base
+    except ValueError:  # Windows paths on different drives have no common path.
+        contained = False
+    if not contained:
         return "", f"部件路径越出主文件目录（{rel}）"
     return src, ""
 
@@ -379,10 +383,23 @@ def part_file(aid: str, stored_name: str, files_dir: str) -> str | None:
     """按成果 id + 部件文件名取部件。拒绝任何路径穿越。"""
     if not aid or not stored_name:
         return None
-    safe = os.path.basename(stored_name)
-    if safe != stored_name or safe.startswith("."):
+    # Validate both path components, including Windows separators on Unix.
+    if any(value.startswith(".") or any(c in value for c in ('/', '\\', ':', '\x00'))
+           for value in (aid, stored_name)):
         return None
-    p = os.path.join(files_dir, "parts", aid, safe)
+    root = os.path.realpath(os.path.join(files_dir, "parts"))
+    expected_directory = os.path.join(root, aid)
+    directory = os.path.realpath(expected_directory)
+    if os.path.normcase(directory) != os.path.normcase(expected_directory):
+        return None
+    p = os.path.realpath(os.path.join(directory, stored_name))
+    try:
+        if os.path.commonpath([root, directory]) != root:
+            return None
+        if os.path.commonpath([directory, p]) != directory:
+            return None
+    except ValueError:
+        return None
     return p if os.path.isfile(p) else None
 
 

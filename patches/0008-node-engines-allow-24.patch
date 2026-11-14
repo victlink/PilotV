@@ -1,0 +1,27 @@
+# 0008-node-engines-allow-24.patch —— upstream engines 上限放开到允许 Node 24
+#
+# 相对上游 vendor 的本地修复，可重放。
+# 背景：check-node-runtime.mjs 自 2026-11-13 起已接受 Node 22 与 24 两个 LTS 线
+# （supportedNodeMajors = [22, 24]），但 package.json 的 engines.node 仍写
+# ">=22.13.0 <23"，导致在 Node 24 环境（Windows 一键安装包、部分部署）下 npm/pnpm
+# 仍报 EBADENGINE 警告。本补丁把上限放开到 <25，与运行时门禁对齐、消除警告。
+# 注意：这是第 4 处手工改 vendor 的修复，必须登记在 patches/ 由 CI 监控，
+# 否则上游同步会像历史上那样静默覆盖回去。
+#
+# 生成方式：git diff HEAD -- pilotdeck-mobile/upstream-official/package.json
+# 重放：git apply -p1 patches/0008-node-engines-allow-24.patch
+# 校验：node scripts/ci/check-upstream-patches.mjs
+#
+diff --git a/pilotdeck-mobile/upstream-official/package.json b/pilotdeck-mobile/upstream-official/package.json
+index f60386f..ccea72e 100644
+--- a/pilotdeck-mobile/upstream-official/package.json
++++ b/pilotdeck-mobile/upstream-official/package.json
+@@ -4,7 +4,7 @@
+   "private": true,
+   "type": "module",
+   "engines": {
+-    "node": ">=22.13.0 <23"
++    "node": ">=22.13.0 <25"
+   },
+   "workspaces": [
+     "packages/*",
