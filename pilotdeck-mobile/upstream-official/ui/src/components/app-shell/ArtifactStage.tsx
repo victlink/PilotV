@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { artifactRawUrl, artifactViewerUrl, isCadArtifact, isEditableDocument, isOversizedEditableDocument, isUnconvertible3d, mediaType, type Artifact } from './artifactsMedia';
+import { artifactModelSourceUrl, artifactRawUrl, isCadArtifact, isEditableDocument, isOversizedEditableDocument, isUnconvertible3d, mediaType, type Artifact } from './artifactsMedia';
 import {
   annotationRect,
   annotationStrokes,
@@ -12,6 +12,7 @@ import {
 import InkOverlay from './InkOverlay';
 import { exportStagePng, type InkStroke } from './artifactInk';
 import ArtifactDocumentEditor from './ArtifactDocumentEditor';
+import ArtifactModelViewer from './ArtifactModelViewer';
 import {
   MAX_ZOOM,
   MIN_ZOOM,
@@ -170,8 +171,10 @@ export default function ArtifactStage({
   const blank = !artifact;
   const type = artifact ? mediaType(artifact) : 'image';
   const rawUrl = artifact ? artifactRawUrl(artifact) : '';
-  // CAD（STEP/IGES）model-viewer 不认，得走成果台的转换口拿 glb。
-  const model3dUrl = artifact ? artifactViewerUrl(artifact) : '';
+  // 三维成果统一从成果台自己的 /viewer 口出：CAD 会现转成 glb，glTF 原样回传。
+  // 「所有三维都走同一个口子」是成果台集成功能的一部分 —— 后面那个统一的
+  // 三维展示台（拆解 / 隐藏 / 移动零件 / 透明 / 行程）要靠它拿到可改的模型。
+  const model3dUrl = artifact ? artifactModelSourceUrl(artifact) : '';
   const cadModel = Boolean(artifact && isCadArtifact(artifact));
   const label = artifact ? (artifact.title || artifact.file_name || artifact.id) : '空白手绘页';
   // 时间条要显示的总时长。三个来源按可信度排：
@@ -389,12 +392,15 @@ export default function ArtifactStage({
     const el = modelRef.current as unknown as {
       resetTurntableRotation?: () => void;
       cameraOrbit?: string;
+      cameraTarget?: string;
     } | null;
     try {
       el?.resetTurntableRotation?.();
       // 'auto auto auto' 让 model-viewer 按模型包围盒重新取景。
       // 自己猜一个 orbit 角度只会对某一份装配体刚好，换一份就偏。
       if (el) el.cameraOrbit = 'auto auto auto';
+      // 目标点也是：平移过一次之后视角是偏的，只复位轨道会歪着看。
+      if (el) el.cameraTarget = 'auto auto auto';
     } catch { /* 自定义元素还没升级完，下一次点击再试 */ }
     resetViewport();
   }, [resetViewport]);
@@ -701,17 +707,25 @@ export default function ArtifactStage({
             allow-downloads），多出来的是同一个页面里就能改、能存。 */}
         {!blank && type === 'iframe' && !documentArtifact && <iframe src={rawUrl} title={label} className="h-full w-full border-0 bg-background"
           sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads" />}
-        {/* model-viewer 是自定义元素：className 传不进去（DOM 上没有 class 属性），
-            只能用行内样式撑满，缺了它元素就停在 300x150 的默认尺寸。 */}
-        {/* CAD 与网格（STEP/IGES/STL/OBJ/PLY）走 model3dUrl（成果台转好的 glb），
-            glTF 直接就是原文件。
-            camera-controls 自带轨道旋转 + 滚轮/捏合缩放，标注层在浏览模式下
-            pointer-events-none，所以两种手势不会互相抢。 */}
+        {/* 三维成果走统一的展示台（ArtifactModelViewer）：
+            旋转 / 平移 / 缩放 / 全屏在 model-viewer 与外层工具条上；
+            拆解、隐藏与移动零件、透明度、行程动画、爆炸图都在那个组件里，
+            它改的是 glTF 本身（见 artifactModel3d.ts）。
+
+            CAD 与网格（STEP/IGES/STL/OBJ/PLY）走 /viewer（成果台转好的 glb），
+            glTF/GLB 也统一走 /viewer —— 所有三维成果从同一个口子出。
+
+            camera-controls 自带轨道旋转 + 右键（或 Shift）拖动平移 + 滚轮缩放，
+            标注层在浏览模式下 pointer-events-none，所以两种手势不会互相抢。 */}
         {/* shadow-intensity/softness：没有落地阴影的话零件像浮在白纸上，
             转个角度更难判断哪个面朝前。有环境光时两者都会被 model-viewer 用上。 */}
-        {!blank && type === 'model3d' && <model-viewer ref={modelRef} src={model3dUrl} alt={label} camera-controls disable-zoom={false}
-          shadow-intensity="0.9" shadow-softness="0.7"
-          style={{ display: 'block', width: '100%', height: '100%', minHeight: 420 }} />}
+        {!blank && type === 'model3d' && <ArtifactModelViewer
+          src={model3dUrl}
+          alt={label}
+          viewerRef={modelRef}
+          gesturesEnabled={tool === 'browse'}
+          onError={setViewerError}
+        />}
         {!blank && (type === 'drawing' || type === 'unsupported') && <p className="p-4 text-sm text-muted-foreground">
           这个格式（{artifact.file_name || artifact.kind || '未知'}）暂时无法在页面里预览，可用上方「下载原文件」查看。
         </p>}

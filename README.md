@@ -20,6 +20,7 @@ PilotV 是一套**可搬走的成果台**：把「PilotDeck 宿主（人在里�
 | 成果散在各个目录，看不出改到哪一步 | 单一成果库：文件、版本链、状态、标注、审计全部落 SQLite | `artifacts_store.py` |
 | 左栏被中间产物塞爆 | 发布前判 `final` / `aux`：网页零件（切片、图标、缩略图）默认拒收，要收得显式写 `deliverable: "aux"` | `artifacts_deliver.py:classify()` |
 | STEP / IGES / STL 喂给 model-viewer 是一片空白 | 转 GLB 并缓存；转换跑在隔离 venv 子进程里，没装转换器时如实报 `CadUnavailable`，不静默失败 | `artifacts_cad.py` + `scripts/cad_to_glb.py` |
+| 三维成果只能看，不能拆 | 统一的三维展示台：所有三维都走同一套（旋转 / 平移 / 缩放 / 全屏 / 爆炸图 / 隐藏与挪动零件 / 透明度 / 行程动画），不为某个模型单开页面 | `ui/src/components/app-shell/ArtifactModelViewer.tsx` + `artifactModel3d.ts` |
 | 页面一改版，标注意图就飘了 | 锚点双存：`anchor.selector`（DOM）+ `anchor.rect`（归一化 0-1 兜底），改版后用 CDP 重新量一次 | `artifacts_cdp.py` |
 | 点了「应用」之后意见去哪 | 三个通道各自成败独立汇报：原项目目录（按会话分文件夹）、PilotDeck 会话输入队列、dispatch 唤醒 agent | `artifacts_deliver.py` |
 | 一套前端怎么连多台设备 | 网关只转发 `devices.json` 里的目标，浏览器不能自带任意地址 —— 不是开放代理；切设备只改一个 Cookie | `service/pilotv_gateway.mjs` |

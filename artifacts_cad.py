@@ -48,7 +48,8 @@ class CadUnavailable(RuntimeError):
 # 改了转换器（材质、网格精度、脚本结构、支持了哪种格式）就 +1：
 # 缓存文件名带它，用户的成果立刻换新渲染。
 # v5：支持 .FCStd（先让本机 FreeCAD 导 STEP，再走 OCCT）。
-CONVERTER_VERSION = 5
+# v6：一个零件一个节点（装配体不再合成一块网格，成果台才拆得开）。
+CONVERTER_VERSION = 6
 
 
 def is_cad(path: str) -> bool:

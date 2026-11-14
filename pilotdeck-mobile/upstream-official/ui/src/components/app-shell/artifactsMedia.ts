@@ -57,6 +57,20 @@ export function artifactViewerUrl(artifact: Artifact): string {
   return isCadArtifact(artifact) ? `/api/artifacts/${encodeURIComponent(artifact.id)}/viewer` : artifactRawUrl(artifact);
 }
 
+/**
+ * 三维成果的**统一**来源：所有三维都走成果台自己的 /viewer 口。
+ *
+ * 为什么要统一：成果台的三维展示台（拆解 / 隐藏零件 / 移动零件 / 透明度 /
+ * 行程动画 / 爆炸图）要在浏览器里改 glTF 再喂回渲染器，所以它需要一个
+ * 「一定是 glTF、且同源可取」的口子。/viewer 正好满足：CAD 现转成 glb，
+ * glTF/GLB 原样回传，别的格式原样回来（渲染不了时页面另有提示）。
+ *
+ * 同一份成果在哪台设备上看都是同一个地址，评审链接也不会指向某台机器的临时文件。
+ */
+export function artifactModelSourceUrl(artifact: Artifact): string {
+  return `/api/artifacts/${encodeURIComponent(artifact.id)}/viewer`;
+}
+
 /** 浏览器渲染不了的模型格式（3ds/dae/3mf/blend）：提示下载原文件。 */
 export function isUnconvertible3d(artifact: Artifact): boolean {
   return UNCONVERTIBLE_3D_EXT.includes(artifactExt(artifact));
