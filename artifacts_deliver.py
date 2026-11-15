@@ -97,6 +97,30 @@ AUX_STEM_MEDIA = (
 # 也不能整批丢掉用户的定稿。
 MEDIA_KINDS = {"image", "video", "drawing", "model3d"}
 
+# 工程配置文件不是成果。加了 .json/.yaml 之后，如果不拦这一批，agent 改一次
+# package.json / tsconfig.json 就会多一份「成果」，左栏直接被配置噪声塞满。
+CONFIG_BASENAMES = {
+    "package.json", "package-lock.json", "npm-shrinkwrap.json",
+    "tsconfig.json", "jsconfig.json", "angular.json", "bower.json",
+    "composer.json", "renovate.json", "firebase.json", "vercel.json",
+    "netlify.json", "now.json", "lerna.json", "nx.json", "turbo.json",
+    "pnpm-lock.yaml", "pnpm-workspace.yaml", "manifest.json",
+}
+# 前导点（.eslintrc）和不同名位（tsconfig.app.json）都要认
+CONFIG_STEM_RE = re.compile(
+    r"^(tsconfig|jsconfig|eslintrc|prettierrc|babelrc|eslint\.config|"
+    r"prettier\.config|babel\.config|vite\.config|vitest\.config|jest\.config|"
+    r"webpack\.config|rollup\.config|next\.config|vue\.config)([._-].*)?$",
+    re.I)
+
+
+def _is_config_file(base: str, stem: str, ext: str) -> bool:
+    if ext not in (".json", ".yaml", ".yml"):
+        return False
+    if base.lower() in CONFIG_BASENAMES:
+        return True
+    return bool(CONFIG_STEM_RE.match(stem.lstrip(".-_") or ""))
+
 
 def aux_basename_re(kind: str) -> re.Pattern:
     words = AUX_STEM_ALL + (AUX_STEM_MEDIA if kind in MEDIA_KINDS else ())
@@ -142,7 +166,8 @@ def is_brand_deliverable(path: str | None) -> bool:
     return bool(dirs & BRAND_DIR_SEGMENTS) or bool(BRAND_STEM_RE.search(stem))
 
 
-def classify(kind: str, path: str | None, explicit: str | None = None) -> tuple[str, str]:
+def classify(kind: str, path: str | None, explicit: str | None = None,
+             declared: bool = False) -> tuple[str, str]:
     """判定一份产物是不是「独立最终成果」。
 
     返回 (verdict, reason)：
@@ -151,6 +176,11 @@ def classify(kind: str, path: str | None, explicit: str | None = None) -> tuple[
 
     `explicit` 是发布方显式声明（payload["deliverable"]），显式永远优先，
     并且它是逃生舱：判错了发布方自己能改回来。
+
+    `declared` 表示这份文件是会话 transcript 里 agent 自己记过的产出
+    （file_artifacts）—— 有这个标记时，文件名里的「预览/封面/缩略图」这类
+    渲染中间态词**不再单独构成毙掉它的理由**：CAD 项目里 preview_*.png 就是
+    最后交给用户的渲染图，不是页面配图。目录/扩展名/配置文件判定照常生效。
     """
     if explicit:
         val = str(explicit).strip().lower()
@@ -171,9 +201,13 @@ def classify(kind: str, path: str | None, explicit: str | None = None) -> tuple[
     if ext in AUX_EXT:
         return "aux", f"{ext} 属于网页从属资源，不是独立成果"
 
+    if _is_config_file(base, stem, ext):
+        return "aux", f"工程配置文件（{base}），不是成果"
+
     # 中间产物词先判，且不受下面的品牌放行影响：brand-logo-preview.png 放进
     # brand/ 目录也还是渲染过程中的中间帧，不是定稿。
-    if intermediate_re(kind).search(stem):
+    # declared 的文件不适用这条：agent 亲手记下这是它的产出，预览图就是定稿。
+    if not declared and intermediate_re(kind).search(stem):
         return "aux", f"文件名带中间产物标记（{base}）"
 
     # 品牌/标识类交付物：跳过剩下的「像网页小图标」和「落在资源目录里」两条
@@ -182,7 +216,7 @@ def classify(kind: str, path: str | None, explicit: str | None = None) -> tuple[
         return "final", "品牌/标识类设计交付物"
 
     stem_rx = aux_basename_re(kind)
-    if stem_rx.search(base):
+    if not declared and stem_rx.search(base):
         return "aux", f"文件名带中间产物标记（{base}）"
 
     if kind == "page":
@@ -406,7 +440,7 @@ def part_file(aid: str, stored_name: str, files_dir: str) -> str | None:
 # --------------------------------------------------------------------- 文本就地编辑
 
 EDITABLE_EXT = {".html", ".htm", ".md", ".markdown", ".txt", ".svg",
-                ".json", ".css", ".js", ".jsx", ".ts", ".vue", ".yaml", ".yml"}
+                ".json", ".csv", ".css", ".js", ".jsx", ".ts", ".vue", ".yaml", ".yml"}
 # 「读」和「写」是两个不同的上限，别用一条线卡两件事。
 # 写回是整份正文原子落盘、还要算 diff，2MB 之外就不划算了；读进来只是显示，
 # 一份 2.5MB 的自包含 HTML 装配视图正是最该被打开的成果 —— 早先两者共用这条线，

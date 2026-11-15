@@ -49,7 +49,9 @@ class CadUnavailable(RuntimeError):
 # 缓存文件名带它，用户的成果立刻换新渲染。
 # v5：支持 .FCStd（先让本机 FreeCAD 导 STEP，再走 OCCT）。
 # v6：一个零件一个节点（装配体不再合成一块网格，成果台才拆得开）。
-CONVERTER_VERSION = 6
+# v7：STEP 读入前补上缺失的 PRODUCT_DEFINITION_SHAPE —— 手写生成器漏掉这一层时
+#     FreeCAD 静默读不出任何实体（页面显示「这份文件里没有可显示的实体」）。
+CONVERTER_VERSION = 7
 
 
 def is_cad(path: str) -> bool:

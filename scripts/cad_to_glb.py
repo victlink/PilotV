@@ -22,6 +22,7 @@ import argparse
 import json
 import math
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -213,6 +214,88 @@ def _freecad_cmd() -> str:
         "请装 FreeCAD 或设置 FREECAD_CMD 指向它，也可以先导出 STEP 再发布")
 
 
+# 产品结构里的这一层经常被手写 STEP 生成器漏掉：文件里有 CLOSED_SHELL /
+# ADVANCED_FACE，看着什么都不缺，但 SHAPE_DEFINITION_REPRESENTATION 直接指向
+# PRODUCT_DEFINITION，中间少了 PRODUCT_DEFINITION_SHAPE。OCCT（FreeCAD 的
+# STEP 读入器也是它）不会报错，只是**整个文件一个对象都不产出**，页面于是
+# 显示「这份文件里没有可显示的实体」—— 文件明明有 36 个面。
+#
+# 这里的修法是补一个空名字的 PRODUCT_DEFINITION_SHAPE 当中间层，再把
+# SHAPE_DEFINITION_REPRESENTATION 改指过去（标准里本来就该是这样）。
+# 只在转换器这一侧做：用户不用回去改 CAD 源文件，重新导出一次。
+_STEP_SUFFIXES = (".step", ".stp")
+_STEP_SDR_RE = re.compile(
+    r"#(\d+)\s*=\s*SHAPE_DEFINITION_REPRESENTATION\s*\(\s*(#\d+)\s*,\s*(#\d+)\s*\)\s*;")
+_STEP_DEFINITION_RE = re.compile(r"#(\d+)\s*=\s*PRODUCT_DEFINITION\s*\(")
+
+
+def repair_step_text(text: str) -> tuple[str, int]:
+    """补上缺失的 PRODUCT_DEFINITION_SHAPE。返回 (修好的文本, 补了几处)。
+
+    幂等：已经补过的文件里 SHAPE_DEFINITION_REPRESENTATION 指向的是
+    PRODUCT_DEFINITION_SHAPE，不在 PRODUCT_DEFINITION 的集合里，不会重复补。
+    """
+    ids = [int(m.group(1)) for m in re.finditer(r"#(\d+)\s*=", text)]
+    if not ids:
+        return text, 0
+    definitions = {int(m.group(1)) for m in _STEP_DEFINITION_RE.finditer(text)}
+    if not definitions:
+        return text, 0
+
+    next_id = max(ids) + 1
+    inserted: list[str] = []
+
+    def patch(match: re.Match) -> str:
+        nonlocal next_id
+        sdr, definition, representation = match.group(1), match.group(2), match.group(3)
+        if int(definition[1:]) not in definitions:
+            return match.group(0)      # 已经补过，或者指向别的实体
+        pds = next_id
+        next_id += 1
+        inserted.append("#%d=PRODUCT_DEFINITION_SHAPE('','',%s);" % (pds, definition))
+        return "#%s=SHAPE_DEFINITION_REPRESENTATION(#%d,%s);" % (sdr, pds, representation)
+
+    patched = _STEP_SDR_RE.sub(patch, text)
+    if not inserted:
+        return text, 0
+    end = patched.rfind("ENDSEC;")
+    if end < 0:
+        return text, 0                # 结构不像 STEP，别乱动
+    patched = patched[:end] + "\n".join(inserted) + "\n" + patched[end:]
+    return patched, len(inserted)
+
+
+def _prepare_freecad_source(path: str, workdir: str) -> str:
+    """把源文件复制进 ASCII 临时目录；STEP 顺手补上漏掉的产品结构。
+
+    freecadcmd 会把命令行里的中文路径当成乱码（静默读不到文件），而 env 里的
+    路径是正常的。复制一份到 ASCII 临时目录既绕开这个问题，也给修补后的
+    STEP 一个落脚点 —— 写回用户的原文件是不可接受的。
+    """
+    src = os.path.abspath(path)
+    ext = os.path.splitext(src)[1].lower()
+    if ext not in _STEP_SUFFIXES:
+        return src
+    try:
+        with open(src, "rb") as handle:
+            raw = handle.read()
+    except OSError:
+        return src
+    # latin-1 是字节透明的：非 ASCII 的产品名（UTF-8）原样保留，只对 ASCII
+    # 结构做增删。用 utf-8 解码再写回反而会在错误字符上改坏用户文件。
+    patched, added = repair_step_text(raw.decode("latin-1"))
+    copy = os.path.join(workdir, "source" + ext)
+    try:
+        with open(copy, "wb") as handle:
+            handle.write(patched.encode("latin-1"))
+    except OSError:
+        return src
+    if not added:
+        # 即使不用修也留着这份副本：ASCII 路径比原路径更不容易被 FreeCAD 读丢。
+        pass
+    return copy
+
+
 def _freecad_export_parts(path: str, deflection: float = 0.08) -> tuple[str, str]:
     """任意受支持格式 → 一零件一个 OBJ。返回 (零件目录, 临时目录)，调用方负责清理。"""
     exe = _freecad_cmd()
@@ -223,8 +306,9 @@ def _freecad_export_parts(path: str, deflection: float = 0.08) -> tuple[str, str
     error_file = os.path.join(workdir, "error.txt")
     with open(script, "w", encoding="utf-8") as handle:
         handle.write(_FREECAD_EXPORT_SCRIPT)
-    env = dict(os.environ, FC_SRC=os.path.abspath(path), FC_OUT_DIR=parts_dir,
-               FC_DEFLECTION=repr(float(deflection)), FC_ERROR_FILE=error_file)
+    env = dict(os.environ, FC_SRC=_prepare_freecad_source(path, workdir),
+               FC_OUT_DIR=parts_dir, FC_DEFLECTION=repr(float(deflection)),
+               FC_ERROR_FILE=error_file)
     # FreeCAD 首次启动会建用户配置，比一般 CLI 慢；给足 5 分钟，但还是有上限 ——
     # 挂死的子进程比一次失败更糟。
     done = subprocess.run([exe, script], capture_output=True, text=True,

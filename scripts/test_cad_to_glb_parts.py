@@ -41,6 +41,56 @@ def triangle_mesh(offset: float):
     return mesh
 
 
+SYNTHETIC_STEP = """\
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION((''),'2;1');
+FILE_NAME('','2026-01-01T00:00:00',(''),(''),'test','test','');
+FILE_SCHEMA(('AUTOMOTIVE_DESIGN'));
+ENDSEC;
+DATA;
+#1=APPLICATION_CONTEXT('core data');
+#2=PRODUCT_CONTEXT('',#1,'mechanical');
+#3=PRODUCT_DEFINITION_CONTEXT('part definition',#1,'design');
+#4=PRODUCT('arc','arc','',(#2));
+#5=PRODUCT_DEFINITION_FORMATION('','',#4);
+#6=PRODUCT_DEFINITION('design','',#5,#3);
+#7=ADVANCED_BREP_SHAPE_REPRESENTATION('arc',(#8),#9);
+#8=FACE_OUTER_BOUND('',#10,.T.);
+#9=( GEOMETRIC_REPRESENTATION_CONTEXT(3) REPRESENTATION_CONTEXT('Context','3D') );
+#10=EDGE_LOOP('',());
+#11=SHAPE_DEFINITION_REPRESENTATION(#6,#7);
+ENDSEC;
+END-ISO-10303-21;
+"""
+
+
+class StepRepairTests(unittest.TestCase):
+    def test_missing_product_definition_shape_is_inserted(self):
+        text, added = cad_to_glb.repair_step_text(SYNTHETIC_STEP)
+        self.assertEqual(added, 1)
+        self.assertIn("PRODUCT_DEFINITION_SHAPE", text)
+        # SDR 必须指向新补的 PRODUCT_DEFINITION_SHAPE，不能再指向 PRODUCT_DEFINITION
+        sdr = next(line for line in text.splitlines() if "SHAPE_DEFINITION_REPRESENTATION" in line)
+        self.assertNotIn("#6,", sdr)
+        self.assertIn("#11=SHAPE_DEFINITION_REPRESENTATION(#12,#7);", sdr)
+
+    def test_already_fixed_step_is_left_alone(self):
+        once, added = cad_to_glb.repair_step_text(SYNTHETIC_STEP)
+        twice, added_again = cad_to_glb.repair_step_text(once)
+        self.assertEqual(added, 1)
+        self.assertEqual(added_again, 0)
+        self.assertEqual(once, twice)
+
+    def test_correct_step_is_unchanged(self):
+        text = SYNTHETIC_STEP.replace(
+            "#11=SHAPE_DEFINITION_REPRESENTATION(#6,#7);",
+            "#12=PRODUCT_DEFINITION_SHAPE('','',#6);\n#11=SHAPE_DEFINITION_REPRESENTATION(#12,#7);")
+        patched, added = cad_to_glb.repair_step_text(text)
+        self.assertEqual(added, 0)
+        self.assertEqual(text, patched)
+
+
 class MultiPartGlbTests(unittest.TestCase):
     def test_one_node_per_part(self):
         parts = [("机身", triangle_mesh(0.0)), ("机翼", triangle_mesh(10.0))]

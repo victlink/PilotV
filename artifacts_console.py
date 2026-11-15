@@ -544,6 +544,9 @@ KIND_BY_EXT = {
     ".stl": "model3d", ".obj": "model3d", ".ply": "model3d", ".fcstd": "model3d",
     ".mp4": "video", ".mov": "video", ".webm": "video",
     ".pdf": "doc", ".pptx": "doc", ".docx": "doc",
+    # 参数表、BOM、说明、设计文档 —— 全是成果，之前因为扩展名没登记，
+    # 全部被成果台挡在门外了。源码/配置文件依旧不收（见 _CLASSIFY 里的判定）。
+    ".md": "doc", ".markdown": "doc", ".json": "doc", ".csv": "doc", ".yaml": "doc", ".yml": "doc",
 }
 # 写文件过程中的临时名 / 编辑器备份：看到了也不该发
 SKIP_SUFFIX = (".tmp", ".part", ".crdownload", ".swp", ".swx", "~", ".bak", ".lock")
@@ -939,7 +942,8 @@ class SessionIngester:
             return ""
 
         kind = KIND_BY_EXT[ext]
-        verdict, _why = _classify(kind, src)
+        # 会话 transcript 记过的产出：文件名里的「预览/封面」中间态词不再当毙掉它的理由。
+        verdict, _why = _classify(kind, src, declared=True)
         if verdict != "final":
             return ""            # 从属资源/中间产物，成果台不收
 
@@ -1127,10 +1131,10 @@ async def api_create(request):
                   "artifact": art})
 
 
-def _classify(kind: str, src_path: str, explicit=None):
+def _classify(kind: str, src_path: str, explicit=None, **kwargs):
     """需求 1 的判定入口。规则全在 artifacts_deliver.classify，这里只做转发。"""
     import artifacts_deliver
-    return artifacts_deliver.classify(kind, src_path, explicit)
+    return artifacts_deliver.classify(kind, src_path, explicit, **kwargs)
 
 
 def _kind_for(path: str, ext: str) -> str:
