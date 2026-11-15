@@ -2,7 +2,7 @@
   "schema": 1,
   "project": "PilotV",
   "repository": "git@github.com:victlink/PilotV.git",
-  "releaseTag": "v20261115.3",
+  "releaseTag": "v20261115.4",
   "status": "released",
   "note": [
     "This descriptor is committed BEFORE the tag exists, so it deliberately does not",
