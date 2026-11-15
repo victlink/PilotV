@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
+  ChevronUp,
   ListOrdered,
   Plus,
   Route,
@@ -40,6 +41,10 @@ type TierMap = Record<
 >;
 
 const EMPTY_TIERS: TierMap = {};
+
+// Keep in sync with SCENARIO_KEYS in src/router/config/parseRouterConfig.ts:
+// any other key is ignored (with a warning) when the runtime parses router.fallback.
+const FALLBACK_SCENARIOS = ["default", "subagent", "explicit"] as const;
 
 function SubagentIcon() {
   return (
@@ -90,6 +95,80 @@ export default function RouterSection({
   const fallbackModel =
     r.scenarios?.default || config.agent?.model || modelOpts[0]?.value || "";
   const allowFallbackOnRateLimit = r.fallback?.allowFallbackOnRateLimit === true;
+
+  const fallbackRefsFor = (scenario: string): string[] => {
+    const value = (r.fallback as Record<string, unknown> | undefined)?.[scenario];
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
+  };
+
+  const writeFallbackRefs = (scenario: string, refs: string[]) => {
+    // Preserve scalar settings (maxFallbacks / allowFallbackOnRateLimit) and
+    // drop empty scenario keys so the runtime does not see an empty chain.
+    const next = { ...(r.fallback ?? {}) } as Record<string, unknown>;
+    if (refs.length > 0) next[scenario] = refs;
+    else delete next[scenario];
+    onChange(patch(config, ["router", "fallback"], next));
+  };
+
+  const addFallbackRef = (scenario: string) => {
+    const refs = fallbackRefsFor(scenario);
+    const primary = r.scenarios?.default || config.agent?.model || "";
+    const candidate =
+      modelOpts.find(
+        (option) =>
+          option.value &&
+          option.value !== primary &&
+          !refs.includes(option.value),
+      )?.value ??
+      modelOpts.find(
+        (option) => option.value && option.value !== primary,
+      )?.value ??
+      modelOpts[0]?.value ??
+      "";
+    if (!candidate) return;
+    queueSettingsSaveSuccess(
+      t("pilotDeckConfig.panels.router.fallback.addedToast"),
+    );
+    writeFallbackRefs(scenario, [...refs, candidate]);
+  };
+
+  const updateFallbackRef = (
+    scenario: string,
+    index: number,
+    value: string,
+  ) => {
+    const refs = [...fallbackRefsFor(scenario)];
+    if (!value || index < 0 || index >= refs.length) return;
+    refs[index] = value;
+    queueSettingsSaveSuccess(
+      t("pilotDeckConfig.panels.router.ui.modelChanged", {
+        label: t("pilotDeckConfig.panels.router.fallback.title"),
+        value,
+      }),
+    );
+    writeFallbackRefs(scenario, refs);
+  };
+
+  const moveFallbackRef = (scenario: string, index: number, delta: number) => {
+    const refs = [...fallbackRefsFor(scenario)];
+    const target = index + delta;
+    if (target < 0 || target >= refs.length) return;
+    [refs[index], refs[target]] = [refs[target], refs[index]];
+    writeFallbackRefs(scenario, refs);
+  };
+
+  const removeFallbackRef = (scenario: string, index: number) => {
+    queueSettingsSaveSuccess(
+      t("pilotDeckConfig.panels.router.fallback.removedToast"),
+    );
+    writeFallbackRefs(
+      scenario,
+      fallbackRefsFor(scenario).filter((_, i) => i !== index),
+    );
+  };
+
   const [tierDraft, setTierDraft] = useState(tiers);
   const [pricingDraft, setPricingDraft] = useState(r.stats?.modelPricing ?? {});
 
@@ -295,6 +374,13 @@ export default function RouterSection({
             {t("pilotDeckConfig.panels.router.ui.inheritMainModel")}
           </option>
         ) : null}
+        {value &&
+        value !== "inherit" &&
+        !groupedModels.some(([, group]) =>
+          group.options.some((option) => option.value === value),
+        ) ? (
+          <option value={value}>{value}</option>
+        ) : null}
         {groupedModels.map(([provider, group]) => (
           <optgroup key={provider} label={group.label}>
             {group.options.map((option) => (
@@ -492,6 +578,175 @@ export default function RouterSection({
             </div>
           </section>
 
+          <section className="route-card route-fallback-card">
+            <header className="route-section-header">
+              <h2>{t("pilotDeckConfig.panels.router.fallback.title")}</h2>
+            </header>
+            <div className="route-fallback-body">
+              <p className="route-fallback-intro">
+                {t("pilotDeckConfig.panels.router.fallback.description")}
+              </p>
+              {FALLBACK_SCENARIOS.map((scenario) => {
+                const refs = fallbackRefsFor(scenario);
+                return (
+                  <div className="route-fallback-group" key={scenario}>
+                    <div className="route-fallback-group-head">
+                      <div className="route-fallback-group-copy">
+                        <strong>
+                          {t(
+                            `pilotDeckConfig.panels.router.fallback.scenarios.${scenario}.label`,
+                          )}
+                        </strong>
+                        <span>
+                          {t(
+                            `pilotDeckConfig.panels.router.fallback.scenarios.${scenario}.description`,
+                          )}
+                        </span>
+                      </div>
+                      <button
+                        className="button secondary compact"
+                        type="button"
+                        onClick={() => addFallbackRef(scenario)}
+                      >
+                        <Plus size={14} aria-hidden="true" />
+                        {t("pilotDeckConfig.panels.router.fallback.addModel")}
+                      </button>
+                    </div>
+                    {refs.length === 0 ? (
+                      <p className="route-fallback-empty">
+                        {t("pilotDeckConfig.panels.router.fallback.empty")}
+                      </p>
+                    ) : (
+                      <div className="route-fallback-list">
+                        {refs.map((ref, index) => (
+                          <div
+                            className="route-fallback-row"
+                            key={`${scenario}-${index}`}
+                            data-model-reference={`router.fallback.${scenario}.${index}`}
+                            tabIndex={-1}
+                          >
+                            <span
+                              className="route-fallback-order"
+                              aria-hidden="true"
+                            >
+                              {index + 1}
+                            </span>
+                            {renderModelSelect(
+                              ref,
+                              t(
+                                "pilotDeckConfig.panels.router.fallback.rowLabel",
+                                {
+                                  scenario,
+                                  index: index + 1,
+                                },
+                              ),
+                              (value) =>
+                                updateFallbackRef(scenario, index, value),
+                            )}
+                            <div className="route-fallback-actions">
+                              <button
+                                className="route-fallback-icon-button"
+                                type="button"
+                                aria-label={t(
+                                  "pilotDeckConfig.panels.router.fallback.moveUp",
+                                )}
+                                title={t(
+                                  "pilotDeckConfig.panels.router.fallback.moveUp",
+                                )}
+                                disabled={index === 0}
+                                onClick={() =>
+                                  moveFallbackRef(scenario, index, -1)
+                                }
+                              >
+                                <ChevronUp size={14} aria-hidden="true" />
+                              </button>
+                              <button
+                                className="route-fallback-icon-button"
+                                type="button"
+                                aria-label={t(
+                                  "pilotDeckConfig.panels.router.fallback.moveDown",
+                                )}
+                                title={t(
+                                  "pilotDeckConfig.panels.router.fallback.moveDown",
+                                )}
+                                disabled={index === refs.length - 1}
+                                onClick={() =>
+                                  moveFallbackRef(scenario, index, 1)
+                                }
+                              >
+                                <ChevronDown size={14} aria-hidden="true" />
+                              </button>
+                              <button
+                                className="route-fallback-icon-button"
+                                type="button"
+                                aria-label={t(
+                                  "pilotDeckConfig.panels.router.fallback.remove",
+                                )}
+                                title={t(
+                                  "pilotDeckConfig.panels.router.fallback.remove",
+                                )}
+                                onClick={() =>
+                                  removeFallbackRef(scenario, index)
+                                }
+                              >
+                                <Trash2 size={14} aria-hidden="true" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <p className="route-fallback-hint">
+                {t("pilotDeckConfig.panels.router.fallback.orderHint")}
+              </p>
+              <div className="route-fallback-switch-row">
+                <div className="route-fallback-switch-copy">
+                  <strong>
+                    {t(
+                      "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.label",
+                    )}
+                  </strong>
+                  <span>
+                    {t(
+                      "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.description",
+                    )}
+                  </span>
+                </div>
+                <button
+                  className={`route-switch${allowFallbackOnRateLimit ? " on" : ""}`}
+                  type="button"
+                  role="switch"
+                  aria-checked={allowFallbackOnRateLimit}
+                  aria-label={t(
+                    "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.label",
+                  )}
+                  onClick={() => {
+                    const nextValue = !allowFallbackOnRateLimit;
+                    queueSettingsSaveSuccess(
+                      t(
+                        nextValue
+                          ? "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.enabledToast"
+                          : "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.disabledToast",
+                      ),
+                    );
+                    onChange(
+                      patch(
+                        config,
+                        ["router", "fallback", "allowFallbackOnRateLimit"],
+                        nextValue,
+                      ),
+                    );
+                  }}
+                >
+                  <span />
+                </button>
+              </div>
+            </div>
+          </section>
+
           <section className="advanced-route-section">
             <button
               className="advanced-route-toggle"
@@ -582,52 +837,6 @@ export default function RouterSection({
                       </div>
                     </div>
                   ) : null}
-                </section>
-
-                <section className="route-card advanced-route-card advanced-strategy-card">
-                  <div className="advanced-strategy-row">
-                    <span className="advanced-strategy-title">
-                      <SlidersHorizontal size={18} />
-                      <span>
-                        {t(
-                          "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.label",
-                        )}
-                      </span>
-                    </span>
-                    <button
-                      className={`route-switch${allowFallbackOnRateLimit ? " on" : ""}`}
-                      type="button"
-                      role="switch"
-                      aria-checked={allowFallbackOnRateLimit}
-                      aria-label={t(
-                        "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.label",
-                      )}
-                      onClick={() => {
-                        const nextValue = !allowFallbackOnRateLimit;
-                        queueSettingsSaveSuccess(
-                          t(
-                            nextValue
-                              ? "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.enabledToast"
-                              : "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.disabledToast",
-                          ),
-                        );
-                        onChange(
-                          patch(
-                            config,
-                            ["router", "fallback", "allowFallbackOnRateLimit"],
-                            nextValue,
-                          ),
-                        );
-                      }}
-                    >
-                      <span />
-                    </button>
-                    <p>
-                      {t(
-                        "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.description",
-                      )}
-                    </p>
-                  </div>
                 </section>
 
                 <section className="route-card advanced-route-card tier-definition-card">

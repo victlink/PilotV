@@ -1818,10 +1818,31 @@
         },
         "fallback": {
           "title": "回退链",
-          "description": "每个场景的有序回退模型。如果主模型失败，路由器尝试下一个。",
-          "empty": "未配置回退链。",
+          "description": "每个场景的有序回退模型。主模型限流或失败时，路由器按这里的顺序依次尝试；冷却期也会直接改用回退链中的可用模型。",
+          "empty": "未配置回退模型。",
           "addModel": "添加回退模型",
           "add": "添加",
+          "scenarios": {
+            "default": {
+              "label": "默认（所有场景）",
+              "description": "未单独配置时的通用回退顺序；建议至少配置这一组。"
+            },
+            "subagent": {
+              "label": "子智能体",
+              "description": "子智能体任务的专用回退顺序。"
+            },
+            "explicit": {
+              "label": "手动指定模型",
+              "description": "手动固定模型时的回退顺序，仅在开启下方开关且遇到 429 限流时生效。"
+            }
+          },
+          "rowLabel": "第 {{index}} 顺位回退模型（{{scenario}}）",
+          "moveUp": "上移",
+          "moveDown": "下移",
+          "remove": "移除",
+          "addedToast": "已添加回退模型",
+          "removedToast": "已移除回退模型",
+          "orderHint": "按列表顺序依次尝试，靠前的优先，可用箭头调整顺序。未配置任何回退模型时，限流自动切换不会生效。",
           "allowFallbackOnRateLimit": {
             "label": "显式模型限流回退",
             "description": "开启后，手动指定的模型遇到 429 限流时也会尝试回退链；其他错误仍严格保持原模型。默认关闭。",

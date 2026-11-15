@@ -36,6 +36,14 @@ export default function ModelReferenceDetail({ config, reference, onChange }: {
     || (routerEnabled && (reference === 'router.tokenSaver.judge'
       || reference.startsWith('router.stats.modelPricing.')
       || (path[1] === 'tokenSaver' && path[2] === 'tiers' && config.router?.tokenSaver?.tiers?.[path[3]])))) return null;
+  // The Agent Route page renders an editable row for every configured fallback
+  // slot, tagged with data-model-reference. Scroll to that row instead of
+  // showing a second editor for the same value.
+  if (routerEnabled && path[1] === 'fallback' && typeof path[3] === 'number') {
+    const section = config.router?.fallback as Record<string, unknown> | undefined;
+    const refs = section?.[String(path[2])];
+    if (Array.isArray(refs) && path[3] < refs.length) return null;
+  }
   const value = path.reduce<unknown>((current, key) => current && typeof current === 'object'
     ? (current as Record<string, unknown>)[key] : undefined, config);
   const objectRef = value && typeof value === 'object' ? value as Record<string, unknown> : null;

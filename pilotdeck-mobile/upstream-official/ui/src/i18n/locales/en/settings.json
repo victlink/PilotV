@@ -1818,10 +1818,31 @@
         },
         "fallback": {
           "title": "Fallback Chains",
-          "description": "Ordered fallback models per scenario. If the primary fails, the router tries the next.",
-          "empty": "No fallback chains configured.",
+          "description": "Ordered fallback models per scenario. On rate limits or failures the router tries them in order; cooldowns also route straight to a healthy fallback model.",
+          "empty": "No fallback models configured.",
           "addModel": "Add fallback model",
           "add": "Add",
+          "scenarios": {
+            "default": {
+              "label": "Default (all scenarios)",
+              "description": "Generic order used when no scenario-specific chain exists. Configure at least this one."
+            },
+            "subagent": {
+              "label": "Subagent",
+              "description": "Fallback order for subagent tasks."
+            },
+            "explicit": {
+              "label": "Fixed model",
+              "description": "Fallback order for manually fixed models; only used on HTTP 429 and only when the switch below is on."
+            }
+          },
+          "rowLabel": "Fallback #{{index}} ({{scenario}})",
+          "moveUp": "Move up",
+          "moveDown": "Move down",
+          "remove": "Remove",
+          "addedToast": "Fallback model added",
+          "removedToast": "Fallback model removed",
+          "orderHint": "Models are tried in order, top first; use the arrows to reorder. Without any fallback model, automatic switching on rate limits will not take effect.",
           "allowFallbackOnRateLimit": {
             "label": "Rate-limit fallback for fixed models",
             "description": "When on, an explicitly selected model may use the fallback chain on HTTP 429 only. Other errors still keep the fixed model. Off by default.",
