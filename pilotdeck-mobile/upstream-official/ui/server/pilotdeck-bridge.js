@@ -93,10 +93,12 @@ import {
 import {
     archiveCommanderLoop,
     buildResumeOptions,
+    clearCommanderLoopResumeAt,
     commanderRecoveryConfig,
     fromStoredLoop,
     isIncompleteTurn,
     isRecoverableNow,
+    pauseCommanderLoop,
     readLoopRecords,
     saveCommanderLoop,
 } from './services/commanderLoopStore.js';
@@ -108,6 +110,13 @@ import {
     isStallFinishReason,
     readTurnStallConfig,
 } from './services/turnStallGuard.js';
+import { createTaskmasterService } from './services/resourceSchedulerService.js';
+import {
+    STALL_CATEGORY,
+    TASK_STATUS,
+    classifyStall,
+    scaleTurnBudgets,
+} from './services/resourceScheduler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1318,6 +1327,25 @@ function mapGatewayEventToFrames(event, sessionId, provider) {
                     }),
                 ];
             }
+            if (event.event === 'retry_progress' && detail.reason === 'provider_recovered') {
+                return [
+                    createNormalizedMessage({
+                        ...base,
+                        kind: 'status',
+                        text: `Primary model ${detail.provider}/${detail.model} restored`,
+                        tokens: 0,
+                        canInterrupt: true,
+                        retryProgress: {
+                            attempt: 1,
+                            maxAttempts: 1,
+                            delayMs: 0,
+                            reason: 'provider_recovered',
+                            provider: detail.provider,
+                            model: detail.model,
+                        },
+                    }),
+                ];
+            }
             if (event.event === 'retry_progress') {
                 const retryText = detail.reason === 'continuation'
                     ? 'Continuing response'
@@ -1815,11 +1843,109 @@ export function shouldRunCommanderLoop(projectRuntime, options = {}) {
 /**
  * 恢复守护配置与全局并发闸门。默认全局串行：两个任务同时开自动推进时，
  * 第二条排队而不是同时把长上下文压到 gateway 里（见 commanderLoopSlots.js）。
+ *
+ * 2026-11-15（资源感知调度）：闸门多了一个**准入闸**。旧闸门只数「跑了几条」，
+ * 不问「机器装得下吗」，于是新风机为等咖啡机的 4 小时绝对墙钟从 02:31 排到
+ * 06:35，排队期间既无进度也无解释。现在排队任务要等资源装得下才放行，
+ * 资源变化后自动重试队列。
  */
 const commanderRecovery = commanderRecoveryConfig();
+
+/**
+ * 资源调度器（TaskMaster）。采样 CPU / 内存 / 显存，按余量决定准入、
+ * 监督执行、把「熔断终止」改写成「暂停后自动续跑」。
+ *
+ * 它是**旁路增强**：采样失败按「没有资源信息」处理（不阻塞任务），
+ * 落盘失败只记一笔。所以关掉它（`PILOTV_SCHEDULER=0`）时，
+ * 自动推进的行为与改动前完全一致。
+ */
+const taskmaster = createTaskmasterService();
+
 const commanderSlots = createCommanderSlotLimiter({
     maxConcurrent: commanderRecovery.maxConcurrentLoops,
+    gate: (meta) => taskmaster.gate(meta),
 });
+// 资源变化后重看队列；调度器释放任务后也要重看。
+taskmaster.scheduler.setPump(() => commanderSlots.pump());
+taskmaster.pumpSlots = () => commanderSlots.pump();
+
+/**
+ * 调度器对外接口（供 `routes/resource-scheduler.js` 使用）。
+ *
+ * 全部只读或人工干预，**不提供**「强行放行」这种能把机器压垮的操作：
+ * 人工恢复同样要过准入闸。
+ */
+export function getResourceSchedulerSnapshot() {
+    try {
+        return taskmaster.snapshot();
+    } catch (error) {
+        return { enabled: false, error: error?.message || String(error), tasks: [], counts: {} };
+    }
+}
+
+export function getResourceSchedulerTask(taskId) {
+    try {
+        return taskmaster.scheduler.get(taskId);
+    } catch {
+        return null;
+    }
+}
+
+/** 取消任务：排队中的直接撤掉，运行中的标记为 cancelled。 */
+export function cancelResourceSchedulerTask(taskId) {
+    try {
+        const task = taskmaster.scheduler.get(taskId);
+        if (!task) return false;
+        taskmaster.releaseTask(taskId, { status: TASK_STATUS.CANCELLED, reason: 'cancelled_by_user' });
+        taskmaster.scheduler.unregister(taskId);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * 立即恢复：把暂停的任务放回队列。
+ *
+ * 三个都必须成立，否则如实返回失败（界面据此显示原因，而不是假装恢复）：
+ *   1. 任务确实处于 paused；
+ *   2. 按当前资源准入闸装得下；
+ *   3. **账本里还有这条任务** —— 真正的重启由恢复守护完成，它读的是账本。
+ *      账本已经不在（任务被取消 / 已归档 / 从未落盘）时，光把调度器里的
+ *      状态改成 queued 不会有任何人来跑它，那就纯粹是骗人。
+ */
+export function resumeResourceSchedulerTask(taskId) {
+    try {
+        const task = taskmaster.scheduler.get(taskId);
+        if (!task) return { ok: false, reason: 'task not found' };
+        if (task.status !== TASK_STATUS.PAUSED) {
+            return { ok: false, reason: `task is ${task.status}, not paused`, task };
+        }
+        // 准入闸用「假想已排队」的副本判定，避免先改状态再回滚。
+        const admitted = taskmaster.scheduler.canAdmit(
+            { ...task, status: TASK_STATUS.QUEUED },
+            taskmaster.resources,
+        );
+        if (!admitted) {
+            return { ok: false, reason: 'resources do not allow admission yet', task };
+        }
+        // 账本里的退避也要清掉，否则恢复守护仍要等到 resumeAt 才动手。
+        const record = clearCommanderLoopResumeAt(task.sessionKey ?? taskId, {
+            home: resolvePilotHome(process.env),
+        });
+        if (!record) {
+            return { ok: false, reason: 'commander ledger missing; nothing to resume', task };
+        }
+        // 走调度器自己的 resumePaused：它负责广播、落盘、pump 队列，
+        // 不直接改字段，免得上层观察到不自洽的中间态。
+        task.resumeAt = null;
+        taskmaster.scheduler.resumePaused();
+        taskmaster.pumpSlots?.();
+        return { ok: true, task };
+    } catch (error) {
+        return { ok: false, reason: error?.message || String(error) };
+    }
+}
 
 function commanderLimits() {
     const limits = {};
@@ -1957,6 +2083,11 @@ async function runCommanderLoop({
     // 先占位再排队：恢复守护靠 state.commanderLoop 判断是否已经在跑。
     // 若等并发闸门时才占位，排队的那几十分钟里会被重复恢复。
     state.commanderLoop = loop;
+    /**
+     * 上一轮暂停时留下的「换做法」提示。只在**恢复后的第一轮**注入，
+     * 之后清空 —— 提示每轮都重复会变成噪声，反而稀释了它的作用。
+     */
+    let resumeHintPending = String(loop.resumeHint ?? '').trim();
     /** 账本写入失败不能杀掉循环：任务继续跑，最坏情况是这次崩溃后无法恢复。 */
     const persist = (now = Date.now()) => {
         try {
@@ -1968,7 +2099,15 @@ async function runCommanderLoop({
     // 排队等并发闸门之前就要落盘：第二条任务可能排几十分钟，期间进程若重启
     // 不能因为它「还没轮到」就把用户开过的任务丢掉。
     persist();
-    await commanderSlots.acquire();
+    // 告诉调度器这个任务在排队：准入闸要看得到它，界面也要显示队列位置。
+    taskmaster.registerTask({
+        id: sessionKey,
+        sessionKey,
+        projectPath: projectRoot,
+        goal,
+    });
+    await commanderSlots.acquire({ taskId: sessionKey });
+    taskmaster.markRunning(sessionKey);
 
     const resolveGateway = async () => (getGateway ? await getGateway() : await ensureGateway());
     const baseOptions = {
@@ -2009,6 +2148,92 @@ async function runCommanderLoop({
                 ...detail,
             });
         }
+        return loop;
+    };
+
+    /**
+     * 暂停而不是终止（2026-11-15，资源感知调度）。
+     *
+     * 旧行为：熔断一命中就归档成终态 `waiting_user / no_progress_stall`，
+     * 恢复守护按设计永不续跑 —— 界面上就是「任务跑一会儿自己停了」。
+     * 2026-11-15 的账本显示这条路径吃掉了 12 次停机（6 次重复思考、
+     * 3 次墙钟到顶、2 次静默超时、1 次重复工具失败）。
+     *
+     * 新行为：先问调度器「这次停机能恢复吗」。
+     *   - 能恢复（资源挤 / 临时故障 / 只是需要换个策略）→ 把循环标成
+     *     `paused` 并**保留账本文件**，退避之后由恢复守护接回来，
+     *     同时把「换策略提示」注入下一轮判定，避免原样再犯；
+     *   - 不能恢复（暂停次数用尽 / 调度器关闭）→ 维持旧的终止语义。
+     *
+     * 关键区别：暂停**不删 running 文件**。删除是「不会再自动恢复」的唯一
+     * 凭据，所以暂停态必须留着文件，恢复守护才接得回来。
+     */
+    const pauseLoop = (stallCode, stallDetail = null) => {
+        const classification = classifyStall(
+            { code: stallCode, detail: stallDetail },
+            taskmaster.resources,
+        );
+        // 调度器关闭 → 维持旧语义（熔断即终止）。这是回滚开关：
+        // `PILOTV_SCHEDULER=0` 时行为与 2026-11-15 之前完全一致。
+        const schedulerEnabled = taskmaster.config.enabled !== false;
+        const pauseResult = schedulerEnabled
+            ? taskmaster.handleStall(sessionKey, {
+                code: stallCode,
+                detail: stallDetail,
+            })
+            : null;
+        if (!pauseResult?.resumable) {
+            // 调度器关闭，或暂停预算已用尽 → 维持旧的终止语义。
+            settleAndArchive(
+                { type: 'wait_user', reason: NO_PROGRESS_STOP_REASON },
+                '自动推进检测到连续无进展，已停止并交还给你；不会自动续跑。请检查任务状态后人工介入或重新发起。',
+                { stall: stallCode },
+            );
+            console.warn(`[pilotdeck-bridge] commander loop stopped by stall guard (${stallCode}): ${sessionKey}`);
+            return loop;
+        }
+
+        const backoff = taskmaster.config.pauseBackoffMs
+            * Math.pow(2, Math.max(0, (pauseResult.task.pauseCount ?? 1) - 1));
+        const resumeAt = Date.now() + backoff;
+        loop.status = 'paused';
+        loop.stopReason = `paused:${classification.reason}`;
+        loop.pauseCount = pauseResult.task.pauseCount ?? 1;
+        loop.resumeHint = classification.hint;
+        loop.resumeAt = resumeAt;
+        loop.pausedAt = Date.now();
+        try {
+            pauseCommanderLoop(loop, loopContext, {
+                reason: loop.stopReason,
+                hint: classification.hint,
+                resumeAt,
+            });
+        } catch (error) {
+            console.warn('[pilotdeck-bridge] commander ledger pause write failed:', error?.message || error);
+        }
+        const categoryLabel = classification.category === STALL_CATEGORY.RESOURCE
+            ? '机器资源紧张'
+            : classification.category === STALL_CATEGORY.TRANSIENT
+                ? '临时故障'
+                : '执行策略需要调整';
+        sendCommanderStatus(
+            writer,
+            sessionKey,
+            provider,
+            `自动推进已暂停（${categoryLabel}：${classification.reason}），约 ${Math.round(backoff / 1000)} 秒后自动续跑；${classification.hint}`,
+            {
+                status: 'paused',
+                reason: loop.stopReason,
+                stall: stallCode,
+                category: classification.category,
+                resumeAt,
+                iteration: loop.iteration,
+            },
+        );
+        console.warn(
+            `[pilotdeck-bridge] commander loop paused (${stallCode}/${classification.category}) `
+            + `resume in ${backoff}ms: ${sessionKey}`,
+        );
         return loop;
     };
 
@@ -2058,6 +2283,7 @@ async function runCommanderLoop({
                         evidence,
                         mode,
                         workerName: worker?.name ?? '',
+                        resumeHint: resumeHintPending,
                     }),
                     purpose: 'commander_judgement',
                 }],
@@ -2116,6 +2342,7 @@ async function runCommanderLoop({
                             acceptance: loop.acceptance,
                             instruction: action.instruction,
                             iteration,
+                            resumeHint: resumeHintPending,
                         }),
                         purpose: 'commander_dispatch',
                     }],
@@ -2128,28 +2355,34 @@ async function runCommanderLoop({
                 }
                 persist();
             }
+            // 「换做法」的提示只注入恢复后的第一轮，之后清空。
+            resumeHintPending = '';
         }
     } catch (error) {
         // 断连、异常、网关重启都走这里：**不清账本**，标记 interrupted 后
         // 交给恢复守护。只有 settleAndArchive 才会删掉 running 文件。
         const reason = error instanceof Error ? error.message : String(error);
-        // 无进展是终态：归档为 waiting_user，绝不标 interrupted，否则恢复守护
-        // 会在 20 秒后把同一个死循环重新拉起来。
+        // 无进展熔断：先问调度器能不能恢复。
+        // 能恢复 → 暂停（保留账本，退避后自动续跑）；
+        // 不能恢复 → 归档为 waiting_user（终态，恢复守护永不续跑）。
+        // 两种情况都**不标 interrupted**，否则恢复守护 20 秒后会把同一个
+        // 死循环重新拉起来，形成「崩溃 → 自动恢复 → 再卡死」的死循环。
         if (reason.startsWith('commander_stalled:')) {
             const stallCode = reason.slice('commander_stalled:'.length);
-            settleAndArchive(
-                { type: 'wait_user', reason: NO_PROGRESS_STOP_REASON },
-                '自动推进检测到连续无进展，已停止并交还给你；不会自动续跑。请检查任务状态后人工介入或重新发起。',
-                { stall: stallCode },
-            );
-            console.warn(`[pilotdeck-bridge] commander loop stopped by stall guard (${stallCode}): ${sessionKey}`);
-            return loop;
+            return pauseLoop(stallCode);
         }
         const now = Date.now();
         loop.status = 'interrupted';
         loop.lastError = reason.slice(0, 500);
         loop.interruptedAt = now;
         persist(now);
+        // 调度器也要知道：中断期间任务不占运行名额，但要出现在队列视图里。
+        // 这里**不计入暂停预算** —— 中断的恢复次数由账本的 recoveryCount 单独管，
+        // 两套预算各管各的，避免互相把任务提前判死。
+        taskmaster.handleStall(sessionKey, { code: reason.split(':')[0] || 'interrupted' }, {
+            countAttempt: false,
+            reason: `interrupted:${reason.slice(0, 120)}`,
+        });
         console.warn(`[pilotdeck-bridge] commander loop interrupted (ledger kept, will resume): ${reason}`);
         sendCommanderStatus(
             writer,
@@ -2162,6 +2395,23 @@ async function runCommanderLoop({
     } finally {
         if (state.commanderLoop === loop) state.commanderLoop = undefined;
         commanderSlots.release();
+        // 与调度器对账：循环已经结束，任务不能在调度器里还占着「运行」名额，
+        // 否则准入闸会以为机器上还挂着一个任务，永远不放行别的任务。
+        const schedulerTask = taskmaster.scheduler.get(sessionKey);
+        if (schedulerTask && schedulerTask.status === TASK_STATUS.RUNNING) {
+            if (loop.status === 'paused' || loop.status === 'interrupted') {
+                // 暂停 / 中断：任务仍在队列里，恢复守护会把它接回来。
+                taskmaster.handleStall(sessionKey, { code: loop.status }, {
+                    countAttempt: false,
+                    reason: loop.stopReason ?? loop.status,
+                });
+            } else {
+                taskmaster.releaseTask(sessionKey, {
+                    status: loop.status === 'done' ? TASK_STATUS.DONE : TASK_STATUS.FAILED,
+                    reason: loop.stopReason ?? null,
+                });
+            }
+        }
     }
 }
 
@@ -2190,6 +2440,21 @@ export function startCommanderLoopRecovery({
     if (String(process.env.PILOTV_COMMANDER_RECOVERY ?? '').trim() === '0') {
         console.log('[pilotdeck-bridge] commander recovery disabled (PILOTV_COMMANDER_RECOVERY=0)');
         return () => {};
+    }
+
+    // 资源调度器在这里起：它是恢复守护的配套件（恢复时要按资源准入），
+    // 而恢复守护本身是 UI server 启动后第一个被拉起来的东西，时机正好。
+    // 调度器关闭时（`PILOTV_SCHEDULER=0`）自动推进行为与改动前完全一致。
+    try {
+        taskmaster.start();
+        console.log(
+            `[pilotdeck-bridge] taskmaster scheduler started `
+            + `(sample=${taskmaster.monitor.config.sampleIntervalMs}ms, `
+            + `maxConcurrent=${taskmaster.config.maxConcurrent}, `
+            + `memFloor=${Math.round((taskmaster.config.memFloorBytes ?? 0) / (1024 * 1024))}MB)`,
+        );
+    } catch (error) {
+        console.warn('[pilotdeck-bridge] taskmaster scheduler failed to start:', error?.message || error);
     }
 
     let stopped = false;
@@ -2267,6 +2532,21 @@ export function startCommanderLoopRecovery({
                     archiveCommanderLoop(loop, record.context, { home, now, status: 'abandoned', reason });
                 } catch (error) {
                     console.warn('[pilotdeck-bridge] commander ledger archive failed:', error?.message || error);
+                }
+                // 与调度器对账：这条循环已经被判死，调度器里若还留着它的
+                // 排队 / 暂停记录，就会变成永远跑不起来的「幽灵任务」，
+                // 在任务窗口里一直显示「排队中」，而且会占着队列位置。
+                // 循环的生命周期以账本为准，账本判死，调度器也跟着结账。
+                try {
+                    const ghost = taskmaster.scheduler.get?.(record.sessionKey);
+                    if (ghost) {
+                        taskmaster.releaseTask(record.sessionKey, {
+                            status: TASK_STATUS.FAILED,
+                            reason,
+                        });
+                    }
+                } catch (error) {
+                    console.warn('[pilotdeck-bridge] scheduler reconcile failed:', error?.message || error);
                 }
                 console.warn(`[pilotdeck-bridge] commander loop abandoned (${reason}): ${record.sessionKey}`);
             }
@@ -2417,7 +2697,19 @@ export async function runChatViaGateway(
     let turnFinishReason = null;
     // 单 turn 无进展熔断：重复 thinking / 重复工具失败 / 超时 / 超 token。
     // 命中后主动 abort，并把 finishReason 标成终态——绝不能被恢复守护当崩溃续跑。
-    const stallGuard = createTurnStallGuard({ config: readTurnStallConfig() });
+    //
+    // 预算**按资源状态伸缩**（2026-11-15）：旧的 4 小时墙钟是绝对的，
+    // 咖啡机任务就是这么被砍掉的（elapsedMs 14,596,198 > 14,400,000）——
+    // 那 4 小时里它一直在产出，只是机器挤、跑得慢。机器挤 → 放宽；
+    // 机器空 → 保持默认，不给「空转」留口子。
+    const stallConfig = readTurnStallConfig();
+    stallConfig.budgetScale = (kind) => {
+        const resources = taskmaster.resources;
+        if (!resources) return null;
+        const scaled = scaleTurnBudgets(stallConfig, resources, taskmaster.config);
+        return kind === 'idle' ? scaled.maxIdleMs : scaled.maxTurnWallClockMs;
+    };
+    const stallGuard = createTurnStallGuard({ config: stallConfig });
     let stalled = null;
     let stallAbortRequested = false;
     try {
@@ -2499,6 +2791,14 @@ export async function runChatViaGateway(
         });
 
         for await (const event of stream) {
+            // 有有效进展就记一笔：调度器用它判断「这个任务还活着」，
+            // 也用来在压力高时决定谁该让路。
+            if (event && (event.type === 'file_artifacts'
+                || (event.type === 'tool_call_finished' && event.ok === true)
+                || event.type === 'subagent_tool_result'
+                || event.type === 'subagent_completed')) {
+                taskmaster.observeProgress(sessionKey);
+            }
             if (!stalled) {
                 const detected = stallGuard.observe(event);
                 if (detected) {

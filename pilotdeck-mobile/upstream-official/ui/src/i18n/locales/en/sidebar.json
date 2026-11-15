@@ -225,5 +225,31 @@
     "elapsedRunning": "Elapsed time for this turn",
     "activity": "Task activity (no completion percentage available)",
     "toolsCompleted": "{{count}} tools completed"
+  },
+  "scheduler": {
+    "title": "Scheduler",
+    "cpu": "CPU",
+    "memory": "Memory",
+    "vram": "VRAM",
+    "vramUnavailable": "unavailable",
+    "memoryFree": "{{free}} free",
+    "stale": "Scheduler not responding (showing last reading)",
+    "queueSummary": "{{running}} running · {{queued}} queued · {{paused}} paused",
+    "ahead": "{{count}} ahead",
+    "pausedReason": "Reason: {{reason}}",
+    "resumesIn": "resumes in {{time}}",
+    "resumeNow": "Resume now",
+    "resumeFailed": "Cannot resume yet: {{reason}}",
+    "pressure": {
+      "normal": "Room to spare",
+      "elevated": "Elevated",
+      "high": "Tight",
+      "critical": "Critical"
+    },
+    "taskStatus": {
+      "running": "Running",
+      "queued": "Queued",
+      "paused": "Paused"
+    }
   }
 }

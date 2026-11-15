@@ -496,6 +496,39 @@ export const api = {
       }),
   },
 
+  // 资源感知任务调度（TaskMaster）。与上面的 taskmaster（TaskMaster AI CLI
+  // 集成）是两回事，故分开命名。
+  resourceScheduler: {
+    /** 机器实时资源 + 压力分级 + 队列计数。 */
+    resources: () =>
+      authenticatedFetch('/api/resource-scheduler/resources', {
+        suppressServerErrorToast: true,
+      }),
+
+    /** 任务队列快照（含资源，界面一次拉齐）。 */
+    tasks: () =>
+      authenticatedFetch('/api/resource-scheduler/tasks', {
+        suppressServerErrorToast: true,
+      }),
+
+    /** 取消一个任务。 */
+    cancelTask: (taskId) =>
+      authenticatedFetch(`/api/resource-scheduler/tasks/${encodeURIComponent(taskId)}/cancel`, {
+        method: 'POST',
+        suppressServerErrorToast: true,
+      }),
+
+    /**
+     * 立即恢复被暂停的任务。仍然要过准入闸：机器装不下就恢复不了，
+     * 服务端会返回 409 并说明原因 —— 界面据此如实显示，而不是假装恢复了。
+     */
+    resumeTask: (taskId) =>
+      authenticatedFetch(`/api/resource-scheduler/tasks/${encodeURIComponent(taskId)}/resume`, {
+        method: 'POST',
+        suppressServerErrorToast: true,
+      }),
+  },
+
   // Browse filesystem for project suggestions
   browseFilesystem: (dirPath = null) => {
     const params = new URLSearchParams();

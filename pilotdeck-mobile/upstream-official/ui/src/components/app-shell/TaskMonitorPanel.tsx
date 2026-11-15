@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, Clock, Loader2, ShieldAlert } from 'lucide
 import type { Project, ProjectSession } from '../../types/app';
 import type { PendingConfirmationsBySession } from './usePendingConfirmations';
 import { useTaskProgress, type TaskProgressBySession } from './useTaskProgress';
+import SchedulerStrip from './SchedulerStrip';
 
 /**
  * Task monitor.
@@ -198,6 +199,10 @@ export default function TaskMonitorPanel({
       data-testid="task-monitor-panel"
       className="shrink-0 border-b border-neutral-200 bg-neutral-50/80 px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900/50"
     >
+      {/* 调度条排在任务卡片之前：先让人看到「机器什么状况、我的任务排第几」，
+          再看具体会话卡片 —— 这正是 2026-11-15 排查时缺的信息。 */}
+      <SchedulerStrip />
+
       <div className="mb-2 flex items-center gap-3">
         <h2 className="text-xs font-semibold text-neutral-800 dark:text-neutral-100">
           {t('sidebar:tasks.title')}

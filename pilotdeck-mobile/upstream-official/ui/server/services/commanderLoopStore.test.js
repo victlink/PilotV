@@ -8,6 +8,7 @@ import {
     COMMANDER_LOOP_SCHEMA,
     archiveCommanderLoop,
     buildResumeOptions,
+    clearCommanderLoopResumeAt,
     commanderLoopFileName,
     commanderRecoveryConfig,
     fromStoredLoop,
@@ -209,6 +210,28 @@ describe('账本落盘与归档', () => {
         const now = 1_000 + COMMANDER_RECOVERY_DEFAULTS.runningGraceMs + 1;
         expect(readLoopRecords({ home, now }).recoverable).toHaveLength(0);
         expect(readLoopRecords({ home, now }).stale).toHaveLength(0);
+    });
+
+    it('手动恢复只清退避，不刷新 updatedAt（否则要白等 90 秒 grace）', () => {
+        const home = tempHome();
+        const loop = makeLoop();
+        loop.status = 'paused';
+        loop.stopReason = 'paused:turn_idle';
+        loop.resumeAt = 60_000;
+        saveCommanderLoop(loop, { projectPath: '/work/fan' }, { home, now: 1_000 });
+
+        const cleared = clearCommanderLoopResumeAt('web-s_test', { home });
+        expect(cleared.resumeAt).toBeNull();
+        // updatedAt 保持原值：它代表账本最后一次真实状态变化。
+        expect(cleared.updatedAt).toBe(1_000);
+
+        const now = 1_000 + COMMANDER_RECOVERY_DEFAULTS.runningGraceMs + 1;
+        expect(isRecoverableNow(cleared, { now })).toBe(true);
+    });
+
+    it('账本不存在时手动恢复返回 null，不凭空造一条记录', () => {
+        const home = tempHome();
+        expect(clearCommanderLoopResumeAt('web-s_missing', { home })).toBeNull();
     });
 
     it('坏 JSON 被隔离留证，不影响其它账本；过期账本单独归到 stale', () => {

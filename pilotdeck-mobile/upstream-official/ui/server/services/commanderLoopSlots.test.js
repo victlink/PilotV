@@ -64,4 +64,67 @@ describe('自动推进全局并发闸门', () => {
         await slots.acquire();
         expect(slots.activeCount).toBe(1);
     });
+
+    it('准入闸拒绝时不放行，即使有空位', async () => {
+        let allow = false;
+        const slots = createCommanderSlotLimiter({
+            maxConcurrent: 1,
+            gate: () => allow,
+        });
+        let started = false;
+        const pending = slots.acquire().then(() => { started = true; });
+        await Promise.resolve();
+        expect(started).toBe(false);
+        expect(slots.queuedCount).toBe(1);
+        expect(slots.activeCount).toBe(0);
+        pending.catch(() => {});
+    });
+
+    it('资源腾出来后 pump() 会放行排队的任务', async () => {
+        let allow = false;
+        const slots = createCommanderSlotLimiter({
+            maxConcurrent: 1,
+            gate: () => allow,
+        });
+        let started = false;
+        const pending = slots.acquire().then(() => { started = true; });
+        await Promise.resolve();
+        expect(started).toBe(false);
+        allow = true;
+        slots.pump();
+        await pending;
+        expect(started).toBe(true);
+        expect(slots.activeCount).toBe(1);
+    });
+
+    it('闸门抛错按「不放行」处理，不让异常打断排队', async () => {
+        const slots = createCommanderSlotLimiter({
+            maxConcurrent: 1,
+            gate: () => { throw new Error('resource probe failed'); },
+        });
+        let started = false;
+        const pending = slots.acquire().then(() => { started = true; });
+        await Promise.resolve();
+        expect(started).toBe(false);
+        expect(slots.queuedCount).toBe(1);
+        pending.catch(() => {});
+    });
+
+    it('闸门拒绝时不跳过队首（保持 FIFO，不制造饥饿）', async () => {
+        const allowed = new Set(['second']);
+        const slots = createCommanderSlotLimiter({
+            maxConcurrent: 1,
+            gate: (meta) => allowed.has(meta),
+        });
+        const order = [];
+        const p1 = slots.acquire('first').then(() => order.push('first'));
+        const p2 = slots.acquire('second').then(() => order.push('second'));
+        await Promise.resolve();
+        // 队首被拒，但此刻有空位且队首不许过 —— 队首应当原地等待，
+        // 而不是让第二个人插队（否则会永远饿死队首）。
+        expect(order).toEqual([]);
+        expect(slots.queuedCount).toBe(2);
+        p1.catch(() => {});
+        p2.catch(() => {});
+    });
 });

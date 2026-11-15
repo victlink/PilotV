@@ -91,6 +91,23 @@ export const TURN_STALL_DEFAULTS = Object.freeze({
     maxTurnTokens: 8_000_000,
     /** thinking 指纹取前多少字符。 */
     thinkingKeyChars: 120,
+    /**
+     * 预算伸缩钩子（2026-11-15，资源感知）。
+     *
+     * 旧护栏的 `maxTurnWallClockMs` 是**绝对**墙钟：4 小时一到，无论任务
+     * 有没有进展都停。2026-11-15 实测咖啡机任务就是这么被砍掉的
+     * （elapsedMs 14,596,198 > 14,400,000），而那 4 小时里它一直在
+     * 反复重写同一个 FreeCAD 脚本 —— 有产出，只是慢。
+     *
+     * 机器挤的时候一个 FreeCAD 构建就要吃掉几十分钟，固定墙钟必然误杀。
+     * 这里允许调用方提供一个**实时**函数，按当前资源状态动态放宽或收紧
+     * 预算。返回 null / 非正数表示「用默认值」。
+     *
+     * @param {'turn'|'idle'} kind
+     * @param {{elapsedMs:number, idleMs:number}} context
+     * @returns {number|null}
+     */
+    budgetScale: null,
 });
 
 /**
@@ -217,6 +234,8 @@ export function readTurnStallConfig(env = process.env) {
         maxTurnWallClockMs: limitFromEnv(env, 'PILOTV_STALL_MAX_TURN_MS', TURN_STALL_DEFAULTS.maxTurnWallClockMs),
         maxTurnTokens: limitFromEnv(env, 'PILOTV_STALL_MAX_TURN_TOKENS', TURN_STALL_DEFAULTS.maxTurnTokens),
         thinkingKeyChars: TURN_STALL_DEFAULTS.thinkingKeyChars,
+        // 预算伸缩由调用方注入（资源调度器），这里不读环境变量。
+        budgetScale: null,
     };
 }
 
@@ -264,6 +283,25 @@ export function createTurnStallGuard(input = {}) {
     let turnCompleted = false;
 
     const markProgress = () => { lastProgressAtMs = now(); };
+
+    /**
+     * 当前生效的预算。`config.budgetScale` 存在时按资源状态实时伸缩：
+     * 机器挤 → 放宽（跑得慢不是没进展），机器空 → 保持默认值。
+     */
+    const budgetFor = (kind) => {
+        const base = kind === 'idle' ? config.maxIdleMs : config.maxTurnWallClockMs;
+        if (typeof config.budgetScale !== 'function') return base;
+        let scaled;
+        try {
+            scaled = config.budgetScale(kind, {
+                elapsedMs: Math.max(0, now() - startedAtMs),
+                idleMs: Math.max(0, now() - lastProgressAtMs),
+            });
+        } catch {
+            return base;
+        }
+        return Number.isFinite(scaled) && scaled > 0 ? scaled : base;
+    };
 
     /** 主 turn 与子 agent 共用的「重复工具失败」判定。 */
     const noteToolFailure = (event, scope) => {
@@ -326,8 +364,11 @@ export function createTurnStallGuard(input = {}) {
         const currentMs = now();
         const elapsedMs = currentMs - startedAtMs;
         // 绝对兜底：无论有没有进展，单个 turn 都不允许无限跑。
-        if (elapsedMs >= config.maxTurnWallClockMs) {
-            return trip('turn_timeout', { elapsedMs, limitMs: config.maxTurnWallClockMs });
+        // 预算是**动态**的：资源紧张时由 budgetScale 放宽，避免把
+        // 「机器挤导致跑得慢」误判成「任务失控」。
+        const turnLimitMs = budgetFor('turn');
+        if (elapsedMs >= turnLimitMs) {
+            return trip('turn_timeout', { elapsedMs, limitMs: turnLimitMs });
         }
         // 迟到的进展事件本身证明还在推进，先刷新心跳再判静默，避免
         // 「事件稀疏但确实在干活」被上一次静默误杀。
@@ -337,8 +378,9 @@ export function createTurnStallGuard(input = {}) {
         // task_wait 等子 agent），不能因为跑得久就误杀。
         const idleMs = currentMs - lastProgressAtMs;
         const anyToolInFlight = inFlightTools > 0 || subagentInFlightCount() > 0;
-        if (!isProgressEvent && !anyToolInFlight && idleMs >= config.maxIdleMs) {
-            return trip('turn_idle', { idleMs, limitMs: config.maxIdleMs, elapsedMs });
+        const idleLimitMs = budgetFor('idle');
+        if (!isProgressEvent && !anyToolInFlight && idleMs >= idleLimitMs) {
+            return trip('turn_idle', { idleMs, limitMs: idleLimitMs, elapsedMs });
         }
 
         switch (event.type) {

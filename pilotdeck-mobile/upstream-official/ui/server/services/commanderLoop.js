@@ -476,6 +476,7 @@ export function buildJudgeRequest({
     evidence = {},
     mode = 'self',
     workerName = '',
+    resumeHint = '',
 } = {}) {
     const lines = [
         `【指挥判定 · 第 ${iteration} 轮】`,
@@ -484,6 +485,12 @@ export function buildJudgeRequest({
     if (acceptance.length > 0) {
         lines.push('完成条件：');
         acceptance.forEach((item, index) => lines.push(`  ${index + 1}. ${item}`));
+    }
+    // 上一轮被暂停时的换策略提示（2026-11-15，资源感知调度）。
+    // 没有它，恢复后的模型会原样再犯一次 —— 这正是「暂停后自动续跑」
+    // 必须配套的东西：不仅要续跑，还要**换做法**。
+    if (String(resumeHint ?? '').trim()) {
+        lines.push('', '【上一轮被暂停，请勿原样重试】', String(resumeHint).trim());
     }
     lines.push('', '当前实施情况（客观证据优先于自述）：');
     lines.push(evidence.lastAssistantText
@@ -514,7 +521,7 @@ export function buildJudgeRequest({
 }
 
 /** First instruction handed to the worker in delegated mode. */
-export function buildWorkerDispatch({ goal, acceptance = [], instruction, iteration } = {}) {
+export function buildWorkerDispatch({ goal, acceptance = [], instruction, iteration, resumeHint = '' } = {}) {
     const lines = [
         `【指挥派发 · 第 ${iteration} 轮】`,
         `目标：${String(goal ?? '').trim() || '（未记录）'}`,
@@ -522,6 +529,10 @@ export function buildWorkerDispatch({ goal, acceptance = [], instruction, iterat
     if (acceptance.length > 0) {
         lines.push('完成条件：');
         acceptance.forEach((item, index) => lines.push(`  ${index + 1}. ${item}`));
+    }
+    // 暂停恢复时把「换做法」的提示一起带下去，否则执行者会重蹈覆辙。
+    if (String(resumeHint ?? '').trim()) {
+        lines.push('', '【上一轮被暂停，请勿原样重试】', String(resumeHint).trim());
     }
     lines.push('', '本轮指令：', String(instruction ?? '').trim() || '按目标继续推进。');
     lines.push('', '执行要求：动手改到目标真的达成为止；不要只给计划或说明；无法继续时明确说明缺什么。');

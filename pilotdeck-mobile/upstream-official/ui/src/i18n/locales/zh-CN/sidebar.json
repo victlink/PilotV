@@ -225,5 +225,31 @@
     "elapsedRunning": "本轮执行用时",
     "activity": "任务活动（无完成百分比）",
     "toolsCompleted": "已完成 {{count}} 个工具调用"
+  },
+  "scheduler": {
+    "title": "调度",
+    "cpu": "CPU",
+    "memory": "内存",
+    "vram": "显存",
+    "vramUnavailable": "不可用",
+    "memoryFree": "可用 {{free}}",
+    "stale": "调度器暂时无响应（显示的是上一次读数）",
+    "queueSummary": "{{running}} 个执行中 · {{queued}} 个排队 · {{paused}} 个已暂停",
+    "ahead": "前面还有 {{count}} 个",
+    "pausedReason": "原因：{{reason}}",
+    "resumesIn": "{{time}} 后自动续跑",
+    "resumeNow": "立即恢复",
+    "resumeFailed": "无法立即恢复：{{reason}}",
+    "pressure": {
+      "normal": "宽裕",
+      "elevated": "偏高",
+      "high": "紧张",
+      "critical": "危急"
+    },
+    "taskStatus": {
+      "running": "执行中",
+      "queued": "排队中",
+      "paused": "已暂停"
+    }
   }
 }

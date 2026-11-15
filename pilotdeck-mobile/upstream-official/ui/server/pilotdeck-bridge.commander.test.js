@@ -13,7 +13,8 @@ vi.mock('./services/gatewayConnectionCache.js', () => ({
     createGatewayConnectionCache: () => ({ get: async () => mock.gateway, invalidate: () => {} }),
 }));
 
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { runChatViaGateway } from './pilotdeck-bridge.js';
@@ -36,8 +37,24 @@ afterAll(async () => {
     await rm(mock.home, { recursive: true, force: true });
 });
 
-async function setupTeam({ mode = 'commander' } = {}) {
-    const suffix = `${mode}-${Math.random().toString(36).slice(2, 8)}`;
+/**
+ * 清掉指挥循环账本目录。
+ *
+ * 这个文件里的用例共用同一个临时 home，所以上一个用例**暂停**（而不是归档）
+ * 留下的账本会留在这里。断言「账本被暂停了」时必须先清干净，
+ * 否则读到的是别的会话的账本，测试就成了假绿。
+ */
+async function clearLoopLedger() {
+    const dir = path.join(mock.home, 'commander-loops');
+    if (!existsSync(dir)) return;
+    for (const name of await readdir(dir)) {
+        if (name.endsWith('.json')) {
+            await rm(path.join(dir, name), { force: true });
+        }
+    }
+}
+
+async function setupTeam({ mode = 'commander' } = {}) {    const suffix = `${mode}-${Math.random().toString(36).slice(2, 8)}`;
     const projectRoot = path.join(mock.home, `commander-workspace-${suffix}`);
     await mkdir(projectRoot, { recursive: true });
     await mkdir(path.join(mock.home, 'projects', `commander-${suffix}`), { recursive: true });
@@ -246,7 +263,7 @@ it('self-checks with the current agent when the project has no team config', asy
     expect(commanderTexts.some((text) => text.includes('自检'))).toBe(true);
 });
 
-it('无进展熔断：判定轮复读时主动 abort，归档 waiting_user 而不自动续跑', async () => {
+it('无进展熔断：判定轮复读时主动 abort，任务被暂停并可自动续跑（不再直接终止）', async () => {
     const envKeys = [
         'PILOTV_STALL_MAX_REPEATED_THINKING',
         'PILOTV_STALL_MAX_TURN_MS',
@@ -258,6 +275,7 @@ it('无进展熔断：判定轮复读时主动 abort，归档 waiting_user 而�
     process.env.PILOTV_STALL_MAX_TURN_MS = '0';
     process.env.PILOTV_STALL_MAX_TURN_TOKENS = '0';
 
+    await clearLoopLedger();
     const projectRoot = await setupTeam();
     const calls = [];
     const frames = [];
@@ -300,9 +318,82 @@ it('无进展熔断：判定轮复读时主动 abort，归档 waiting_user 而�
     const commanderTexts = frames
         .filter((frame) => frame.kind === 'status' && frame.status === 'commander')
         .map((frame) => frame.text);
-    expect(commanderTexts.some((text) => text.includes('连续无进展'))).toBe(true);
+    // 熔断不再终止任务，而是**暂停**并说明稍后自动续跑。
+    expect(commanderTexts.some((text) => text.includes('已暂停'))).toBe(true);
+    expect(commanderTexts.some((text) => text.includes('自动续跑'))).toBe(true);
+    // 暂停不是断连：不能把用户吓成「网关挂了」。
     expect(commanderTexts.some((text) => text.includes('网关断连'))).toBe(false);
 
+    // 关键：账本**没有**被归档。归档（删除 running 文件）是「永不恢复」的
+    // 唯一凭据，暂停态必须留着文件，恢复守护才接得回来。
+    const historyPath = path.join(mock.home, 'commander-loops', 'history.jsonl');
+    const historyExists = existsSync(historyPath);
+    if (historyExists) {
+        const lines = (await readFile(historyPath, 'utf8')).trim().split('\n').map(JSON.parse);
+        expect(lines.some((entry) => entry.stopReason === 'no_progress_stall')).toBe(false);
+    }
+    const runningDir = path.join(mock.home, 'commander-loops');
+    const runningFiles = existsSync(runningDir)
+        ? (await readdir(runningDir)).filter((name) => name.endsWith('.json'))
+        : [];
+    expect(runningFiles).not.toHaveLength(0);
+    const paused = JSON.parse(await readFile(path.join(runningDir, runningFiles[0]), 'utf8'));
+    expect(paused.status).toBe('paused');
+    expect(paused.stopReason).toContain('paused:');
+    // 恢复时要注入「换做法」的提示，否则模型会原样再犯一次。
+    expect(typeof paused.resumeHint).toBe('string');
+    expect(paused.resumeHint.length).toBeGreaterThan(0);
+});
+
+it('调度器关闭时熔断仍按旧语义终止（回滚开关）', async () => {
+    const envKeys = [
+        'PILOTV_STALL_MAX_REPEATED_THINKING',
+        'PILOTV_STALL_MAX_TURN_MS',
+        'PILOTV_STALL_MAX_TURN_TOKENS',
+        'PILOTV_SCHEDULER',
+    ];
+    const saved = envKeys.map((key) => process.env[key]);
+    process.env.PILOTV_COMMANDER_LOOP = '1';
+    process.env.PILOTV_STALL_MAX_REPEATED_THINKING = '2';
+    process.env.PILOTV_STALL_MAX_TURN_MS = '0';
+    process.env.PILOTV_STALL_MAX_TURN_TOKENS = '0';
+    process.env.PILOTV_SCHEDULER = '0';
+
+    const projectRoot = await setupTeam();
+    const frames = [];
+    const aborts = [];
+    const repeated = 'The memory says read-only, no FreeCAD. ';
+    mock.gateway = {
+        getActiveTurnSnapshot: async () => ({ active: false, events: [] }),
+        async *submitTurn(input) {
+            yield { type: 'input_accepted', runId: input.runId };
+            const isJudgement = (input.syntheticMessages || [])
+                .some((message) => message.purpose === 'commander_judgement');
+            if (isJudgement) {
+                yield { type: 'assistant_block', kind: 'thinking', text: repeated };
+                yield { type: 'assistant_block', kind: 'thinking', text: repeated };
+                yield { type: 'assistant_stream_end' };
+            }
+            yield { type: 'turn_completed', runId: input.runId, finishReason: 'completed', usage: {} };
+        },
+        readSessionMessages: async () => ({
+            messages: [{ role: 'assistant', content: verdict({ status: 'continue', summary: '还差一步', next: '继续' }) }],
+        }),
+        abortTurn: async (args) => { aborts.push(args); return true; },
+    };
+    const writer = { send: (frame) => frames.push(frame) };
+    try {
+        await runChatViaGateway('继续完成 CAD 交付', { projectPath: projectRoot, agentId: 'boss' }, writer);
+    } finally {
+        envKeys.forEach((key, index) => {
+            if (saved[index] === undefined) delete process.env[key];
+            else process.env[key] = saved[index];
+        });
+        delete process.env.PILOTV_COMMANDER_LOOP;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(aborts).not.toHaveLength(0);
     const history = path.join(mock.home, 'commander-loops', 'history.jsonl');
     const lines = (await readFile(history, 'utf8')).trim().split('\n').map(JSON.parse);
     const archived = lines[lines.length - 1];
@@ -377,6 +468,7 @@ it('子 agent 事件包装回归：网关 agent_status 格式的子 agent 复读
     process.env.PILOTV_STALL_MAX_TURN_MS = '0';
     process.env.PILOTV_STALL_MAX_TURN_TOKENS = '0';
 
+    await clearLoopLedger();
     const projectRoot = await setupTeam();
     const frames = [];
     const aborts = [];
@@ -419,9 +511,11 @@ it('子 agent 事件包装回归：网关 agent_status 格式的子 agent 复读
     // 旧实现里 subagent_* case 是死代码，这里不会有任何 stall；修好后必须命中。
     expect(aborts).not.toHaveLength(0);
     expect(frames.some((frame) => frame.status === 'turn_stalled')).toBe(true);
-    const history = path.join(mock.home, 'commander-loops', 'history.jsonl');
-    const lines = (await readFile(history, 'utf8')).trim().split('\n').map(JSON.parse);
-    const archived = lines[lines.length - 1];
-    expect(archived.status).toBe('waiting_user');
-    expect(archived.stopReason).toBe('no_progress_stall');
+    // 子 agent 复读同样走「暂停后自动续跑」，不是终止。
+    const runningDir = path.join(mock.home, 'commander-loops');
+    const runningFiles = (await readdir(runningDir)).filter((name) => name.endsWith('.json'));
+    expect(runningFiles).not.toHaveLength(0);
+    const paused = JSON.parse(await readFile(path.join(runningDir, runningFiles[0]), 'utf8'));
+    expect(paused.status).toBe('paused');
+    expect(paused.stopReason).toContain('repeated_subagent_thinking');
 });

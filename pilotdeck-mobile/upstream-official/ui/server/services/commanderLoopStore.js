@@ -120,6 +120,13 @@ export function toStoredLoop(loop, context = {}, { now = Date.now() } = {}) {
         interruptedAt: loop.interruptedAt ?? null,
         endedAt: loop.endedAt ?? null,
         recoveryCount: loop.recoveryCount ?? 0,
+        // 暂停态（2026-11-15，资源感知调度）：
+        // 熔断不再直接终止任务，而是把循环标成 `paused` 并记下恢复时间与
+        // 换策略提示，由恢复守护在资源允许时接回来。
+        pauseCount: loop.pauseCount ?? 0,
+        resumeAt: loop.resumeAt ?? null,
+        resumeHint: loop.resumeHint ?? null,
+        pausedAt: loop.pausedAt ?? null,
         context: sanitizeLoopContext(context),
         updatedAt: now,
     };
@@ -154,6 +161,12 @@ export function fromStoredLoop(record) {
         lastError: null,
         interruptedAt: null,
         recoveryCount: (record.recoveryCount ?? 0) + 1,
+        // 暂停态的账龄信息要带回来：恢复次数照旧累加（不许靠重启刷），
+        // 但换策略提示要注入下一轮判定，否则模型会原样再犯一次。
+        pauseCount: record.pauseCount ?? 0,
+        resumeAt: record.resumeAt ?? null,
+        resumeHint: record.resumeHint ?? null,
+        pausedAt: record.pausedAt ?? null,
     };
 }
 
@@ -194,16 +207,58 @@ export function isRecoverableNow(record, {
 } = {}) {
     if (!record || !record.sessionKey) return false;
     // 无进展熔断归档的账本永不再自动恢复（即使归档删除失败也拦住）。
+    // 注意：这是**归档**（终态）才拦。暂停态的账本 stopReason 是
+    // `paused:<分类>`，不等于 NO_PROGRESS_STOP_REASON，所以仍可恢复。
     if (record.stopReason === NO_PROGRESS_STOP_REASON) return false;
-    if (record.status !== 'running' && record.status !== 'interrupted') return false;
+    if (record.status !== 'running' && record.status !== 'interrupted' && record.status !== 'paused') {
+        return false;
+    }
     if (!gatewayReady) return false;
     if (activeSessionKeys.has(record.sessionKey)) return false;
     if ((record.recoveryCount ?? 0) >= config.maxRecoveryAttempts) return false;
     if (now - (record.updatedAt ?? 0) > config.staleMs) return false;
+    // 暂停态要等到退避时间到了才恢复，避免「刚失败就立刻重来」把机器打满。
+    if (record.status === 'paused' && record.resumeAt && now < record.resumeAt) return false;
     const grace = record.status === 'interrupted'
         ? config.interruptedGraceMs
         : config.runningGraceMs;
     return now - (record.updatedAt ?? 0) >= grace;
+}
+
+/**
+ * 手动恢复：把账本里的暂停退避清掉，**但不刷新 `updatedAt`**。
+ *
+ * 为什么单独写一个函数而不是复用 `saveCommanderLoop`：那个函数会把
+ * `updatedAt` 刷成当前时刻，而 `isRecoverableNow` 要求账本至少安静
+ * `runningGraceMs`（默认 90 秒）才允许恢复 —— 刷新 `updatedAt` 等于
+ * 让「立即恢复」变成「90 秒后恢复」，按钮就在骗人。
+ *
+ * `updatedAt` 的语义是「账本最后一次真实状态变化」，手动清退避不是状态
+ * 变化，所以保持原值，只把 `resumeAt` 置空。
+ *
+ * @returns {object|null} 更新后的账本记录；文件不存在或不可解析时返回 null
+ */
+export function clearCommanderLoopResumeAt(sessionKey, { home = resolvePilotHome() } = {}) {
+    const target = loopFilePath(sessionKey, home);
+    let record;
+    try {
+        record = JSON.parse(fs.readFileSync(target, 'utf8'));
+    } catch {
+        return null;
+    }
+    if (!record || record.sessionKey !== sessionKey) return null;
+    if (!record.resumeAt) return record;
+    record.resumeAt = null;
+    const tmp = `${target}.${process.pid}.tmp`;
+    try {
+        fs.writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+        fs.renameSync(tmp, target);
+    } catch {
+        try { fs.rmSync(target, { force: true }); } catch { /* ignore */ }
+        fs.writeFileSync(target, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+        try { fs.rmSync(tmp, { force: true }); } catch { /* ignore */ }
+    }
+    return record;
 }
 
 /** 原子写账本：临时文件 + rename，避免恢复守护读到半截 JSON。 */
@@ -265,7 +320,9 @@ export function readLoopRecords({ home, now = Date.now(), config = COMMANDER_REC
             continue;
         }
         if (record.stopReason === NO_PROGRESS_STOP_REASON) continue;
-        if (record.status !== 'running' && record.status !== 'interrupted') continue;
+        if (record.status !== 'running' && record.status !== 'interrupted' && record.status !== 'paused') {
+            continue;
+        }
         if (now - (record.updatedAt ?? 0) > config.staleMs
             || (record.recoveryCount ?? 0) >= config.maxRecoveryAttempts) {
             stale.push(record);
@@ -275,6 +332,43 @@ export function readLoopRecords({ home, now = Date.now(), config = COMMANDER_REC
     }
     recoverable.sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0));
     return { recoverable, stale, corrupted };
+}
+
+/**
+ * 暂停而不是终止（2026-11-15，资源感知调度）。
+ *
+ * 与 `archiveCommanderLoop` 的关键区别：**不删 running 文件**。
+ * 删除是「不会再自动恢复」的唯一凭据，所以暂停态必须保留文件，
+ * 恢复守护才接得回来。状态写成 `paused`，并记下恢复时间与换策略提示。
+ */
+export function pauseCommanderLoop(loop, context, {
+    home,
+    now = Date.now(),
+    reason = null,
+    hint = null,
+    resumeAt = null,
+} = {}) {
+    const record = toStoredLoop(loop, context, { now });
+    record.status = 'paused';
+    record.stopReason = reason ?? loop.stopReason ?? null;
+    record.resumeHint = hint ?? loop.resumeHint ?? null;
+    record.resumeAt = resumeAt ?? null;
+    record.pausedAt = new Date(now).toISOString();
+    record.pauseCount = (loop.pauseCount ?? 0) + 1;
+    record.updatedAt = now;
+    const dir = getCommanderLoopDir(home);
+    fs.mkdirSync(dir, { recursive: true });
+    const target = loopFilePath(record.sessionKey, home);
+    const tmp = `${target}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+    try {
+        fs.renameSync(tmp, target);
+    } catch {
+        try { fs.rmSync(target, { force: true }); } catch { /* ignore */ }
+        fs.writeFileSync(target, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+        try { fs.rmSync(tmp, { force: true }); } catch { /* ignore */ }
+    }
+    return record;
 }
 
 /**

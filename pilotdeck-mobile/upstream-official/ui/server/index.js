@@ -104,6 +104,10 @@ import {
     resumeInputQueueViaGateway,
     steerQueuedInputViaGateway,
     startCommanderLoopRecovery,
+    getResourceSchedulerSnapshot,
+    getResourceSchedulerTask,
+    cancelResourceSchedulerTask,
+    resumeResourceSchedulerTask,
 } from './pilotdeck-bridge.js';
 import sessionManager from './sessionManager.js';
 import { createComputerUseService } from './services/computerUse.js';
@@ -129,6 +133,7 @@ import { createUsageRouter } from './routes/usage.js';
 import configRoutes from './routes/config.js';
 import gatewayRoutes from './routes/gateway.js';
 import { createCronUpdateHandler } from './routes/cron-jobs.js';
+import { createResourceSchedulerRouter } from './routes/resource-scheduler.js';
 import {
     OFFICE_PREVIEW_SERVICE_BUILTIN,
     OFFICE_PREVIEW_SERVICE_LIBREOFFICE,
@@ -658,6 +663,15 @@ app.use('/api/mcp', authenticateToken, mcpRoutes);
 
 // TaskMaster API Routes (protected)
 app.use('/api/taskmaster', authenticateToken, taskmasterRoutes);
+
+// 任务总调度（资源感知）：机器余量、任务队列、暂停 / 恢复。
+// 与上面的 /api/taskmaster（TaskMaster AI CLI 集成）是两回事，故分开命名。
+app.use('/api/resource-scheduler', authenticateToken, createResourceSchedulerRouter({
+    getSnapshot: getResourceSchedulerSnapshot,
+    getTask: getResourceSchedulerTask,
+    cancelTask: cancelResourceSchedulerTask,
+    resumeTask: resumeResourceSchedulerTask,
+}));
 
 // Memory API Routes (protected)
 app.use('/api/memory', authenticateToken, memoryRoutes);
