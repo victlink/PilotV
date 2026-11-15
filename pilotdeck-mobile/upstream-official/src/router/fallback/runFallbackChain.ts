@@ -16,7 +16,10 @@ export function planFallback(
     return { attempts: [] };
   }
 
-  if (scenarioType === "explicit") {
+  // An explicitly fixed model must not drift to another provider, unless the
+  // operator opted in. Even then, `execute()` only honours this plan for
+  // rate-limit errors — other failures still return the original error.
+  if (scenarioType === "explicit" && !fallback.allowFallbackOnRateLimit) {
     return { attempts: [] };
   }
 

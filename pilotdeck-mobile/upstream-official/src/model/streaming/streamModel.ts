@@ -53,6 +53,8 @@ export const LITELLM_REPEATED_STREAMING_CHUNK_LIMIT = 100;
 export const LITELLM_INITIAL_RETRY_DELAY_MS = MODEL_RETRY_DEFAULTS.baseDelayMs;
 export const LITELLM_MAX_RETRY_DELAY_MS = MODEL_RETRY_DEFAULTS.maxDelayMs;
 export const LITELLM_RETRY_JITTER = MODEL_RETRY_DEFAULTS.jitter;
+/** Upper bound on in-place retries for HTTP 429 / rate_limit_error. */
+export const RATE_LIMIT_MAX_RETRIES = MODEL_RETRY_DEFAULTS.rateLimitMaxRetries;
 export const LITELLM_HTTP_CONNECTOR_LIMIT = 1000;
 export const LITELLM_HTTP_CONNECTOR_LIMIT_PER_HOST = 500;
 export const LITELLM_HTTP_KEEPALIVE_TIMEOUT_MS = 120_000;
@@ -102,9 +104,10 @@ export async function complete(
       return parseModelResponse(provider.protocol, raw, provider.id);
     } catch (error) {
       throwIfAborted(options.signal);
-      if (attempt < maxRetries && isRetryableRequestError(error)) {
+      const effectiveMax = effectiveMaxRetries(maxRetries, error);
+      if (attempt < effectiveMax && isRetryableRequestError(error)) {
         const delayMs = calculateRetryDelay(provider, attempt, retryAfterMsForError(error));
-        emitModelRetryProgress(options, retryReasonForThrownError(error), attempt, maxRetries, delayMs, provider, request.model);
+        emitModelRetryProgress(options, retryReasonForThrownError(error), attempt, effectiveMax, delayMs, provider, request.model);
         await delay(delayMs, options.signal);
         continue;
       }
@@ -165,9 +168,10 @@ export async function* streamModel(
       response = await sendProviderRequest(provider, body, true, options.fetch ?? fetch, options.signal, options);
     } catch (error) {
       throwIfAborted(options.signal);
-      if (attempt < maxRetries && isRetryableStreamError(error)) {
+      const effectiveMax = effectiveMaxRetries(maxRetries, error);
+      if (attempt < effectiveMax && isRetryableStreamError(error)) {
         const delayMs = calculateRetryDelay(provider, attempt);
-        emitModelRetryProgress(options, "network_error", attempt, maxRetries, delayMs, provider, currentRequest.model);
+        emitModelRetryProgress(options, "network_error", attempt, effectiveMax, delayMs, provider, currentRequest.model);
         await delay(delayMs, options.signal);
         continue;
       }
@@ -190,9 +194,10 @@ export async function* streamModel(
           error.retryAfterMs = headerMs;
         }
       }
-      if (error.retryable && attempt < maxRetries) {
+      const effectiveMax = effectiveMaxRetries(maxRetries, error);
+      if (error.retryable && attempt < effectiveMax) {
         const delayMs = calculateRetryDelay(provider, attempt, error.retryAfterMs);
-        emitModelRetryProgress(options, retryReasonForError(error.code), attempt, maxRetries, delayMs, provider, currentRequest.model);
+        emitModelRetryProgress(options, retryReasonForError(error.code), attempt, effectiveMax, delayMs, provider, currentRequest.model);
         await delay(delayMs, options.signal);
         continue;
       }
@@ -247,25 +252,26 @@ export async function* streamModel(
       }
       streamCompleted = true;
     } catch (error) {
+      const effectiveMax = effectiveMaxRetries(maxRetries, error);
       if (
-        attempt < maxRetries &&
+        attempt < effectiveMax &&
         isRetryableStreamError(error) &&
         checkpoint.canContinueText()
       ) {
         currentRequest = buildLiteLLMContinuationRequest(currentRequest, checkpoint.get().partialText);
         const delayMs = calculateRetryDelay(provider, attempt, retryAfterMsForError(error));
-        emitModelRetryProgress(options, "continuation", attempt, maxRetries, delayMs, provider, currentRequest.model);
+        emitModelRetryProgress(options, "continuation", attempt, effectiveMax, delayMs, provider, currentRequest.model);
         await delay(delayMs, options.signal);
         continue;
       }
 
       if (
         isRetryableStreamError(error) &&
-        attempt < maxRetries &&
+        attempt < effectiveMax &&
         checkpoint.interruption().phase === "empty"
       ) {
         const delayMs = calculateRetryDelay(provider, attempt, retryAfterMsForError(error));
-        emitModelRetryProgress(options, retryReasonForThrownError(error), attempt, maxRetries, delayMs, provider, currentRequest.model);
+        emitModelRetryProgress(options, retryReasonForThrownError(error), attempt, effectiveMax, delayMs, provider, currentRequest.model);
         await delay(delayMs, options.signal);
         continue;
       }
@@ -399,25 +405,26 @@ async function* streamGoogleProviderRequest(params: {
       throwIfGoogleAbort(error, params.options.signal);
       const providerError = toProviderError(params.provider, error);
       const retryable = isRetryableGoogleStreamError(providerError, error);
+      const effectiveMax = effectiveMaxRetries(params.maxRetries, providerError);
       if (
-        attempt < params.maxRetries &&
+        attempt < effectiveMax &&
         retryable &&
         params.checkpoint.canContinueText()
       ) {
         currentRequest = buildLiteLLMContinuationRequest(currentRequest, params.checkpoint.get().partialText);
         const delayMs = calculateRetryDelay(params.provider, attempt, providerError.error.retryAfterMs);
-        emitModelRetryProgress(params.options, "continuation", attempt, params.maxRetries, delayMs, params.provider, currentRequest.model);
+        emitModelRetryProgress(params.options, "continuation", attempt, effectiveMax, delayMs, params.provider, currentRequest.model);
         await delay(delayMs, params.options.signal);
         continue;
       }
 
       if (
         retryable &&
-        attempt < params.maxRetries &&
+        attempt < effectiveMax &&
         params.checkpoint.interruption().phase === "empty"
       ) {
         const delayMs = calculateRetryDelay(params.provider, attempt, providerError.error.retryAfterMs);
-        emitModelRetryProgress(params.options, retryReasonForError(providerError.error.code), attempt, params.maxRetries, delayMs, params.provider, currentRequest.model);
+        emitModelRetryProgress(params.options, retryReasonForError(providerError.error.code), attempt, effectiveMax, delayMs, params.provider, currentRequest.model);
         await delay(delayMs, params.options.signal);
         continue;
       }
@@ -496,6 +503,34 @@ function extractStatus(error: unknown): number | undefined {
     }
   }
   return undefined;
+}
+
+function isRateLimitError(error: unknown): boolean {
+  if (error instanceof ModelProviderError) {
+    return error.error.code === "rate_limit_error";
+  }
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const candidate = error as {
+    code?: unknown;
+    status?: unknown;
+    error?: { code?: unknown };
+  };
+  return (
+    candidate.code === "rate_limit_error" ||
+    candidate.status === 429 ||
+    candidate.error?.code === "rate_limit_error"
+  );
+}
+
+/**
+ * A 429 is a deterministic quota signal rather than a transient blip: burning
+ * the full generic retry budget on the same limited model only delays the
+ * router's fallback. Other error kinds keep the provider-configured budget.
+ */
+function effectiveMaxRetries(maxRetries: number, error: unknown): number {
+  return isRateLimitError(error) ? Math.min(maxRetries, RATE_LIMIT_MAX_RETRIES) : maxRetries;
 }
 
 function isRetryableRequestError(error: unknown): boolean {

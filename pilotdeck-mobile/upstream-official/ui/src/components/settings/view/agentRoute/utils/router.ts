@@ -102,6 +102,9 @@ export function replaceFallbackModelRef(
   let changed = false;
   const rewritten = Object.fromEntries(
     Object.entries(fallback).map(([key, refs]) => {
+      // Scalar fallback settings (maxFallbacks, allowFallbackOnRateLimit)
+      // are not model references and must pass through untouched.
+      if (!Array.isArray(refs)) return [key, refs];
       const nextRefs = refs.map((ref) => {
         if (ref !== oldRef) return ref;
         changed = true;

@@ -83,9 +83,33 @@ export type RouterRetryProgressEvent = {
   attempt: number;
   maxAttempts: number;
   delayMs: number;
-  reason: "rate_limit" | "server_error" | "network_error" | "zero_usage" | "overloaded" | "continuation";
+  reason: "rate_limit" | "server_error" | "network_error" | "zero_usage" | "overloaded" | "continuation" | "provider_recovered";
   provider: string;
   model: string;
+};
+
+/** Emitted when `decide()` skips a cooling-down primary model. */
+export type RouterProviderCooldownEvent = {
+  type: "pilotdeck_router_provider_cooldown";
+  sessionId: string;
+  turnId?: string;
+  provider: string;
+  model: string;
+  toProvider: string;
+  toModel: string;
+  state: "open" | "half_open";
+  cooldownUntil: number;
+};
+
+/** Emitted when a half-open probe succeeds and the primary model is usable again. */
+export type RouterProviderRecoveredEvent = {
+  type: "pilotdeck_router_provider_recovered";
+  sessionId: string;
+  turnId?: string;
+  provider: string;
+  model: string;
+  /** True when the recovered provider was the primary model of this turn. */
+  restoredAsPrimary: boolean;
 };
 
 export type RouterEvent =
@@ -96,7 +120,9 @@ export type RouterEvent =
   | RouterCustomFailedEvent
   | RouterExecuteFailedEvent
   | RouterTransientRetryEvent
-  | RouterRetryProgressEvent;
+  | RouterRetryProgressEvent
+  | RouterProviderCooldownEvent
+  | RouterProviderRecoveredEvent;
 
 export type RouterEventBus = {
   emit(event: RouterEvent): void;

@@ -128,14 +128,16 @@ export function createRouterRuntime(
   const judgeRuntime = deps.judgeRuntime ?? deps.modelRuntime;
   const events = deps.events ?? { emit: () => undefined };
   const telemetry = deps.telemetry;
-  const healthTrackers = new Map<string, ProviderHealthTracker>();
-  function getHealthTracker(sessionId: string): ProviderHealthTracker {
-    let tracker = healthTrackers.get(sessionId);
-    if (!tracker) {
-      tracker = new ProviderHealthTracker();
-      healthTrackers.set(sessionId, tracker);
-    }
-    return tracker;
+  // Provider health is process-wide, not per-session: a rate limit applies to
+  // the upstream credential/endpoint, so every session must share the cooldown
+  // and the single half-open probe slot.
+  const health = new ProviderHealthTracker({
+    now: () => (deps.now?.() ?? new Date()).getTime(),
+  });
+  // Health is tracked per provider/model endpoint, not per provider: a quota
+  // on one model must not take down every other model of the same provider.
+  function healthKey(provider: string, model: string): string {
+    return `${provider}/${model}`;
   }
 
   function missingForModel(
@@ -183,6 +185,80 @@ export function createRouterRuntime(
   ): RouterModelRef | undefined {
     return fallbackCandidatesFor(scenarioType)
       .find((ref) => supportsMediaRequirements(ref, required));
+  }
+
+  /** First configured fallback whose provider is not itself cooling down. */
+  function findHealthyFallback(
+    scenarioType: RouterScenarioType,
+    primary: RouterModelRef,
+    required: readonly InputModality[],
+  ): RouterModelRef | undefined {
+    return fallbackCandidatesFor(scenarioType).find((ref) =>
+      !(ref.provider === primary.provider && ref.model === primary.model) &&
+      health.getState(healthKey(ref.provider, ref.model)) !== "open" &&
+      supportsMediaRequirements(ref, required),
+    );
+  }
+
+  /**
+   * Health-aware routing applied at decision time (not just after a failed
+   * request). A rate-limited provider stays out of the primary slot until its
+   * Retry-After / cooldown expires; then exactly one half-open probe is allowed
+   * to hit the original model. Other requests in that window go straight to a
+   * healthy fallback, so the user does not eat a guaranteed 429 every turn.
+   */
+  function rerouteDecisionForProviderHealth(
+    decision: RouterDecision,
+    scenarioType: RouterScenarioType,
+    sessionId: string,
+    messages: CanonicalModelRequest["messages"],
+    mutations: RouterMutationsLog,
+  ): RouterMutationsLog {
+    const provider = decision.provider;
+    const key = healthKey(provider, decision.model);
+    const state = health.getState(key);
+    if (state !== "open" && state !== "half_open") {
+      return mutations;
+    }
+    if (state === "half_open" && health.tryAcquireProbe(key)) {
+      // This one request is the recovery probe: keep the configured primary.
+      return mutations;
+    }
+    const primary: RouterModelRef = {
+      id: `${provider}/${decision.model}`,
+      provider,
+      model: decision.model,
+    };
+    const replacement = findHealthyFallback(
+      scenarioType,
+      primary,
+      collectRequiredInputModalities(messages),
+    );
+    if (!replacement) {
+      // No usable alternative: let the primary run so the real provider error
+      // reaches the user instead of a synthetic "no fallback" failure.
+      return mutations;
+    }
+    const from = primary.id;
+    const to = replacement.id || `${replacement.provider}/${replacement.model}`;
+    const cooldownUntil = health.cooldownUntil(key);
+    decision.provider = replacement.provider;
+    decision.model = replacement.model;
+    decision.resolvedFrom = "fallback";
+    events.emit({
+      type: "pilotdeck_router_provider_cooldown",
+      sessionId,
+      provider,
+      model: primary.model,
+      toProvider: replacement.provider,
+      toModel: replacement.model,
+      state,
+      cooldownUntil,
+    });
+    return {
+      ...mutations,
+      providerHealthRerouted: { from, to, state, cooldownUntil },
+    };
   }
 
   function rerouteDecisionForMedia(
@@ -532,6 +608,25 @@ export function createRouterRuntime(
     const mediaMessages = decision.requestPatch?.messages ?? input.request.messages;
     mutations = rerouteDecisionForMedia(decision, mediaMessages, mutations);
 
+    // Remember the operator-configured selection BEFORE a health reroute: a
+    // temporary fallback must never become the session's sticky model.
+    const stickySelection: RouterModelRef = {
+      id: `${decision.provider}/${decision.model}`,
+      provider: decision.provider,
+      model: decision.model,
+    };
+    const healthGuardActive =
+      scenarioType !== "explicit" || config.fallback?.allowFallbackOnRateLimit === true;
+    if (healthGuardActive) {
+      mutations = rerouteDecisionForProviderHealth(
+        decision,
+        scenarioType,
+        input.sessionId,
+        mediaMessages,
+        mutations,
+      );
+    }
+
     decision.mutations = mutations;
 
     input.abortSignal?.throwIfAborted();
@@ -540,8 +635,8 @@ export function createRouterRuntime(
       sessionId: input.sessionId,
       isSubagent: !input.isMainAgent,
       tokenSaverTier,
-      stickyProvider: decision.provider,
-      stickyModel: decision.model,
+      stickyProvider: stickySelection.provider,
+      stickyModel: stickySelection.model,
       orchestrating: decision.orchestrating,
       lastUsage: sticky?.lastUsage,
       updatedAt: (deps.now?.() ?? new Date()).getTime(),
@@ -592,7 +687,9 @@ export function createRouterRuntime(
     request: CanonicalModelRequest,
     ctx: RouterExecuteContext,
   ): AsyncIterable<CanonicalModelEvent> {
-    if (!enabled || decision.scenarioType === "explicit") {
+    const explicitRateLimitFallback =
+      decision.scenarioType === "explicit" && config.fallback?.allowFallbackOnRateLimit === true;
+    if (!enabled || (decision.scenarioType === "explicit" && !explicitRateLimitFallback)) {
       if (ctx.abortSignal?.aborted) return;
       request = await ctx.requestForTarget?.(decision) ?? request;
       const routedCachePlan = request.cachePlan &&
@@ -626,6 +723,16 @@ export function createRouterRuntime(
           yield item.event;
           continue;
         }
+        // Even on the passthrough path, keep the shared provider health table
+        // current so the next turn can make an informed routing decision.
+        if (item.outcome.error) {
+          health.recordFailure(healthKey(decision.provider, decision.model), {
+            code: item.outcome.error.code,
+            retryAfterMs: item.outcome.error.retryAfterMs,
+          });
+        } else {
+          health.recordSuccess(healthKey(decision.provider, decision.model));
+        }
         if (item.outcome.error && !sawErrorEvent) {
           yield { type: "error", error: item.outcome.error };
         }
@@ -634,6 +741,13 @@ export function createRouterRuntime(
     }
 
     const startedAt = (deps.now?.() ?? new Date()).toISOString();
+    // An explicitly fixed model may only drift on rate limits, and only when
+    // the operator opted in. All other errors must surface as-is.
+    const fallbackAllowedForError = (
+      error: import("../model/index.js").CanonicalModelError,
+    ): boolean =>
+      isFallbackEligible(error) &&
+      (!explicitRateLimitFallback || error.code === "rate_limit_error");
     const fallbackPlan = planFallback(config.fallback, decision.scenarioType);
     const baseRequest = applyDecisionToRequest(decision, request);
     const requiredModalities = collectRequiredInputModalities(baseRequest.messages);
@@ -702,7 +816,7 @@ export function createRouterRuntime(
       const attempt = attemptPlan.attempt;
       if (
         attemptIndex > 0 &&
-        getHealthTracker(ctx.sessionId).shouldSkip(attempt.provider) &&
+        health.shouldSkip(healthKey(attempt.provider, attempt.model)) &&
         attemptIndex < attemptPlans.length - 1
       ) {
         continue;
@@ -790,8 +904,11 @@ export function createRouterRuntime(
 
         if (outcome.error) {
           lastError = outcome.error;
-          getHealthTracker(ctx.sessionId).recordFailure(attempt.provider);
-          if (!hasYieldedContent && isFallbackEligible(outcome.error)) {
+          health.recordFailure(healthKey(attempt.provider, attempt.model), {
+            code: outcome.error.code,
+            retryAfterMs: outcome.error.retryAfterMs,
+          });
+          if (!hasYieldedContent && fallbackAllowedForError(outcome.error)) {
             if (attemptIndex < attemptPlans.length - 1) {
               const next = attemptPlans[attemptIndex + 1].attempt;
               events.emit({
@@ -829,7 +946,7 @@ export function createRouterRuntime(
           }
           if (
             !hasYieldedContent &&
-            isFallbackEligible(outcome.error) &&
+            fallbackAllowedForError(outcome.error) &&
             transientRetryEnabled &&
             transientRetryCount < transientRetryMax
           ) {
@@ -934,7 +1051,19 @@ export function createRouterRuntime(
           continue;
         }
 
-        getHealthTracker(ctx.sessionId).recordSuccess(attempt.provider);
+        const recovered = health.recordSuccess(healthKey(attempt.provider, attempt.model));
+        if (recovered && attemptIndex === 0 && !decision.mutations.providerHealthRerouted) {
+          // The configured primary model is usable again after a cooldown or a
+          // successful half-open probe; downstream UIs can show the switch-back.
+          events.emit({
+            type: "pilotdeck_router_provider_recovered",
+            sessionId: ctx.sessionId,
+            turnId: ctx.turnId,
+            provider: attempt.provider,
+            model: attempt.model,
+            restoredAsPrimary: true,
+          });
+        }
 
         if (!hasYieldedContent) {
           for (const queued of pending) {
@@ -1096,7 +1225,7 @@ export function createRouterRuntime(
       disposeTokenizer();
       if (!externalStore) sessionStore.clear();
       usageCache.clear();
-      healthTrackers.clear();
+      health.resetAll();
     },
   };
 }

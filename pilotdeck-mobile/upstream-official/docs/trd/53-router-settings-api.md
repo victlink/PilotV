@@ -23,6 +23,7 @@ Routing settings use authenticated GET/PUT `/api/config` and POST `/api/config/v
 | router.stats.modelPricing.<provider/model>.cacheRead | Finite nonnegative cache-read price |
 | router.stats.modelPricing.<provider/model>.unit | Optional display metadata: USD or CNY per million tokens; no currency conversion |
 | router.stats.baselineModel | Configured {provider, model} reference; supported legacy provider/model strings are normalized |
+| router.fallback.allowFallbackOnRateLimit | Optional boolean, default false. When true, an explicitly fixed model may use the fallback chain on HTTP 429 / `rate_limit_error` only; every other error still keeps the fixed model. |
 
 The existing wire values for unit are `$/\u767e\u4e07 Token` and `\u00a5/\u767e\u4e07 Token` (JSON escapes shown). Omission means USD for display without rewriting YAML. Do not translate these protocol literals or infer a cacheWrite backend field. Pricing keys must reference configured models; calculations continue to use input/output/cacheRead numeric values independently of display metadata.
 

@@ -401,6 +401,18 @@ function validateRouterModelRefs(config, errors) {
 
   if (isRecord(router.fallback)) {
     for (const [key, refs] of Object.entries(router.fallback)) {
+      if (key === 'allowFallbackOnRateLimit') {
+        if (typeof refs !== 'boolean') {
+          errors.push('router.fallback.allowFallbackOnRateLimit must be a boolean');
+        }
+        continue;
+      }
+      if (key === 'maxFallbacks') {
+        if (!Number.isInteger(refs) || refs < 0) {
+          errors.push('router.fallback.maxFallbacks must be a non-negative integer');
+        }
+        continue;
+      }
       if (!Array.isArray(refs)) continue;
       refs.forEach((ref, index) => validateModelRef(config, ref, `router.fallback.${key}[${index}]`, errors));
     }

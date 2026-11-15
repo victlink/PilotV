@@ -99,7 +99,15 @@ export type PilotDeckConfig = {
   router?: {
     enabled?: boolean;
     scenarios?: Record<string, string>;
-    fallback?: Record<string, string[]>;
+    fallback?: {
+      default?: string[];
+      subagent?: string[];
+      explicit?: string[];
+      maxFallbacks?: number;
+      /** Let an explicitly fixed model fall back, but only on rate limits. */
+      allowFallbackOnRateLimit?: boolean;
+      [key: string]: string[] | number | boolean | undefined;
+    };
     zeroUsageRetry?: {
       enabled?: boolean;
       maxAttempts?: number;

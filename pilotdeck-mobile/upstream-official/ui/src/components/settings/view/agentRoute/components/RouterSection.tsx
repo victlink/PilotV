@@ -89,6 +89,7 @@ export default function RouterSection({
   const subagentPolicy = r.tokenSaver?.subagent?.policy ?? "judge";
   const fallbackModel =
     r.scenarios?.default || config.agent?.model || modelOpts[0]?.value || "";
+  const allowFallbackOnRateLimit = r.fallback?.allowFallbackOnRateLimit === true;
   const [tierDraft, setTierDraft] = useState(tiers);
   const [pricingDraft, setPricingDraft] = useState(r.stats?.modelPricing ?? {});
 
@@ -581,6 +582,52 @@ export default function RouterSection({
                       </div>
                     </div>
                   ) : null}
+                </section>
+
+                <section className="route-card advanced-route-card advanced-strategy-card">
+                  <div className="advanced-strategy-row">
+                    <span className="advanced-strategy-title">
+                      <SlidersHorizontal size={18} />
+                      <span>
+                        {t(
+                          "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.label",
+                        )}
+                      </span>
+                    </span>
+                    <button
+                      className={`route-switch${allowFallbackOnRateLimit ? " on" : ""}`}
+                      type="button"
+                      role="switch"
+                      aria-checked={allowFallbackOnRateLimit}
+                      aria-label={t(
+                        "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.label",
+                      )}
+                      onClick={() => {
+                        const nextValue = !allowFallbackOnRateLimit;
+                        queueSettingsSaveSuccess(
+                          t(
+                            nextValue
+                              ? "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.enabledToast"
+                              : "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.disabledToast",
+                          ),
+                        );
+                        onChange(
+                          patch(
+                            config,
+                            ["router", "fallback", "allowFallbackOnRateLimit"],
+                            nextValue,
+                          ),
+                        );
+                      }}
+                    >
+                      <span />
+                    </button>
+                    <p>
+                      {t(
+                        "pilotDeckConfig.panels.router.fallback.allowFallbackOnRateLimit.description",
+                      )}
+                    </p>
+                  </div>
                 </section>
 
                 <section className="route-card advanced-route-card tier-definition-card">

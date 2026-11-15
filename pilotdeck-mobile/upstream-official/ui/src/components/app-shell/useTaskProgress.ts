@@ -97,7 +97,7 @@ export function useTaskProgress(): TaskProgressBySession {
       } else if (kind === 'status' && message.text === 'compacting') {
         next = { ...next, phase: 'compacting' };
       } else if (kind === 'status' && message.retryProgress) {
-        next = { ...next, phase: 'retrying' };
+        next = { ...next, phase: message.retryProgress.reason === 'provider_recovered' ? 'working' : 'retrying' };
       } else if (kind === 'status' && message.text === 'model_request_started') {
         next = { ...next, phase: 'working' };
       } else if (kind === 'compact_boundary' || kind === 'tool_use' || kind === 'stream_delta' ||

@@ -1821,7 +1821,13 @@
           "description": "每个场景的有序回退模型。如果主模型失败，路由器尝试下一个。",
           "empty": "未配置回退链。",
           "addModel": "添加回退模型",
-          "add": "添加"
+          "add": "添加",
+          "allowFallbackOnRateLimit": {
+            "label": "显式模型限流回退",
+            "description": "开启后，手动指定的模型遇到 429 限流时也会尝试回退链；其他错误仍严格保持原模型。默认关闭。",
+            "enabledToast": "已开启显式模型限流回退",
+            "disabledToast": "已关闭显式模型限流回退"
+          }
         },
         "tiers": {
           "title": "层级",

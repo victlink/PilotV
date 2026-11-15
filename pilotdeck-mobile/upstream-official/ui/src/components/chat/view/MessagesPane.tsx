@@ -1726,7 +1726,7 @@ function getLiveStatusStep(
   const retryProgress = (workingStatus as any)?.retryProgress;
   if (retryProgress) {
     const parts: string[] = [];
-    const retryReasons = ['network_error', 'server_error', 'continuation', 'rate_limit', 'overloaded', 'zero_usage'];
+    const retryReasons = ['network_error', 'server_error', 'continuation', 'rate_limit', 'overloaded', 'zero_usage', 'provider_recovered'];
     if (retryReasons.includes(retryProgress.reason)) parts.push(t(`working.retryReasons.${retryProgress.reason}`));
     if (retryProgress.provider) parts.push(retryProgress.provider);
     if (retryProgress.model) parts.push(retryProgress.model);

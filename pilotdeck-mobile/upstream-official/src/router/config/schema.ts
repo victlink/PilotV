@@ -71,6 +71,12 @@ export type RouterStatsConfig = {
 export type RouterFallbackConfig = Partial<Record<RouterScenarioType, RouterModelRef[]>> & {
   /** LiteLLM-compatible max fallback model groups to try after the primary model. Default 5. */
   maxFallbacks?: number;
+  /**
+   * Allow an explicitly fixed model (scenarioType "explicit") to use the
+   * fallback chain, but ONLY for rate-limit errors. Default false: an
+   * explicitly chosen model must never drift to another provider.
+   */
+  allowFallbackOnRateLimit?: boolean;
 };
 
 export const LITELLM_ROUTER_MAX_FALLBACKS = 5;

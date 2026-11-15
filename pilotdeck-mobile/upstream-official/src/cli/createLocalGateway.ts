@@ -1149,6 +1149,24 @@ class ProjectRuntimeRegistry {
             self.gateway?.broadcastRetryProgress(event);
           } catch { /* best-effort */ }
         }
+        if (
+          event.type === "pilotdeck_router_provider_recovered" &&
+          event.restoredAsPrimary
+        ) {
+          // Reuse the existing status-message pipe so the switch-back is
+          // visible in the chat without adding a new wire event type.
+          try {
+            self.gateway?.broadcastRetryProgress({
+              sessionId: event.sessionId,
+              attempt: 1,
+              maxAttempts: 1,
+              delayMs: 0,
+              reason: "provider_recovered",
+              provider: event.provider,
+              model: event.model,
+            });
+          } catch { /* best-effort */ }
+        }
       },
     };
   }

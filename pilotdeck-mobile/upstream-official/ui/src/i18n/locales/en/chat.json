@@ -184,7 +184,8 @@
       "continuation": "Continuing interrupted response",
       "rate_limit": "Rate limited",
       "overloaded": "Provider overloaded",
-      "zero_usage": "Empty response"
+      "zero_usage": "Empty response",
+      "provider_recovered": "Primary model restored"
     },
     "waitingForSubagent": "Waiting for subagent",
     "waitingForWebFetch": "Fetching web content..."

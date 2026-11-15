@@ -1,3 +1,5 @@
+import type { ProviderHealthState } from "../health/ProviderHealthTracker.js";
+
 export type RouterScenarioType =
   | "default"
   | "subagent"
@@ -29,6 +31,13 @@ export type RouterMutationsLog = {
     cachedCost: number;
     prefillCost: number;
     estimatedInputTokens: number;
+  };
+  /** `decide()` skipped the configured primary because its provider is cooling down. */
+  providerHealthRerouted?: {
+    from: string;
+    to: string;
+    state: ProviderHealthState;
+    cooldownUntil: number;
   };
 };
 

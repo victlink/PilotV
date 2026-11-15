@@ -180,6 +180,19 @@ function parseFallback(
       }
       continue;
     }
+    if (key === "allowFallbackOnRateLimit") {
+      if (typeof value === "boolean") {
+        fallback.allowFallbackOnRateLimit = value;
+      } else {
+        diagnostics.push({
+          code: "ROUTER_FALLBACK_ALLOW_EXPLICIT_INVALID",
+          severity: "fatal",
+          path: "router.fallback.allowFallbackOnRateLimit",
+          message: "router.fallback.allowFallbackOnRateLimit must be a boolean.",
+        });
+      }
+      continue;
+    }
     if (!SCENARIO_KEYS.includes(key as RouterScenarioType)) {
       diagnostics.push({
         code: "ROUTER_FALLBACK_UNKNOWN_SCENARIO",

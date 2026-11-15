@@ -1821,7 +1821,13 @@
           "description": "Ordered fallback models per scenario. If the primary fails, the router tries the next.",
           "empty": "No fallback chains configured.",
           "addModel": "Add fallback model",
-          "add": "Add"
+          "add": "Add",
+          "allowFallbackOnRateLimit": {
+            "label": "Rate-limit fallback for fixed models",
+            "description": "When on, an explicitly selected model may use the fallback chain on HTTP 429 only. Other errors still keep the fixed model. Off by default.",
+            "enabledToast": "Rate-limit fallback for fixed models enabled",
+            "disabledToast": "Rate-limit fallback for fixed models disabled"
+          }
         },
         "tiers": {
           "title": "Tiers",
