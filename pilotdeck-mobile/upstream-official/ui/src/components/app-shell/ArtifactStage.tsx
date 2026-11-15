@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { artifactModelSourceUrl, artifactRawUrl, isCadArtifact, isEditableDocument, isOversizedEditableDocument, isUnconvertible3d, mediaType, type Artifact } from './artifactsMedia';
 import {
   annotationRect,
@@ -12,7 +12,10 @@ import {
 import InkOverlay from './InkOverlay';
 import { exportStagePng, type InkStroke } from './artifactInk';
 import ArtifactDocumentEditor from './ArtifactDocumentEditor';
-import ArtifactModelViewer from './ArtifactModelViewer';
+import type { ArtifactModelViewerHandle } from './ArtifactModelViewer';
+// 三维展示台带着整个 three 引擎（约 600 kB）：只有真打开三维成果时才需要它，
+// 所以单独切一块按需加载 —— 看图纸、看图片的人不该为此多等一秒。
+const ArtifactModelViewer = lazy(() => import('./ArtifactModelViewer'));
 import {
   MAX_ZOOM,
   MIN_ZOOM,
@@ -28,20 +31,6 @@ import {
   type PinchStart,
   type StageViewport,
 } from './artifactStageViewport';
-
-const MODEL_VIEWER_SRC = '/artifacts-static/vendor/model-viewer.min.js';
-// Serves model-viewer from the sidecar (it is not on npm here); the viewer tag is
-// custom, so it must be registered before any <model-viewer> renders.
-let modelViewerLoader: Promise<void> | null = null;
-function loadModelViewer(): Promise<void> {
-  if (!modelViewerLoader) {
-    modelViewerLoader = (async () => {
-      if ((window as unknown as { customElements?: { get: (name: string) => unknown } }).customElements?.get('model-viewer')) return;
-      await import(/* @vite-ignore */ MODEL_VIEWER_SRC);
-    })().catch(error => { modelViewerLoader = null; throw error; });
-  }
-  return modelViewerLoader;
-}
 
 export type Draft = { rect?: Rect | null; strokes?: InkStroke[] | null; t?: number | null } | null;
 
@@ -137,7 +126,7 @@ export default function ArtifactStage({
   const mediaRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const inkCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const modelRef = useRef<HTMLElement | null>(null);
+  const modelRef = useRef<ArtifactModelViewerHandle | null>(null);
   const dragRef = useRef<{ fromX: number; fromY: number } | null>(null);
   // 媒体在 1 倍下的实际显示尺寸。上面那个 fit() 算出来的 fitted 与倍率无关，
   // 但它写进 media.style.width 之后就变成了「已乘过倍率」的大小；夹取平移范围
@@ -295,34 +284,16 @@ export default function ArtifactStage({
     return () => observer.disconnect();
   }, [artifact?.id, fill, videoLength, viewport.zoom]);
 
-  // 三维成果默认就是浏览模式，所以渲染器必须**无条件**加载：早先这里跟着
-  // tool 走，切到浏览反而不加载，<model-viewer> 永远不升级成真元素，页面
-  // 上就是一块空白。渲染跟当前拿的是哪支笔无关。
+  // 三维成果的格式劝退：3ds/dae/3mf/blend 这类本机没有转换器，不是加载失败，
+  // 是压根没打算渲染，直接给下载链接，别让人对着空白反复刷新。
   useEffect(() => {
     if (type !== 'model3d') return;
-    let alive = true;
-    void loadModelViewer().catch(() => { if (alive) setViewerError('三维渲染器没能加载'); });
-    return () => { alive = false; };
-  }, [type]);
-
-  // model-viewer 不发 React 事件，只能按 DOM 事件接加载失败（CAD 没转成 glb、
-  // 转换器没装、文件损坏）：说人话，别留一块灰让人以为模型本来就是空的。
-  useEffect(() => {
-    if (type !== 'model3d') return;
-    // 3ds/dae/3mf/blend 这类本机没有转换器：不是加载失败，是压根没打算渲染，
-    // 直接给下载链接，别让人对着空白反复刷新。
     if (artifact && isUnconvertible3d(artifact)) {
       setViewerError('浏览器不能直接显示这种三维格式，请用上方「下载原文件」');
       return;
     }
-    const el = modelRef.current;
-    if (!el) return;
-    const onError = () => setViewerError(cadModel
-      ? '这份三维没转成可显示的网格（多半是这台机器没装转换器），可以先下载原文件'
-      : '三维模型加载失败');
-    el.addEventListener('error', onError);
-    return () => { el.removeEventListener('error', onError); };
-  }, [type, artifact?.id, model3dUrl, cadModel]);
+    setViewerError('');
+  }, [type, artifact?.id]);
 
   const pointerPosition = (event: React.PointerEvent) => {
     const box = stageRef.current?.getBoundingClientRect();
@@ -389,34 +360,40 @@ export default function ArtifactStage({
 
   /** 三维复位：相机回到默认轨道，顺带清掉整体放大与平移。 */
   const resetModelView = useCallback(() => {
-    const el = modelRef.current as unknown as {
-      resetTurntableRotation?: () => void;
-      cameraOrbit?: string;
-      cameraTarget?: string;
-    } | null;
-    try {
-      el?.resetTurntableRotation?.();
-      // 'auto auto auto' 让 model-viewer 按模型包围盒重新取景。
-      // 自己猜一个 orbit 角度只会对某一份装配体刚好，换一份就偏。
-      if (el) el.cameraOrbit = 'auto auto auto';
-      // 目标点也是：平移过一次之后视角是偏的，只复位轨道会歪着看。
-      if (el) el.cameraTarget = 'auto auto auto';
-    } catch { /* 自定义元素还没升级完，下一次点击再试 */ }
+    // 相机归 three 管了：这里只发一句「回到默认视角」。
+    modelRef.current?.resetView();
     resetViewport();
   }, [resetViewport]);
 
   /**
    * 全屏。先试元素级全屏；浏览器拒绝（沙箱 iframe、iOS Safari 不支持元素
-   * 全屏）时退回布局态全屏 —— 铺满窗口总比按钮点下去毫无反应强。
+   * 全屏），或者请求一直挂着（窗口没有焦点时 Chrome 会把请求挂着，既不
+   * 成功也不失败）时，退回布局态全屏 —— 铺满窗口总比按钮点下去毫无反应强。
    */
   const toggleFullscreen = useCallback(() => {
     const shell = shellRef.current;
     if (!shell) return;
-    if (document.fullscreenElement) { void document.exitFullscreen?.(); return; }
+    if (document.fullscreenElement || fullscreen) {
+      void document.exitFullscreen?.();
+      setFullscreen(false);
+      return;
+    }
     const request = shell.requestFullscreen?.bind(shell);
-    if (!request) { setFullscreen(current => !current); return; }
-    void request().catch(() => setFullscreen(current => !current));
-  }, []);
+    if (!request) { setFullscreen(true); return; }
+    let settled = false;
+    const fallback = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      setFullscreen(true);
+    }, 600);
+    void request()
+      .then(() => { settled = true; window.clearTimeout(fallback); })
+      .catch(() => {
+        settled = true;
+        window.clearTimeout(fallback);
+        setFullscreen(true);
+      });
+  }, [fullscreen]);
 
   // 用户按 Esc 或浏览器自己退出全屏时，按钮文案要跟着回到「全屏」。
   useEffect(() => {
@@ -425,23 +402,16 @@ export default function ArtifactStage({
     return () => document.removeEventListener('fullscreenchange', sync);
   }, []);
 
-  // 三维的缩放走视场角：30° 是 model-viewer 的默认值，倍率越大视场角越小，
-  // 画面就更靠近。10–45 是它自己接受的区间，超出会被静默忽略。
+  // 三维的缩放走相机距离：倍率越大站得越近，画面就更靠近。
   useEffect(() => {
     if (type !== 'model3d') return;
-    const el = modelRef.current as unknown as { fieldOfView?: string } | null;
-    if (!el) return;
-    try { el.fieldOfView = `${Math.min(45, Math.max(10, 30 / viewport.zoom))}deg`; }
-    catch { /* 元素尚未升级，等下一次渲染 */ }
+    modelRef.current?.setZoom(viewport.zoom);
   }, [type, viewport.zoom, artifact?.id]);
 
-  // 自动旋转也是元素属性，React 接不到它的事件，只能写回元素。
+  // 自动旋转是 three 的相机参数，React 接不到它的事件，只能写回去。
   useEffect(() => {
     if (type !== 'model3d') return;
-    const el = modelRef.current as unknown as { autoRotate?: boolean; rotationPerSecond?: string } | null;
-    if (!el) return;
-    try { el.autoRotate = autoRotate; el.rotationPerSecond = '24deg'; }
-    catch { /* 同上 */ }
+    modelRef.current?.setAutoRotate(autoRotate);
   }, [type, autoRotate, artifact?.id]);
 
   const onViewportTouchStart = useCallback((event: React.TouchEvent) => {
@@ -599,8 +569,12 @@ export default function ArtifactStage({
       onWheel={onViewportWheel}>
       {/* 工具／翻页按键浮在成果上沿，不占版面：上方只留标题栏。
           pointer-events 由内层按键条自己接住，否则整条浮条会把框选和手绘吃掉 ——
-          外层用 onPointerDown 停止冒泡，免得按一下工具先在成果上画一笔。 */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center px-2 pt-2">
+          外层用 onPointerDown 停止冒泡，免得按一下工具先在成果上画一笔。
+
+          全屏时整条浮条收起来：用户要的是「只显示模型」。退出全屏留一个
+          右上角的小按钮（Esc 也管用），不然布局态全屏就出不来了。 */}
+      <div hidden={fullscreen}
+        className={`pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center px-2 pt-2 ${fullscreen ? 'hidden' : ''}`}>
         <div role="group" aria-label="成果操作" onPointerDown={event => event.stopPropagation()}
           className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-full border border-border bg-background/90 px-1.5 py-1 shadow-sm backdrop-blur">
           {([['box', '框选'], ['ink', '手绘'], ['browse', '浏览']] as Array<[Tool, string]>)
@@ -665,6 +639,14 @@ export default function ArtifactStage({
           {artifact && <a className="shrink-0 rounded-full border border-transparent px-2.5 py-2 text-xs underline hover:bg-muted" href={rawUrl} target="_blank" rel="noopener noreferrer" download>下载</a>}
         </div>
       </div>
+      {/* 全屏时唯一留下的操作：退出。按 Esc 也行，但布局态全屏（浏览器拒绝
+          requestFullscreen 时）没有 Esc，所以这个按钮不能省。 */}
+      {fullscreen && (
+        <button type="button" onClick={toggleFullscreen}
+          className="absolute right-3 top-3 z-40 min-h-8 rounded-full border border-border bg-background/70 px-3 text-xs text-muted-foreground opacity-60 shadow-sm backdrop-blur transition-opacity hover:opacity-100">
+          退出全屏
+        </button>
+      )}
       {/* stage 必须正好贴合媒体本体。标注存的是 0–1 相对坐标，用滚动容器去归一化，
           图片比容器高时标注会整体错位（点 A 记到 B）。滚动与留白都放到 stage 外面。 */}
       <div ref={stageRef} className={`relative shrink-0 ${fill || blank ? 'h-full w-full' : ''}`}
@@ -708,24 +690,25 @@ export default function ArtifactStage({
         {!blank && type === 'iframe' && !documentArtifact && <iframe src={rawUrl} title={label} className="h-full w-full border-0 bg-background"
           sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads" />}
         {/* 三维成果走统一的展示台（ArtifactModelViewer）：
-            旋转 / 平移 / 缩放 / 全屏在 model-viewer 与外层工具条上；
-            拆解、隐藏与移动零件、透明度、行程动画、爆炸图都在那个组件里，
-            它改的是 glTF 本身（见 artifactModel3d.ts）。
+            旋转 / 平移 / 缩放 / 全屏由 three 的 OrbitControls 与外层工具条负责；
+            拆解、隐藏与移动零件、颜色、透明度、行程动画、爆炸图都在那个组件里。
 
             CAD 与网格（STEP/IGES/STL/OBJ/PLY）走 /viewer（成果台转好的 glb），
             glTF/GLB 也统一走 /viewer —— 所有三维成果从同一个口子出。
 
-            camera-controls 自带轨道旋转 + 右键（或 Shift）拖动平移 + 滚轮缩放，
-            标注层在浏览模式下 pointer-events-none，所以两种手势不会互相抢。 */}
-        {/* shadow-intensity/softness：没有落地阴影的话零件像浮在白纸上，
-            转个角度更难判断哪个面朝前。有环境光时两者都会被 model-viewer 用上。 */}
-        {!blank && type === 'model3d' && <ArtifactModelViewer
-          src={model3dUrl}
-          alt={label}
-          viewerRef={modelRef}
-          gesturesEnabled={tool === 'browse'}
-          onError={setViewerError}
-        />}
+            全屏时把操作面板收起来：只留模型，Esc 或右上角那个小按钮退出。 */}
+        {!blank && type === 'model3d' && <Suspense fallback={
+          <p className="p-4 text-sm text-muted-foreground">正在载入三维展示台…</p>
+        }>
+          <ArtifactModelViewer
+            src={model3dUrl}
+            alt={label}
+            viewerRef={modelRef}
+            gesturesEnabled={tool === 'browse'}
+            fullscreen={fullscreen}
+            onError={setViewerError}
+          />
+        </Suspense>}
         {!blank && (type === 'drawing' || type === 'unsupported') && <p className="p-4 text-sm text-muted-foreground">
           这个格式（{artifact.file_name || artifact.kind || '未知'}）暂时无法在页面里预览，可用上方「下载原文件」查看。
         </p>}

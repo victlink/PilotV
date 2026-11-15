@@ -84,90 +84,120 @@ import Import
 import Mesh
 import MeshPart
 
-src = os.environ["FC_SRC"]
-out_dir = os.environ["FC_OUT_DIR"]
-os.makedirs(out_dir, exist_ok=True)
+# freecadcmd 会把脚本里的异常吞掉：退出码只剩 1，屏幕上连一句原因都没有。
+# 用户看到的只能是「转换失败」，不知道是自己的文件空、还是这台机器缺东西。
+# 所以失败原因自己写一份到 FC_ERROR_FILE，父进程读出来原样报给人看。
+ERROR_FILE = os.environ.get("FC_ERROR_FILE", "")
 
-doc = FreeCAD.newDocument("cad2glb")
-ext = os.path.splitext(src)[1].lower()
 
-if ext == ".fcstd":
-    # FCStd 是一个完整文档：直接打开它，别再 insert 一遍。
-    FreeCAD.closeDocument(doc.Name)
-    doc = FreeCAD.openDocument(src)
-else:
-    Import.insert(src, doc.Name)
+def fail(message):
+    """记下失败原因再退出。"""
+    if ERROR_FILE:
+        try:
+            with open(ERROR_FILE, "w", encoding="utf-8") as handle:
+                handle.write(str(message))
+        except Exception:
+            pass
+    print("PILOTV_EXPORT_ERROR: %s" % message)
+    raise SystemExit(1)
 
-# 验证用的文档里混着「不是零件」的辅助几何：服务包络（一个 740×880×800 的
-# 空盒，六块板围出来的）、包络检查体。它们本该出现在审计里，但塞进预览会把
-# 整台机器糊成一块灰砖 —— 用户点开只看见一个方块，会以为装配体没做出来。
-#
-# 只按自己的 label 筛是不够的：包络是个容器（App::Part），它下面六块板叫
-# Box / Box001，名字里根本看不出是包络。所以还要看祖先，并且只取叶子对象 ——
-# 容器自己的 Shape 是子对象的聚合，跟着一起导出会让每个零件被画两遍。
-import re
-skip = re.compile(os.environ.get("FC_SKIP_LABELS", r"(?i)(not_parts|not_production|envelope|包络)"))
 
-def label_of(obj):
-    return (getattr(obj, "Label", "") or "") + " " + (getattr(obj, "Name", "") or "")
+def main():
+    src = os.environ["FC_SRC"]
+    out_dir = os.environ["FC_OUT_DIR"]
+    os.makedirs(out_dir, exist_ok=True)
 
-def hits(obj, depth=0):
-    if skip.search(label_of(obj)):
-        return True
-    if depth >= 8:
-        return False
-    # InList 是「谁包含我」；向上爬就能认出手下这批 Box 属于包络容器。
-    for parent in getattr(obj, "InList", None) or []:
-        if hits(parent, depth + 1):
+    doc = FreeCAD.newDocument("cad2glb")
+    ext = os.path.splitext(src)[1].lower()
+
+    if ext == ".fcstd":
+        # FCStd 是一个完整文档：直接打开它，别再 insert 一遍。
+        FreeCAD.closeDocument(doc.Name)
+        doc = FreeCAD.openDocument(src)
+    else:
+        Import.insert(src, doc.Name)
+
+    # 验证用的文档里混着「不是零件」的辅助几何：服务包络（一个 740×880×800 的
+    # 空盒，六块板围出来的）、包络检查体。它们本该出现在审计里，但塞进预览会把
+    # 整台机器糊成一块灰砖 —— 用户点开只看见一个方块，会以为装配体没做出来。
+    #
+    # 只按自己的 label 筛是不够的：包络是个容器（App::Part），它下面六块板叫
+    # Box / Box001，名字里根本看不出是包络。所以还要看祖先，并且只取叶子对象 ——
+    # 容器自己的 Shape 是子对象的聚合，跟着一起导出会让每个零件被画两遍。
+    import re
+    skip = re.compile(os.environ.get("FC_SKIP_LABELS", r"(?i)(not_parts|not_production|envelope|包络)"))
+
+    def label_of(obj):
+        return (getattr(obj, "Label", "") or "") + " " + (getattr(obj, "Name", "") or "")
+
+    def hits(obj, depth=0):
+        if skip.search(label_of(obj)):
             return True
-    return False
+        if depth >= 8:
+            return False
+        # InList 是「谁包含我」；向上爬就能认出手下这批 Box 属于包络容器。
+        for parent in getattr(obj, "InList", None) or []:
+            if hits(parent, depth + 1):
+                return True
+        return False
 
-# 一个零件一个 OBJ：成果台的三维展示台要靠「一个零件一个节点」才能拆开、
-# 藏起来、挪开、演示行程。全并成一个网格的话，模型只剩一整块，拆不动。
-parts = []
-facets = 0
-defl = float(os.environ.get("FC_DEFLECTION", "0.08"))
-for obj in doc.Objects:
-    if hits(obj):
-        continue
-    # 有 Group 的是容器（App::Part、Part::Compound、组）：零件由子对象表示，
-    # 容器自身再导一遍就是重复渲染。
-    if getattr(obj, "Group", None):
-        continue
-    shape = getattr(obj, "Shape", None)
-    if shape is None:
-        continue
-    try:
-        if shape.isNull() or not shape.Faces:
+    # 一个零件一个 OBJ：成果台的三维展示台要靠「一个零件一个节点」才能拆开、
+    # 藏起来、挪开、演示行程。全并成一个网格的话，模型只剩一整块，拆不动。
+    parts = []
+    facets = 0
+    defl = float(os.environ.get("FC_DEFLECTION", "0.08"))
+    for obj in doc.Objects:
+        if hits(obj):
             continue
-    except Exception:
-        continue
-    copy = shape.copy()
-    # 对象自己的 Placement 不在 Shape 里；不叠上去，装配体会散成一堆原地零件。
-    try:
-        placement = getattr(obj, "Placement", None)
-        if placement is not None and not placement.isIdentity():
-            copy.transformShape(placement.toMatrix())
-    except Exception:
-        pass
-    # Relative=True：折线偏差按模型自身尺寸取比例。CAD 文件单位五花八门
-    # （mm / m / inch 都见过），写死绝对值要么糊要么爆。平行网格化用满核。
-    piece = MeshPart.meshFromShape(Shape=copy, LinearDeflection=defl,
-                                   AngularDeflection=0.3, Relative=True)
-    if not piece.CountFacets:
-        continue
-    label = (getattr(obj, "Label", "") or getattr(obj, "Name", "") or "").strip()
-    file_name = "part_%04d.obj" % len(parts)
-    piece.write(os.path.join(out_dir, file_name))
-    parts.append({"name": label or ("零件 %d" % (len(parts) + 1)), "file": file_name})
-    facets += piece.CountFacets
+        # 有 Group 的是容器（App::Part、Part::Compound、组）：零件由子对象表示，
+        # 容器自身再导一遍就是重复渲染。
+        if getattr(obj, "Group", None):
+            continue
+        shape = getattr(obj, "Shape", None)
+        if shape is None:
+            continue
+        try:
+            if shape.isNull() or not shape.Faces:
+                continue
+        except Exception:
+            continue
+        copy = shape.copy()
+        # 对象自己的 Placement 不在 Shape 里；不叠上去，装配体会散成一堆原地零件。
+        try:
+            placement = getattr(obj, "Placement", None)
+            if placement is not None and not placement.isIdentity():
+                copy.transformShape(placement.toMatrix())
+        except Exception:
+            pass
+        # Relative=True：折线偏差按模型自身尺寸取比例。CAD 文件单位五花八门
+        # （mm / m / inch 都见过），写死绝对值要么糊要么爆。平行网格化用满核。
+        piece = MeshPart.meshFromShape(Shape=copy, LinearDeflection=defl,
+                                       AngularDeflection=0.3, Relative=True)
+        if not piece.CountFacets:
+            continue
+        label = (getattr(obj, "Label", "") or getattr(obj, "Name", "") or "").strip()
+        file_name = "part_%04d.obj" % len(parts)
+        piece.write(os.path.join(out_dir, file_name))
+        parts.append({"name": label or ("零件 %d" % (len(parts) + 1)), "file": file_name})
+        facets += piece.CountFacets
 
-if not parts:
-    raise SystemExit("文件里没有可显示的实体（只有草图、线框或空文档）")
+    if not parts:
+        # 最常见的一种「空白」：文件本身是空的（占位文件、只有草图或线框）。
+        # 说清楚，别让人对着白屏猜是不是软件坏了。
+        fail("这份文件里没有可显示的实体（一个实体面都没有）：多半是空的占位文件，"
+             "或者只含草图、线框。可以在 CAD 里重新导出实体（STEP/STL）后再发布。")
 
-with open(os.path.join(out_dir, "index.json"), "w", encoding="utf-8") as handle:
-    json.dump(parts, handle, ensure_ascii=False)
-print("facets=%d" % facets)
+    with open(os.path.join(out_dir, "index.json"), "w", encoding="utf-8") as handle:
+        json.dump(parts, handle, ensure_ascii=False)
+    print("facets=%d" % facets)
+
+
+try:
+    main()
+except SystemExit:
+    raise
+except Exception as exc:
+    fail("%s: %s" % (type(exc).__name__, exc))
 '''
 
 
@@ -190,20 +220,37 @@ def _freecad_export_parts(path: str, deflection: float = 0.08) -> tuple[str, str
     script = os.path.join(workdir, "export.py")
     parts_dir = os.path.join(workdir, "parts")
     os.makedirs(parts_dir, exist_ok=True)
+    error_file = os.path.join(workdir, "error.txt")
     with open(script, "w", encoding="utf-8") as handle:
         handle.write(_FREECAD_EXPORT_SCRIPT)
     env = dict(os.environ, FC_SRC=os.path.abspath(path), FC_OUT_DIR=parts_dir,
-               FC_DEFLECTION=repr(float(deflection)))
+               FC_DEFLECTION=repr(float(deflection)), FC_ERROR_FILE=error_file)
     # FreeCAD 首次启动会建用户配置，比一般 CLI 慢；给足 5 分钟，但还是有上限 ——
     # 挂死的子进程比一次失败更糟。
     done = subprocess.run([exe, script], capture_output=True, text=True,
                           timeout=300, env=env, check=False)
     index_path = os.path.join(parts_dir, "index.json")
     if done.returncode != 0 or not os.path.isfile(index_path):
-        detail = (done.stderr or done.stdout or "").strip()[-300:]
+        # 先看脚本自己写下来的原因：那才是人话（「这份文件里没有实体」之类）。
+        detail = ""
+        if os.path.isfile(error_file):
+            try:
+                with open(error_file, "r", encoding="utf-8") as handle:
+                    detail = handle.read().strip()
+            except OSError:
+                detail = ""
+        if not detail:
+            # 再找脚本打在 stdout 上的标记。
+            for line in (done.stdout or "").splitlines():
+                if line.startswith("PILOTV_EXPORT_ERROR:"):
+                    detail = line.split(":", 1)[1].strip()
+                    break
+        if not detail:
+            detail = (done.stderr or done.stdout or "").strip()[-300:]
         shutil.rmtree(workdir, ignore_errors=True)
-        raise RuntimeError(
-            f"FreeCAD 没能把这份文件转成网格：{detail or '退出码 %d' % done.returncode}")
+        if not detail:
+            detail = "FreeCAD 退出码 %d" % done.returncode
+        raise RuntimeError(detail)
     return parts_dir, workdir
 
 
@@ -703,7 +750,9 @@ def main(argv: list[str]) -> int:
     try:
         stats = convert(args.src, args.dst, args.deflection, args.angular, args.max_triangles)
     except Exception as exc:                      # noqa: BLE001 - 子进程只回报原因
-        print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:400]},
+        # 只报原因，不报异常类名：用户看到的是「这份文件里没有实体」，
+        # 而不是「RuntimeError: 这份文件里没有实体」。
+        print(json.dumps({"ok": False, "error": str(exc)[:400]},
                          ensure_ascii=False), file=sys.stderr)
         return 1
     print(json.dumps({"ok": True, **stats}, ensure_ascii=False))

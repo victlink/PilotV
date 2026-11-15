@@ -24,7 +24,9 @@ it('resizes a large image to a bounded PNG and propagates persistence errors', a
   const close = vi.fn();
   vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 7680, height: 4320, close }));
   const draw = vi.fn();
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: draw } as unknown as CanvasRenderingContext2D);
+  // getContext 有好几个重载（2d / webgl / webgpu…），spy 的 mockReturnValue
+  // 只认最后一个重载的类型，所以这里跟着它的实际类型走，别写死 CanvasRenderingContext2D。
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: draw } as unknown as ReturnType<HTMLCanvasElement['getContext']>);
   vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (this: HTMLCanvasElement, callback) {
     expect(this.width).toBe(3840); expect(this.height).toBe(2160);
     callback(new Blob(['compressed'], { type: 'image/png' }));

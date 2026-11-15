@@ -20,7 +20,9 @@ beforeEach(() => {
   encode.mockReset();
   encode.mockImplementation((callback: BlobCallback) => callback(new Blob(['encoded pixels'], { type: 'image/png' })));
   vi.stubGlobal('Image', class extends Decoder { constructor() { super(); decoders.push(this); } });
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: draw } as unknown as CanvasRenderingContext2D);
+  // getContext 有好几个重载（2d / webgl / webgpu…），spy 的 mockReturnValue
+  // 只认最后一个重载的类型，所以这里跟着它的实际类型走，别写死 CanvasRenderingContext2D。
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: draw } as unknown as ReturnType<HTMLCanvasElement['getContext']>);
   vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(encode);
   vi.stubGlobal('URL', { createObjectURL: vi.fn() });
 });

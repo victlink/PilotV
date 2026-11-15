@@ -35,7 +35,6 @@
     "postbuild": "node ../scripts/write-web-build-metadata.mjs dist"
   },
   "dependencies": {
-    "@pilotdeck/config": "workspace:*",
     "@aiden0z/pptx-renderer": "1.2.4",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-html": "^6.4.9",
@@ -53,6 +52,7 @@
     "@iarna/toml": "^2.2.5",
     "@lezer/highlight": "^1.2.3",
     "@octokit/rest": "^22.0.0",
+    "@pilotdeck/config": "workspace:*",
     "@radix-ui/react-slot": "^1.2.4",
     "@replit/codemirror-minimap": "^0.5.2",
     "@streamdown/code": "^1.1.1",
@@ -118,6 +118,7 @@
     "shell-quote": "^1.8.3",
     "streamdown": "^2.5.0",
     "tailwind-merge": "^3.3.1",
+    "three": "0.180.0",
     "web-push": "^3.6.7",
     "ws": "^8.14.2",
     "yaml": "^2.8.2"
@@ -129,6 +130,7 @@
     "@types/node": "^22.19.7",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/three": "0.180.0",
     "@vitejs/plugin-react": "^4.6.0",
     "autoprefixer": "^10.4.16",
     "eslint": "^9.39.3",
