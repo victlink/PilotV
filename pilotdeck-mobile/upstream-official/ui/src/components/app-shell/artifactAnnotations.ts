@@ -12,11 +12,21 @@ import { normalizeStrokes, strokesBounds, type InkStroke } from './artifactInk';
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
+/**
+ * 挂在某个三维零件上的标注。
+ *
+ * 三维零件会被挪动、爆炸、换视角，屏幕上的位置随时在变 —— 光记一个矩形，
+ * 过一会儿就指错地方了。所以零件标注额外记下零件本身：后端 anchor.part
+ * 原样保存这份引用，成果台再点这条标注时能把零件重新选中。
+ */
+export type AnchorPart = { id: string; name?: string | null };
+
 export type Anchor = {
   rect?: Rect | null;
   strokes?: InkStroke[] | null;
   t?: number | null;
   frame?: number | null;
+  part?: AnchorPart | null;
 } | null;
 
 export type Annotation = {
@@ -91,7 +101,15 @@ export async function fetchArtifactDetail(artifactId: string, signal?: AbortSign
 
 export async function createAnnotation(
   artifactId: string,
-  input: { rect?: Rect | null; strokes?: InkStroke[] | null; body: string; severity?: string; t?: number | null },
+  input: {
+    rect?: Rect | null;
+    strokes?: InkStroke[] | null;
+    body: string;
+    severity?: string;
+    t?: number | null;
+    /** 三维零件标注：这条说明挂在哪个零件上。 */
+    part?: AnchorPart | null;
+  },
 ): Promise<Annotation> {
   const body = (input.body || '').trim();
   if (!body) throw new Error('标注内容不能为空');
@@ -104,6 +122,8 @@ export async function createAnnotation(
   if (rect) anchor.rect = normalizeRect(rect);
   if (strokes.length) anchor.strokes = strokes;
   if (typeof input.t === 'number' && Number.isFinite(input.t)) anchor.t = Math.max(0, input.t);
+  // 零件标注也要有位置：零件被挪动后矩形会失效，但至少点开时还能找到它。
+  if (input.part?.id) anchor.part = { id: input.part.id, name: input.part.name || null };
   if (!anchor.rect && !strokes.length) throw new Error('标注需要框选一块区域或画一笔');
   const payload = JSON.stringify({ body, severity: input.severity || 'minor', anchor });
   const data = await readJson(
@@ -148,4 +168,11 @@ export function annotationRect(note: Annotation): Rect | null {
 /** Notes the store has no position for: visible in the list, nowhere on the stage. */
 export function isUnanchored(note: Annotation): boolean {
   return annotationRect(note) === null;
+}
+
+/** 这条标注挂在哪个三维零件上（没有零件标注就是 null）。 */
+export function annotationPart(note: Annotation): AnchorPart | null {
+  const part = note.anchor?.part;
+  if (!part || typeof part.id !== 'string' || !part.id) return null;
+  return { id: part.id, name: part.name ?? null };
 }

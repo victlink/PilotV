@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 // 成果台里三维分支的行为。
 //
-// 这里只验「外层怎么管三维」：模型走统一的 /viewer 口、全屏时只剩模型、
-// 复位视角与自动旋转这些动作要送到展示台。全屏这一条尤其要盯：以前是
-// 「工具条进全屏、按钮留在外面」，现在要求全屏后只剩模型。
+// 这里只验「外层怎么管三维」：模型走统一的 /viewer 口、工具条能收成图标、
+// 全屏时只剩模型、三维零件标注能变成一条挂在零件上的说明。全屏这一条尤其
+// 要盯：以前是「工具条进全屏、按钮留在外面」，现在要求全屏后只剩模型。
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { useRef } from 'react';
+import { useCallback, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThemeProvider } from '../../contexts/ThemeContext';
 import ArtifactStage, { type Draft } from './ArtifactStage';
@@ -27,8 +27,25 @@ vi.mock('react-i18next', () => ({
 
 // three 在 jsdom 里没有 WebGL，渲染层换成占位组件：这里要验的是外层怎么管它。
 vi.mock('./ArtifactModelViewer', () => ({
-  default: ({ src, fullscreen }: { src: string; fullscreen?: boolean }) => (
-    <div data-testid="model-viewer" data-src={src} data-fullscreen={String(Boolean(fullscreen))} />
+  default: (props: {
+    src: string;
+    fullscreen?: boolean;
+    focusPart?: string | null;
+    onAnnotatePart?: (target: { id: string; name: string; rect: { x: number; y: number; w: number; h: number } }) => void;
+  }) => (
+    <div
+      data-testid="model-viewer"
+      data-src={props.src}
+      data-fullscreen={String(Boolean(props.fullscreen))}
+      data-focus={props.focusPart || ''}
+    >
+      <button
+        type="button"
+        onClick={() => props.onAnnotatePart?.({ id: 'p1', name: '机身', rect: { x: 0.1, y: 0.2, w: 0.03, h: 0.03 } })}
+      >
+        标注这个零件
+      </button>
+    </div>
   ),
 }));
 
@@ -45,18 +62,24 @@ const artifact: Artifact = {
   mime: 'application/octet-stream',
 } as Artifact;
 
+let lastDraft: Draft = null;
+
 function Harness() {
-  const draft = useRef<Draft | null>(null);
+  // 草稿要用 state：ref 改了不会重渲染，成果台看不到新草稿，草稿条也就不会
+  // 冒出来（这正是要验的东西）。
+  const [draft, setDraft] = useState<Draft>(null);
+  // onDraft 必须稳定：成果台在「换一份成果」时会用它清空草稿，回调一变就重跑。
+  const onDraft = useCallback((value: Draft) => { setDraft(value); lastDraft = value; }, []);
   return (
     <ThemeProvider>
       <ArtifactStage
         artifact={artifact}
         annotations={[]}
-        draft={draft.current}
+        draft={draft}
         activeNoteId={null}
         draftBody=""
         draftError=""
-        onDraft={value => { draft.current = value; }}
+        onDraft={onDraft}
         onDraftBody={() => {}}
         onSaveDraft={() => {}}
         onCancelDraft={() => {}}
@@ -68,6 +91,7 @@ function Harness() {
 }
 
 beforeEach(() => {
+  lastDraft = null;
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
@@ -83,9 +107,20 @@ afterEach(() => {
 describe('成果台的三维分支', () => {
   it('三维成果走统一的 /viewer 口', async () => {
     render(<Harness />);
-    // 展示台是按需加载的（three 那一坨不塞进主包），要等它自己加载完。
     const viewer = await screen.findByTestId('model-viewer');
     expect(viewer.getAttribute('data-src')).toBe('/api/artifacts/a1/viewer');
+  });
+
+  it('成果台工具能收成一个图标，点它再展开', async () => {
+    render(<Harness />);
+    await screen.findByTestId('model-viewer');
+    expect(screen.getByRole('button', { name: '自动旋转' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '收起工具' }));
+    expect(screen.queryByRole('button', { name: '自动旋转' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '成果台工具' }));
+    expect(screen.getByRole('button', { name: '自动旋转' })).toBeTruthy();
   });
 
   it('全屏：工具条收起来，只剩模型，并留一个退出按钮', async () => {
@@ -99,6 +134,8 @@ describe('成果台的三维分支', () => {
     expect(screen.queryByRole('button', { name: '自动旋转' })).toBeNull();
     expect(screen.getByTestId('model-viewer').getAttribute('data-fullscreen')).toBe('true');
     expect(screen.getByRole('button', { name: '退出全屏' })).toBeTruthy();
+    // 但工具还在：收成了一个图标，想调什么随时能点开。
+    expect(screen.getByRole('button', { name: '成果台工具' })).toBeTruthy();
   });
 
   it('退出全屏：工具条回来', async () => {
@@ -109,5 +146,18 @@ describe('成果台的三维分支', () => {
 
     expect(screen.getByRole('button', { name: '自动旋转' })).toBeTruthy();
     expect(screen.getByTestId('model-viewer').getAttribute('data-fullscreen')).toBe('false');
+  });
+
+  it('在零件上写说明：草稿里带上零件本身', async () => {
+    render(<Harness />);
+    await screen.findByTestId('model-viewer');
+
+    fireEvent.click(screen.getByRole('button', { name: '标注这个零件' }));
+
+    expect(lastDraft?.part?.id).toBe('p1');
+    expect(lastDraft?.part?.name).toBe('机身');
+    expect(lastDraft?.rect?.x).toBeCloseTo(0.1);
+    // 草稿条要写清楚是在给哪个零件写说明（jsdom 没有 innerText，用 textContent）。
+    expect(document.body.textContent).toContain('零件 机身');
   });
 });

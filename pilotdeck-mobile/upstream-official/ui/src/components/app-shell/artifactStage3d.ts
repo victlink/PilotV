@@ -59,8 +59,16 @@ export type NodeSummary = {
 
 /** 一个「零件」：可以整体选中、隐藏、移动、改色的最小单位。 */
 export type PartGroup = {
+  /**
+   * 零件的稳定编号：按它在场景里的次序排（`part:0`、`part:1`…）。
+   *
+   * 为什么不用 uuid：uuid 每次打开模型都是新的，挂在零件上的标注下次就
+   * 指不到人了。同一份文件导出的零件次序是稳定的，编号也就稳定。
+   */
   id: string;
   name: string;
+  /** 零件容器在场景里的 key（挪动、隐藏作用在它身上）。 */
+  containerKey: string;
   meshes: MeshSummary[];
   vertexCount: number;
   textured: boolean;
@@ -131,6 +139,7 @@ export function groupParts(root: NodeSummary): PartGroup[] {
         group = {
           id,
           name: mesh.name || container.name || '零件',
+          containerKey: container.meshes.length === 1 ? container.key : mesh.key,
           meshes: [],
           vertexCount: 0,
           textured: false,
@@ -159,6 +168,9 @@ export function groupParts(root: NodeSummary): PartGroup[] {
     group.center = center;
     group.radius = radius;
     if (!group.name) group.name = `零件 ${order.indexOf(id) + 1}`;
+    // 稳定编号：同一份文件，每次打开都是同样的号 —— 挂在零件上的标注下次
+    // 才指得到人（uuid 每次加载都变，指不到）。
+    group.id = `part:${order.indexOf(id)}`;
   }
 
   return order.map(id => groups.get(id)).filter((group): group is PartGroup => Boolean(group));

@@ -131,6 +131,21 @@ describe('零件分组', () => {
     };
     expect(groupParts(root)[0].textured).toBe(true);
   });
+
+  it('零件编号是稳定的：同一份文件每次打开都是同样的号', () => {
+    const build = (): NodeSummary => ({
+      key: 'root',
+      name: 'scene',
+      meshes: [],
+      children: [
+        { key: 'a', name: 'A', meshes: [mesh('ma', 'A', [0, 0, 0])], children: [] },
+        { key: 'b', name: 'B', meshes: [mesh('mb', 'B', [5, 0, 0])], children: [] },
+      ],
+    });
+    // 挂在零件上的标注靠这个号找回零件：用 uuid 的话下次就指不到人了。
+    expect(groupParts(build()).map(part => part.id)).toEqual(['part:0', 'part:1']);
+    expect(groupParts(build()).map(part => part.id)).toEqual(['part:0', 'part:1']);
+  });
 });
 
 describe('爆炸方向', () => {

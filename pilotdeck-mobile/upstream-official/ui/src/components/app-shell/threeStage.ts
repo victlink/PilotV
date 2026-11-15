@@ -39,6 +39,23 @@ export type StagePartInfo = {
   color: string;
 };
 
+/**
+ * 三维台的操作模式。
+ *
+ * - view：拖动就是转视角（左键转、右键平移、滚轮缩放）。
+ * - select：左键专门用来点零件，不会把画面转走。
+ * - move：按住左键拖着选中的零件走。
+ * - annotate：点零件，给它写一条说明（挂成标注）。
+ */
+export type StageMode = 'view' | 'select' | 'move' | 'annotate';
+
+export type StageAnnotateTarget = {
+  id: string;
+  name: string;
+  /** 零件在画面里的位置（0–1 归一化），标注的记号落在这儿。 */
+  rect: { x: number; y: number; w: number; h: number };
+};
+
 export type StageLoadResult = {
   parts: StagePartInfo[];
   /** 模型里有没有贴图（有贴图就别乱分色，材质才是主角）。 */
@@ -53,6 +70,10 @@ export type StageLoadResult = {
 export type StageCallbacks = {
   /** 左键点到零件时回调；点到空白处回调 null。 */
   onSelect?: (id: string | null) => void;
+  /** 「标注零件」模式下点到零件：把零件交给外层挂一条说明。 */
+  onAnnotatePart?: (target: StageAnnotateTarget) => void;
+  /** 拖动零件结束时回调（零件的新位置）。 */
+  onPartMoved?: (id: string, offset: Vec3) => void;
 };
 
 export type ColorMode = 'material' | 'palette';
@@ -87,6 +108,24 @@ type PartHandle = {
 
 const DEFAULT_BACKGROUND = '#eef1f6';
 
+/**
+ * 每个模式下鼠标键怎么用。
+ *
+ * 「选零件」和「标注零件」要把左键从旋转里拿出来 —— 一边转画面一边点零件，
+ * 手指够不着；右键平移和滚轮缩放照旧。
+ */
+export function stageMouseButtons(mode: StageMode): {
+  LEFT: number | null;
+  MIDDLE: number;
+  RIGHT: number;
+} {
+  return {
+    LEFT: mode === 'view' ? THREE.MOUSE.ROTATE : null,
+    MIDDLE: THREE.MOUSE.DOLLY,
+    RIGHT: THREE.MOUSE.PAN,
+  };
+}
+
 export class ThreeStage {
   private container: HTMLElement;
   private renderer: THREE.WebGLRenderer;
@@ -117,7 +156,15 @@ export class ThreeStage {
   private zoom = 1;
   private autoRotate = false;
   private gesturesEnabled = true;
+  private mode: StageMode = 'view';
+  private selectedId: string | null = null;
   private pointerDown: { x: number; y: number; button: number } | null = null;
+  private drag: {
+    id: string;
+    plane: THREE.Plane;
+    start: THREE.Vector3;
+    offsetStart: THREE.Vector3;
+  } | null = null;
 
   private keyLight: THREE.DirectionalLight;
   private ground: THREE.Mesh | null = null;
@@ -408,7 +455,47 @@ export class ThreeStage {
 
   setGesturesEnabled(enabled: boolean): void {
     this.gesturesEnabled = enabled;
-    this.controls.enabled = enabled;
+    this.controls.enabled = enabled && this.mode !== 'move';
+  }
+
+  /**
+   * 切换操作模式。
+   *
+   * 「选零件」和「标注零件」要抢左键，所以左键的旋转先让出来：右键平移和
+   * 滚轮缩放照旧。「移零件」整个视角都别动 —— 拖零件的时候画面跟着转，
+   * 零件会跟着鼠标跑偏。
+   */
+  setMode(mode: StageMode): void {
+    this.mode = mode;
+    this.drag = null;
+    this.controls.mouseButtons = stageMouseButtons(mode);
+    this.controls.enabled = this.gesturesEnabled && mode !== 'move';
+  }
+
+  /** 当前选中的零件（拖零件时要知道往哪儿拖）。 */
+  setSelected(id: string | null): void {
+    this.selectedId = id;
+  }
+
+  /** 把镜头对准某个零件（点标注时用）。 */
+  focusPart(id: string): boolean {
+    const part = this.parts.get(id);
+    if (!part) return false;
+    const world = new THREE.Vector3();
+    part.meshes[0]?.getWorldPosition(world);
+    const distance = this.camera.position.distanceTo(this.controls.target);
+    const direction = this.camera.position.clone().sub(this.controls.target).normalize();
+    this.controls.target.copy(world);
+    this.camera.position.copy(world).addScaledVector(direction, distance);
+    this.controls.update();
+    return true;
+  }
+
+  /** 零件当前被挪到哪儿了（world 单位）。 */
+  getPartOffset(id: string): Vec3 {
+    const part = this.parts.get(id);
+    if (!part) return [0, 0, 0];
+    return [part.offset.x, part.offset.y, part.offset.z];
   }
 
   resetView(): void {
@@ -546,34 +633,94 @@ export class ThreeStage {
   private attachEvents(): void {
     const dom = this.renderer.domElement;
     dom.addEventListener('pointerdown', this.onPointerDown);
+    dom.addEventListener('pointermove', this.onPointerMove);
     dom.addEventListener('pointerup', this.onPointerUp);
     dom.addEventListener('pointercancel', this.onPointerCancel);
   }
 
   private onPointerDown = (event: PointerEvent): void => {
     this.pointerDown = { x: event.clientX, y: event.clientY, button: event.button };
+    if (this.mode !== 'move' || event.button !== 0 || !this.gesturesEnabled) return;
+    const hit = this.hitAt(event);
+    if (!hit) return;
+    if (this.selectedId !== hit.id) {
+      // 还没选中：先选它，不拖。
+      this.selectedId = hit.id;
+      this.callbacks.onSelect?.(hit.id);
+      return;
+    }
+    const part = this.parts.get(hit.id);
+    if (!part) return;
+    // 拖动平面：过零件、朝向相机的那个平面。这样零件跟着鼠标在画面里走，
+    // 不会一头扎进模型里。
+    const world = new THREE.Vector3();
+    part.meshes[0]?.getWorldPosition(world);
+    const normal = new THREE.Vector3();
+    this.camera.getWorldDirection(normal);
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, world);
+    const ray = this.rayAt(event);
+    if (!ray) return;
+    const start = new THREE.Vector3();
+    if (!ray.intersectPlane(plane, start)) return;
+    this.drag = { id: hit.id, plane, start, offsetStart: part.offset.clone() };
+    this.controls.enabled = false;
+    this.renderer.domElement.setPointerCapture?.(event.pointerId);
+  };
+
+  private onPointerMove = (event: PointerEvent): void => {
+    if (!this.drag) return;
+    const part = this.parts.get(this.drag.id);
+    if (!part) return;
+    const ray = this.rayAt(event);
+    if (!ray) return;
+    const projected = new THREE.Vector3();
+    if (!ray.intersectPlane(this.drag.plane, projected)) return;
+    const delta = projected.sub(this.drag.start);
+    part.offset.copy(this.drag.offsetStart).add(delta);
+    this.applyPositions();
   };
 
   private onPointerCancel = (): void => {
     this.pointerDown = null;
+    this.drag = null;
+    this.controls.enabled = this.gesturesEnabled && this.mode !== 'move';
   };
 
   private onPointerUp = (event: PointerEvent): void => {
     const down = this.pointerDown;
     this.pointerDown = null;
+    if (this.drag) {
+      const part = this.parts.get(this.drag.id);
+      this.drag = null;
+      this.controls.enabled = this.gesturesEnabled && this.mode !== 'move';
+      this.renderer.domElement.releasePointerCapture?.(event.pointerId);
+      if (part) {
+        this.callbacks.onPartMoved?.(part.id, [part.offset.x, part.offset.y, part.offset.z]);
+      }
+      return;
+    }
     if (!down || down.button !== 0 || !this.gesturesEnabled) return;
     // 拖动过就是转视角，不是选零件。
     const moved = Math.hypot(event.clientX - down.x, event.clientY - down.y);
     if (moved > 5) return;
-    this.callbacks.onSelect?.(this.pick(event));
+    const hit = this.hitAt(event);
+    if (this.mode === 'annotate') {
+      if (!hit) return;
+      this.callbacks.onAnnotatePart?.({
+        id: hit.id,
+        name: hit.name,
+        rect: this.partScreenRect(hit.id),
+      });
+      return;
+    }
+    this.selectedId = hit?.id ?? null;
+    this.callbacks.onSelect?.(hit?.id ?? null);
   };
 
-  /** 射线拾取：返回点到的零件 id，点空白处返回 null。 */
-  private pick(event: PointerEvent): string | null {
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    if (!rect.width || !rect.height) return null;
-    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  /** 射线拾取：返回点到的零件（id 与名字）。 */
+  private hitAt(event: PointerEvent): { id: string; name: string } | null {
+    const ray = this.rayAt(event);
+    if (!ray) return null;
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const targets = this.order
       .map(id => this.parts.get(id))
@@ -583,9 +730,35 @@ export class ThreeStage {
     for (const hit of hits) {
       if (!isVisible(hit.object)) continue;
       const id = hit.object.userData.partId as string | undefined;
-      if (id) return id;
+      if (!id) continue;
+      const part = this.parts.get(id);
+      return { id, name: part?.name ?? '零件' };
     }
     return null;
+  }
+
+  /** 把指针位置换算成一条射线。 */
+  private rayAt(event: PointerEvent): THREE.Ray | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    return this.raycaster.ray;
+  }
+
+  /** 零件在画面里的位置（0–1 归一化）：标注的记号落在这儿。 */
+  private partScreenRect(id: string): { x: number; y: number; w: number; h: number } {
+    const part = this.parts.get(id);
+    const world = new THREE.Vector3();
+    part?.meshes[0]?.getWorldPosition(world);
+    const projected = world.clone().project(this.camera);
+    return {
+      x: Math.min(1, Math.max(0, (projected.x + 1) / 2)),
+      y: Math.min(1, Math.max(0, (1 - projected.y) / 2)),
+      w: 0.03,
+      h: 0.03,
+    };
   }
 
   private resize(): void {
@@ -633,6 +806,7 @@ export class ThreeStage {
     this.observer = null;
     const dom = this.renderer.domElement;
     dom.removeEventListener('pointerdown', this.onPointerDown);
+    dom.removeEventListener('pointermove', this.onPointerMove);
     dom.removeEventListener('pointerup', this.onPointerUp);
     dom.removeEventListener('pointercancel', this.onPointerCancel);
     this.controls.dispose();
@@ -656,8 +830,8 @@ export class ThreeStage {
   }
 }
 
-function containerKeyOf(group: { id: string; meshes: MeshSummary[] }): string {
-  return group.id.startsWith('node:') ? group.id.slice('node:'.length) : group.meshes[0]?.key ?? '';
+function containerKeyOf(group: { containerKey: string }): string {
+  return group.containerKey;
 }
 
 /**

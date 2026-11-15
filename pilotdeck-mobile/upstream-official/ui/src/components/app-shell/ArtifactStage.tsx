@@ -1,12 +1,15 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { SlidersHorizontal } from 'lucide-react';
 import { artifactModelSourceUrl, artifactRawUrl, isCadArtifact, isEditableDocument, isOversizedEditableDocument, isUnconvertible3d, mediaType, type Artifact } from './artifactsMedia';
 import {
+  annotationPart,
   annotationRect,
   annotationStrokes,
   isDrag,
   rectAt,
   rectFromDrag,
   type Annotation,
+  type AnchorPart,
   type Rect,
 } from './artifactAnnotations';
 import InkOverlay from './InkOverlay';
@@ -32,7 +35,13 @@ import {
   type StageViewport,
 } from './artifactStageViewport';
 
-export type Draft = { rect?: Rect | null; strokes?: InkStroke[] | null; t?: number | null } | null;
+export type Draft = {
+  rect?: Rect | null;
+  strokes?: InkStroke[] | null;
+  t?: number | null;
+  /** 三维零件标注：这条说明挂在哪个零件上。 */
+  part?: AnchorPart | null;
+} | null;
 
 /** 框选 keeps an exact region and a video timestamp; 手绘 takes pen or finger. */
 export type Tool = 'box' | 'ink' | 'browse';
@@ -153,6 +162,9 @@ export default function ArtifactStage({
   // 布局态全屏：浏览器拒绝 requestFullscreen（iframe 未授权、iOS Safari 没有
   // 元素级全屏）时还要有一个「铺满窗口」的退路，否则按钮点下去毫无反应。
   const [fullscreen, setFullscreen] = useState(false);
+  // 成果台工具条：可以收成一个图标。工具条一长就把成果挡掉一半，全屏时更该
+  // 只剩模型，所以进全屏自动收起。
+  const [toolsOpen, setToolsOpen] = useState(true);
   // 三维自动旋转：讲解一个装配体时手不动也能看清各面，比反复拖拽省事。
   const [autoRotate, setAutoRotate] = useState(false);
 
@@ -414,6 +426,23 @@ export default function ArtifactStage({
     modelRef.current?.setAutoRotate(autoRotate);
   }, [type, autoRotate, artifact?.id]);
 
+  // 全屏：工具条收成一个图标（用户要的是「只显示模型」），三维台的面板同理。
+  useEffect(() => { setToolsOpen(!fullscreen); }, [fullscreen]);
+
+  // 三维零件标注：在零件上写说明。零件会被挪来挪去，所以除了屏幕上的位置，
+  // 还要把零件本身记进草稿 —— 标注存的是零件，不是那一小块画面。
+  const onAnnotatePart = useCallback((target: { id: string; name: string; rect: Rect }) => {
+    setTool('browse');
+    onDraft({ rect: target.rect, part: { id: target.id, name: target.name }, t: null });
+  }, [onDraft]);
+
+  // 点开一条零件标注，就把那个零件重新选中（零件挪走了也能找回来）。
+  const focusedPart = useMemo(() => {
+    if (!activeNoteId) return null;
+    const note = annotations.find(item => item.id === activeNoteId);
+    return note ? annotationPart(note)?.id ?? null : null;
+  }, [activeNoteId, annotations]);
+
   const onViewportTouchStart = useCallback((event: React.TouchEvent) => {
     if (!pinchable) return;
     const points = touchPoints(event.touches);
@@ -554,6 +583,8 @@ export default function ArtifactStage({
 
   const showDraftBar = Boolean(draft && ((draft.rect && !draft.strokes) || draft.strokes?.length));
   const draftIsInk = Boolean(draft?.strokes?.length);
+  // 零件标注要在条子上写清楚是哪个零件，否则用户不知道自己在给什么写说明。
+  const draftPartName = draft?.part?.name || '';
 
   return <div ref={shellRef} className={`flex min-h-0 flex-1 flex-col gap-2 ${fullscreen ? 'fixed inset-0 z-[9999] bg-background p-3' : ''}`}>
     {/* 文档/图纸放大之后要能滚：溢出裁掉的话，放大后的正文有一半永远够不着。
@@ -573,8 +604,17 @@ export default function ArtifactStage({
 
           全屏时整条浮条收起来：用户要的是「只显示模型」。退出全屏留一个
           右上角的小按钮（Esc 也管用），不然布局态全屏就出不来了。 */}
-      <div hidden={fullscreen}
-        className={`pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center px-2 pt-2 ${fullscreen ? 'hidden' : ''}`}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center px-2 pt-2">
+        {/* 成果台工具：收起时只留一个图标，点它才展开。工具条一长就把成果
+            挡掉一半（尤其在窄窗口里），全屏看模型时更是只该剩下模型。 */}
+        {!toolsOpen && (
+          <button type="button" onClick={() => setToolsOpen(true)} title="成果台工具" aria-label="成果台工具"
+            className="pointer-events-auto flex min-h-9 items-center gap-1 rounded-full border border-border bg-background/90 px-3 text-xs shadow-sm backdrop-blur hover:bg-muted">
+            <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
+            工具
+          </button>
+        )}
+        {toolsOpen && (
         <div role="group" aria-label="成果操作" onPointerDown={event => event.stopPropagation()}
           className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-full border border-border bg-background/90 px-1.5 py-1 shadow-sm backdrop-blur">
           {([['box', '框选'], ['ink', '手绘'], ['browse', '浏览']] as Array<[Tool, string]>)
@@ -637,7 +677,10 @@ export default function ArtifactStage({
             {fullscreen ? '退出全屏' : '全屏'}
           </button>
           {artifact && <a className="shrink-0 rounded-full border border-transparent px-2.5 py-2 text-xs underline hover:bg-muted" href={rawUrl} target="_blank" rel="noopener noreferrer" download>下载</a>}
+          <button type="button" onClick={() => setToolsOpen(false)} title="收起工具" aria-label="收起工具"
+            className="shrink-0 rounded-full border border-transparent px-2.5 py-2 text-xs hover:bg-muted">收起</button>
         </div>
+        )}
       </div>
       {/* 全屏时唯一留下的操作：退出。按 Esc 也行，但布局态全屏（浏览器拒绝
           requestFullscreen 时）没有 Esc，所以这个按钮不能省。 */}
@@ -706,6 +749,8 @@ export default function ArtifactStage({
             viewerRef={modelRef}
             gesturesEnabled={tool === 'browse'}
             fullscreen={fullscreen}
+            focusPart={focusedPart}
+            onAnnotatePart={onAnnotatePart}
             onError={setViewerError}
           />
         </Suspense>}
@@ -774,7 +819,9 @@ export default function ArtifactStage({
             编辑文档时收起：标注条是给成果本体的，它压在编辑器底部会挡住最后几行。 */}
         {showDraftBar && !editing && <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1 border-t border-border bg-background/95 p-2 backdrop-blur">
           {!sketchOnly && <>
-            <label className="text-xs" htmlFor="artifact-note-draft">新标注（{draftIsInk ? `${draftStrokes.length} 笔` : '框选'}）</label>
+            <label className="text-xs" htmlFor="artifact-note-draft">
+              新标注（{draftPartName ? `零件 ${draftPartName}` : draftIsInk ? `${draftStrokes.length} 笔` : '框选'}）
+            </label>
             <input id="artifact-note-draft" className="w-full rounded border border-border bg-background p-2 text-sm"
               value={draftBody} placeholder="说明这里要怎么改" autoFocus
               onChange={event => onDraftBody(event.target.value)}

@@ -27,7 +27,7 @@ const stage = vi.hoisted(() => {
   };
 
   class FakeThreeStage {
-    constructor(public host: HTMLElement, public callbacks: { onSelect?: (id: string | null) => void }) {
+    constructor(public host: HTMLElement, public callbacks: { onSelect?: (id: string | null) => void; onAnnotatePart?: (target: unknown) => void; onPartMoved?: (id: string, offset: number[]) => void }) {
       state.instances.push({ select: (id: string | null) => callbacks.onSelect?.(id) });
     }
     async load() {
@@ -51,6 +51,10 @@ const stage = vi.hoisted(() => {
     setAutoRotate(value: boolean) { state.calls.push({ method: 'setAutoRotate', args: [value] }); }
     setZoom(value: number) { state.calls.push({ method: 'setZoom', args: [value] }); }
     setGesturesEnabled(value: boolean) { state.calls.push({ method: 'setGesturesEnabled', args: [value] }); }
+    setMode(value: string) { state.calls.push({ method: 'setMode', args: [value] }); }
+    setSelected(value: string | null) { state.calls.push({ method: 'setSelected', args: [value] }); }
+    focusPart(value: string) { state.calls.push({ method: 'focusPart', args: [value] }); }
+    getPartOffset() { return [0, 0, 0]; }
     resetView() { state.calls.push({ method: 'resetView', args: [] }); }
     playTravel(id: string, axis: number[], distance: number) { state.calls.push({ method: 'playTravel', args: [id, axis, distance] }); }
     dispose() { state.calls.push({ method: 'dispose', args: [] }); }
@@ -141,19 +145,37 @@ describe('成果台的三维展示台', () => {
     expect(screen.getByRole('button', { name: '分色' }).getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('操作面板可以整个隐藏，也能再叫回来', async () => {
+  it('操作面板可以收成一个图标，也能再点回来', async () => {
     await renderViewer();
-    fireEvent.click(screen.getByRole('button', { name: '隐藏操作面板' }));
+    fireEvent.click(screen.getByRole('button', { name: '收起三维操作面板' }));
     expect(screen.queryByText('机身')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: '三维面板' }));
+    // 收起后只剩一个三维图标，点它就把面板叫回来。
+    const icon = screen.getByRole('button', { name: '三维操作面板' });
+    expect(icon).toBeTruthy();
+    fireEvent.click(icon);
     await screen.findByText('机身');
   });
 
-  it('全屏时只剩模型：操作面板不出现', async () => {
+  it('全屏时只剩模型：操作面板收成一个图标', async () => {
     await renderViewer({ fullscreen: true });
-    expect(screen.queryByRole('button', { name: '隐藏操作面板' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '三维面板' })).toBeNull();
+    expect(screen.queryByText('机身')).toBeNull();
+    expect(screen.getByRole('button', { name: '三维操作面板' })).toBeTruthy();
+  });
+
+  it('零件模式：选零件/移零件/标注零件都要送到三维层', async () => {
+    await renderViewer();
+    fireEvent.click(screen.getByRole('button', { name: '选零件' }));
+    await waitFor(() => expect(stage.state.calls.some(call =>
+      call.method === 'setMode' && call.args[0] === 'select')).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: '移零件' }));
+    await waitFor(() => expect(stage.state.calls.some(call =>
+      call.method === 'setMode' && call.args[0] === 'move')).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: '标注零件' }));
+    await waitFor(() => expect(stage.state.calls.some(call =>
+      call.method === 'setMode' && call.args[0] === 'annotate')).toBe(true));
   });
 
   it('取不到模型时说人话，不留一块空白', async () => {

@@ -15,6 +15,7 @@ import {
 } from './artifactsMedia';
 import { finalArtifacts } from './artifactRounds';
 import {
+  annotationPart,
   createAnnotation,
   deleteAnnotation,
   fetchArtifactDetail,
@@ -229,7 +230,7 @@ function SessionArtifacts({
       // 跨会话范围里没有「当前对话」可挂靠，标注得先回到当前会话再存。
       const targetId = selected?.id || (sessionId ? await createWhiteboard(sessionId) : '');
       if (!targetId) { setNoteError('这个范围里没有可挂靠的对话，先切回「当前会话」再保存'); return; }
-      await createAnnotation(targetId, { rect, strokes, body, t: draft?.t ?? null });
+      await createAnnotation(targetId, { rect, strokes, body, t: draft?.t ?? null, part: draft?.part ?? null });
       if (targetId !== selected?.id) {
         setSyncState('已在空白手绘页上保存，并新建了白板成果');
         setRefresh(value => value + 1);
@@ -378,6 +379,7 @@ function SessionArtifacts({
           {notes.map(note => <li key={note.id} className={`rounded border border-border p-2 ${note.status === 'resolved' ? 'opacity-60' : ''} ${activeNoteId === note.id ? 'ring-1 ring-ring' : ''}`}>
             <button type="button" className="min-h-9 w-full text-left" onClick={() => setActiveNoteId(note.id)}>
               <span className="font-medium">{note.seq}. {note.body}</span>
+              {annotationPart(note) && <span className="ml-1 text-xs text-muted-foreground">（零件 {annotationPart(note)?.name || annotationPart(note)?.id}）</span>}
               {typeof note.anchor?.t === 'number' && <span className="ml-1 text-xs text-muted-foreground">{Math.round(note.anchor.t)} 秒处</span>}
               {!note.anchor?.rect && !note.anchor?.strokes?.length && <span className="ml-1 text-xs text-muted-foreground">（无位置）</span>}
             </button>

@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { analyzeScene } from './threeStage';
+import { analyzeScene, stageMouseButtons } from './threeStage';
 
 function part(name: string, x: number): THREE.Mesh {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshStandardMaterial());
@@ -51,5 +51,24 @@ describe('场景分析', () => {
     const root = new THREE.Group();
     root.updateMatrixWorld(true);
     expect(analyzeScene(root).groups).toHaveLength(0);
+  });
+});
+
+describe('零件模式的鼠标键', () => {
+  it('「查看」模式左键转画面', () => {
+    expect(stageMouseButtons('view').LEFT).toBe(THREE.MOUSE.ROTATE);
+  });
+
+  it('「选零件」「标注零件」模式左键不再转画面（否则点零件会转走画面）', () => {
+    expect(stageMouseButtons('select').LEFT).toBeNull();
+    expect(stageMouseButtons('annotate').LEFT).toBeNull();
+  });
+
+  it('右键平移、滚轮缩放在任何模式下都留着', () => {
+    for (const mode of ['view', 'select', 'move', 'annotate'] as const) {
+      const buttons = stageMouseButtons(mode);
+      expect(buttons.RIGHT).toBe(THREE.MOUSE.PAN);
+      expect(buttons.MIDDLE).toBe(THREE.MOUSE.DOLLY);
+    }
   });
 });
