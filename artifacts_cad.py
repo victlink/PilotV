@@ -51,7 +51,9 @@ class CadUnavailable(RuntimeError):
 # v6：一个零件一个节点（装配体不再合成一块网格，成果台才拆得开）。
 # v7：STEP 读入前补上缺失的 PRODUCT_DEFINITION_SHAPE —— 手写生成器漏掉这一层时
 #     FreeCAD 静默读不出任何实体（页面显示「这份文件里没有可显示的实体」）。
-CONVERTER_VERSION = 7
+# v8：STL/OBJ 直接自己解析，不再绕 FreeCAD（FreeCAD 不认 .stl 扩展名，
+#     STL 成果一律显示「no supported file format」）。
+CONVERTER_VERSION = 8
 
 
 def is_cad(path: str) -> bool:

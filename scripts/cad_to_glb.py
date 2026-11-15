@@ -390,6 +390,50 @@ def read_obj_file(path: str) -> Mesh:
     return mesh
 
 
+def read_stl_file(path: str) -> Mesh:
+    """STL → Mesh（二进制与 ASCII 都认）。
+
+    FreeCAD 的 Import 不认 .stl 扩展名（「no supported file format」），而
+    Mesh.read 也一样 —— 这类模型最终是「文件里有模型，但成果台显示没有实体」。
+    二进制 STL 只有 84 字节头 + 每个三角面 50 字节，ASCII 也能直接按行读，
+    自己解析比指望 FreeCAD/VTK 认扩展名可靠得多。
+    """
+    with open(path, "rb") as handle:
+        raw = handle.read()
+    mesh = Mesh()
+    if len(raw) >= 84:
+        count = struct.unpack_from("<I", raw, 80)[0]
+        if 84 + 50 * count == len(raw):
+            offset = 84
+            for _ in range(count):
+                (nx, ny, nz) = struct.unpack_from("<3f", raw, offset)
+                verts = []
+                for index in range(1, 4):
+                    verts.append(struct.unpack_from("<3f", raw, offset + 12 * index))
+                mesh.add_polygon(verts)
+                offset += 50
+            return mesh
+    head = raw[:512].lower()
+    if head.startswith(b"solid") and b"facet" in raw:
+        verts: list[tuple[float, float, float]] = []
+        for line in raw.decode("utf-8", "replace").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("vertex"):
+                parts = stripped.split()
+                if len(parts) >= 4:
+                    try:
+                        verts.append((float(parts[1]), float(parts[2]), float(parts[3])))
+                    except ValueError:
+                        verts = []
+                        continue
+                    if len(verts) == 3:
+                        mesh.add_polygon(verts)
+                        verts = []
+        if mesh.triangles:
+            return mesh
+    raise RuntimeError("STL 文件读不出来（既不是合法的二进制 STL，也不是 ASCII STL）")
+
+
 def read_shape(path: str):
     """STEP / IGES → OCCT shape。读不出来就抛错，别静默返回空壳。
 
@@ -762,7 +806,12 @@ def convert(src: str, dst: str, deflection: float, angular: float,
         except RuntimeError:
             freecad = ""
 
-        if freecad:
+        # STL/OBJ 本来就是三角面，FreeCAD 又不认 .stl 扩展名 —— 直接自己解析，
+        # 别绕回 FreeCAD 再失败一次。
+        if ext in (".stl", ".obj"):
+            mesh = read_stl_file(src) if ext == ".stl" else read_obj_file(src)
+            parts = [(os.path.splitext(os.path.basename(src))[0], mesh)]
+        elif freecad:
             while True:
                 parts_dir, temp_dir = _freecad_export_parts(src, deflection)
                 parts = _load_freecad_parts(parts_dir)
@@ -810,7 +859,7 @@ def convert(src: str, dst: str, deflection: float, angular: float,
             "vertices": sum(len(mesh.positions) for _, mesh in parts),
             "parts": len(parts),
             "faces": faces,
-            "backend": "freecad" if freecad else ("mesh" if ext in MESH_EXT else "occt"),
+            "backend": "mesh" if ext in (".stl", ".obj") else ("freecad" if freecad else ("mesh" if ext in MESH_EXT else "occt")),
             "deflection": round(deflection, 6),
             "attempts": attempts,
             "bounds": {"min": [low[0], low[1], low[2]], "max": [low[3], low[4], low[5]]},

@@ -65,6 +65,39 @@ END-ISO-10303-21;
 """
 
 
+class StlReaderTests(unittest.TestCase):
+    def test_binary_stl_is_read(self):
+        import struct
+        import tempfile, os
+        raw = b"PilotV test".ljust(80, b"\0")
+        raw += struct.pack("<I", 1)
+        raw += struct.pack("<12f", 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0)
+        raw += b"\0\0"
+        with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as handle:
+            handle.write(raw)
+            path = handle.name
+        try:
+            mesh = cad_to_glb.read_stl_file(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(mesh.triangles, 1)
+        self.assertEqual(len(mesh.positions), 3)
+
+    def test_ascii_stl_is_read(self):
+        import tempfile, os
+        text = ("solid\nfacet normal 0 0 1\nouter loop\n"
+                "vertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\n"
+                "endloop\nendfacet\nendsolid\n")
+        with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as handle:
+            handle.write(text.encode("utf-8"))
+            path = handle.name
+        try:
+            mesh = cad_to_glb.read_stl_file(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(mesh.triangles, 1)
+
+
 class StepRepairTests(unittest.TestCase):
     def test_missing_product_definition_shape_is_inserted(self):
         text, added = cad_to_glb.repair_step_text(SYNTHETIC_STEP)
